@@ -1,0 +1,4 @@
+# docs files — local to each machine, not for committing.
+# Ignore everything in docs/ except this file itself, never show up in git.
+*
+!.gitignore

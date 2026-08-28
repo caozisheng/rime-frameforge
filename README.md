@@ -1,12 +1,8 @@
 # Rime FrameForge
 
-Rime FrameForge is a Windows-focused desktop workbench for ISP architecture modeling, graph inspection, and GPU-backed RAW frame experiments.
+Rime FrameForge is a video forging tool uses textbook algorithms to convert consecutive raw frames into .mp4/.mov.
 
-The repository keeps the ISP topology, executable manifest, runtime lifecycle, and WebGPU execution contracts explicit. Rust is the source of truth for operators and graph assets; TypeScript renders the desktop UI and coordinates GPU execution; WebAssembly owns the runtime state machine.
-
-## Current status
-
-The current application is a **Normal Graph** workbench with a real GPU execution path for the active operators and an architecture view for the broader VFE/VBE/VPE pipeline.
+The repository keeps the video pipeline topology, executable manifest, runtime lifecycle, and WebGPU execution contracts explicit. Rust is the source of truth for operators and graph assets; TypeScript renders the desktop UI and coordinates GPU execution; WebAssembly owns the runtime state machine.
 
 ## Architecture
 
@@ -142,15 +138,3 @@ pwsh .github/scripts/build-windows.ps1
 ```
 
 The generated `release-artifacts/` directory is a local/CI output directory and is not committed.
-
-## Current limitations
-
-The current implementation does not yet provide:
-
-- Full algorithm implementations for every bypassed VFE/VBE/VPE operator
-- Real VPE execution in the Normal Graph
-- Full temporal history and cross-frame DAG execution
-- General-purpose IQ table editing UI
-- Selected/Compare Preview workflows
-- WebCodecs HEVC Main10 encoding, MP4 muxing, or video export
-- CPU image fallback or CPU readback in the main image path
