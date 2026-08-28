@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Rime Video ISP",
+  "productName": "Rime FrameForge",
   "version": "0.1.0",
-  "identifier": "dev.rime.video-isp",
+  "identifier": "dev.rime.frameforge",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Rime Video ISP / Normal Graph",
+        "title": "Rime FrameForge / Normal Graph",
         "width": 1440,
         "height": 810,
         "minWidth": 1100,

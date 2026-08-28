@@ -198,7 +198,7 @@ export function App() {
           </div>
           <div className="menu-item">
             <button className="menu-trigger" onClick={() => toggleMenu('help')} type="button" aria-expanded={openMenu === 'help'}>Help</button>
-            {openMenu === 'help' && <div className="menu-popover"><span className="menu-note">Rime Video ISP</span></div>}
+            {openMenu === 'help' && <div className="menu-popover"><span className="menu-note">Rime FrameForge</span></div>}
           </div>
         </nav>
       </header>

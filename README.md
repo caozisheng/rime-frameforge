@@ -1,6 +1,6 @@
-# Rime Video Forge
+# Rime FrameForge
 
-Rime Video Forge is a Windows-focused desktop workbench for ISP architecture modeling, graph inspection, and GPU-backed RAW frame experiments.
+Rime FrameForge is a Windows-focused desktop workbench for ISP architecture modeling, graph inspection, and GPU-backed RAW frame experiments.
 
 The repository keeps the ISP topology, executable manifest, runtime lifecycle, and WebGPU execution contracts explicit. Rust is the source of truth for operators and graph assets; TypeScript renders the desktop UI and coordinates GPU execution; WebAssembly owns the runtime state machine.
 
@@ -116,7 +116,32 @@ Build the Windows Tauri application:
 
 ```powershell
 npm run tauri:build
+
 ```
+
+## CI and releases
+
+GitHub Actions runs Rust and frontend checks for pushes to `main` and pull requests:
+
+```text
+.github/workflows/ci.yml
+```
+
+After updating all project version fields to the same `X.Y.Z` value, create and push a matching tag. The tag starts the Windows release workflow:
+
+```powershell
+pwsh .github/scripts/release.ps1 0.1.1 -Push
+```
+
+This validates the Cargo, npm, and Tauri versions, pushes `main` and `v0.1.1`, builds the Windows Tauri bundles, and publishes the MSI/NSIS/EXE artifacts to a GitHub Release.
+
+The local build entry point is:
+
+```powershell
+pwsh .github/scripts/build-windows.ps1
+```
+
+The generated `release-artifacts/` directory is a local/CI output directory and is not committed.
 
 ## Current limitations
 
