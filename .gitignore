@@ -5,3 +5,4 @@ apps/desktop/src-tauri/gen/
 *.log
 *.tsbuildinfo
 .worktrees/
+pipeline/normal/P1020601.dng

@@ -30,8 +30,15 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+
       - name: Install Linux dependencies
         run: sudo apt-get update && sudo apt-get install --yes libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Download CI DNG fixture
+        run: curl --fail --location --retry 3 --retry-delay 2 --create-dirs --output pipeline/normal/P1020601.dng https://github.com/caozisheng/rime-frameforge/releases/download/essentials-for-ci/P1020601.dng
+
+      - name: Verify CI DNG fixture
+        run: echo "ed8ebc01903b36bd6c86287d960c2244059105a6ae7b661a0efcfea1acdf2848  pipeline/normal/P1020601.dng" | sha256sum --check
 
       - name: Run Rust tests
         run: cargo test --workspace --all-targets

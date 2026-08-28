@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rime_dng::{BayerCfa, DngReader, DngReaderError, RawFrameLayout};
 
-const GH5S_SAMPLE: &str = r"C:\Users\zisheng\Documents\cao\99_data\isp\pana_gh5s\P1020601.dng";
+const GH5S_SAMPLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pipeline/normal/P1020601.dng");
 
 #[test]
 fn gh5s_sample_decodes_as_bayer_raw() {

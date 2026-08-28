@@ -173,7 +173,7 @@ fn raw_tag_descriptor(tag: &rime_dng::DngRawTag) -> DngRawTagDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const GH5S: &str = r"C:\Users\zisheng\Documents\cao\99_data\isp\pana_gh5s\P1020601.dng";
+    const GH5S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pipeline/normal/P1020601.dng");
     #[test]
     fn gh5s_descriptor_and_binary_length_match() {
         let frame = DngReader::new()

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rime_dng::DngReader;
 
-const GH5S: &str = r"C:\Users\zisheng\Documents\cao\99_data\isp\pana_gh5s\P1020601.dng";
+const GH5S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pipeline/normal/P1020601.dng");
 
 #[test]
 fn decoded_frame_exposes_complete_inspector_metadata() {
