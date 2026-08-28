@@ -1,0 +1,24 @@
+{
+  "name": "rime-video-isp",
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/desktop",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build -w @rime/desktop",
+    "generate:manifest": "cargo run -p rime-isp --example generate_assets",
+    "generate:wasm": "wasm-pack build crates/rime-wasm --target web --out-dir pkg",
+    "test": "vitest run",
+    "typecheck": "npm run generate:wasm && tsc -b",
+    "tauri:build": "npm run tauri:build -w @rime/desktop",
+    "tauri:dev": "npm run tauri:dev -w @rime/desktop"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3",
+    "vitest": "^3.2.4"
+  }
+}

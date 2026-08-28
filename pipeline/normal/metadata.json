@@ -1,0 +1,9 @@
+{
+  "source": "normal graph initialization asset",
+  "width": 32,
+  "height": 24,
+  "storage_bits": 16,
+  "cfa": "rggb",
+  "black_level": 64,
+  "white_level": 4095
+}

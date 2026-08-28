@@ -1,0 +1,15 @@
+use crate::operator::{OperatorMethod, OperatorPort, method};
+use rime_core::{ResourceFormat, SignalDomain};
+pub const METHOD_00: OperatorMethod = method(
+    "00",
+    "identity_rgba32_main",
+    OperatorPort {
+        domain: SignalDomain::EncodedRgb,
+        format: ResourceFormat::Rgba32Float,
+    },
+    OperatorPort {
+        domain: SignalDomain::EncodedRgb,
+        format: ResourceFormat::Rgba32Float,
+    },
+    "identity",
+);

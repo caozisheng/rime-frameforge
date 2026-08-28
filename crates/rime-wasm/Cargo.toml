@@ -1,0 +1,18 @@
+[package]
+name = "rime-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rime-core = { path = "../rime-core" }
+rime-isp = { path = "../rime-isp" }
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+
+[lints]
+workspace = true

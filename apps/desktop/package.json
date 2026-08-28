@@ -1,0 +1,33 @@
+{
+  "name": "@rime/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run generate:wasm -w @rime/desktop && tsc -b && vite build",
+    "dev": "npm run generate:wasm -w @rime/desktop && vite",
+    "generate:wasm": "wasm-pack build ../../crates/rime-wasm --target web --out-dir pkg",
+    "tauri:build": "tauri build",
+    "tauri:dev": "tauri dev"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "@fontsource/dm-mono": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "@rime/web-runtime": "0.1.0",
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tisoap/react-flow-smart-edge": "^5.0.0",
+    "@xyflow/react": "^12.11.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-resizable-panels": "^4.12.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/dagre": "^0.7.54",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2"
+  }
+}

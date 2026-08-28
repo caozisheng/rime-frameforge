@@ -1,0 +1,22 @@
+mod white_balance_00;
+
+use crate::operator::{OperatorDefinition, OperatorPort};
+use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
+
+pub use white_balance_00::METHOD_00;
+
+pub const DEFINITION: OperatorDefinition = OperatorDefinition {
+    id: "wbc",
+    label: "WBC",
+    mode: NodeExecutionMode::Enabled,
+    input: OperatorPort {
+        domain: SignalDomain::RawBayerRimeQ,
+        format: ResourceFormat::R32Float,
+    },
+    output: OperatorPort {
+        domain: SignalDomain::RawBayerRimeQ,
+        format: ResourceFormat::R32Float,
+    },
+    default_method: "00",
+    methods: &[METHOD_00],
+};

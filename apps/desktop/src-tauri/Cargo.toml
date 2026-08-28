@@ -1,0 +1,17 @@
+[package]
+name = "rime-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.4", features = [] }
+
+[dependencies]
+rime-dng = { path = "../../../crates/rime-dng" }
+serde = { workspace = true }
+tauri = { version = "2.8", features = [] }
+tauri-plugin-dialog = "2.4"
+serde_json = { workspace = true }
