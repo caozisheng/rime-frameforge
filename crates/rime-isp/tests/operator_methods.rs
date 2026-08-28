@@ -82,7 +82,7 @@ fn mctf_uses_one_module_schema_and_default_iq_table() {
 #[test]
 fn ce_replaces_color_as_the_vpe_operator_name() {
     assert!(!normal_operators().iter().any(|operator| operator.id == "color"));
-    assert!(rime_isp::vpe::ce::METHOD_00 == "00");
+    assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
 #[test]
 fn dem_and_pfr_have_separate_operator_contracts() {
