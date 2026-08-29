@@ -28,6 +28,7 @@ pub struct RuntimeSnapshot {
     pub lifecycle_state: LifecycleState,
     pub run_revision: u64,
     pub method_revision: u64,
+    pub config_revision: u64,
     pub gpu_generation: u64,
     pub frame_index: Option<u64>,
     pub frame_phase: Option<FramePhase>,
@@ -38,6 +39,7 @@ pub struct RuntimeSnapshot {
 pub struct GraphRuntime {
     run_revision: u64,
     method_revision: u64,
+    config_revision: u64,
     gpu_generation: u64,
     frame_index: Option<u64>,
     frame_phase: Option<FramePhase>,
@@ -57,6 +59,7 @@ impl GraphRuntime {
             lifecycle_state: self.lifecycle_state,
             run_revision: self.run_revision,
             method_revision: self.method_revision,
+            config_revision: self.config_revision,
             gpu_generation: self.gpu_generation,
             frame_index: self.frame_index,
             frame_phase: self.frame_phase,
@@ -180,6 +183,21 @@ impl GraphRuntime {
     pub fn change_method(&mut self) -> Result<(), Diagnostic> {
         self.require_state(&[LifecycleState::Stop, LifecycleState::Completed])?;
         self.method_revision = self.method_revision.saturating_add(1);
+        self.frame_index = None;
+        self.frame_phase = None;
+        self.visible_frame = None;
+        self.lifecycle_state = LifecycleState::Stop;
+        Ok(())
+    }
+
+    /// Invalidates output after a graph configuration change.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidStateTransition` unless the graph is stopped or completed.
+    pub fn change_config(&mut self) -> Result<(), Diagnostic> {
+        self.require_state(&[LifecycleState::Stop, LifecycleState::Completed])?;
+        self.config_revision = self.config_revision.saturating_add(1);
         self.frame_index = None;
         self.frame_phase = None;
         self.visible_frame = None;

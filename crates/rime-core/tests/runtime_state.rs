@@ -76,6 +76,23 @@ fn method_change_invalidates_visible_frame_and_increments_revision() {
     assert_eq!(runtime.snapshot().visible_frame, None);
     assert_eq!(runtime.snapshot().lifecycle_state, LifecycleState::Stop);
 }
+#[test]
+fn quantization_change_in_stop_increments_config_revision() {
+    let mut runtime = loaded_runtime();
+    let revision = runtime.snapshot().config_revision;
+
+    runtime.change_config().expect("config may change while stopped");
+
+    assert_eq!(runtime.snapshot().config_revision, revision + 1);
+}
+
+#[test]
+fn quantization_change_is_rejected_while_running() {
+    let mut runtime = loaded_runtime();
+    runtime.step().expect("step may start");
+
+    assert!(runtime.change_config().is_err());
+}
 
 fn loaded_runtime() -> GraphRuntime {
     let mut runtime = GraphRuntime::new();

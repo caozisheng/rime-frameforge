@@ -6,6 +6,7 @@ interface RustRuntimeSnapshot {
   readonly lifecycle_state: RuntimeEnvelope['lifecycleState'];
   readonly run_revision: number;
   readonly method_revision: number;
+  readonly config_revision: number;
   readonly gpu_generation: number;
   readonly frame_index: number | null;
   readonly frame_phase: RuntimeEnvelope['framePhase'];
@@ -52,6 +53,9 @@ export class WasmRuntimeAuthority {
   public changeMethod(): RuntimeEnvelope {
     return this.map(this.#runtime.change_method());
   }
+  public setQuantizationConfig(config: string): RuntimeEnvelope {
+    return this.map(this.#runtime.set_quantization_config(config));
+  }
 
   public fail(): RuntimeEnvelope {
     return this.map(this.#runtime.fail());
@@ -67,6 +71,7 @@ export class WasmRuntimeAuthority {
     return {
       graphInstanceId: this.#graphInstanceId,
       runRevision: snapshot.run_revision,
+      configRevision: snapshot.config_revision,
       methodRevision: snapshot.method_revision,
       frameIndex: snapshot.frame_index,
       framePhase: snapshot.frame_phase,
