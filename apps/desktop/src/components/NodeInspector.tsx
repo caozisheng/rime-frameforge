@@ -106,7 +106,7 @@ function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }:
   const groups: readonly InspectorTreeGroup[] = [
     {
       id: 'overall', label: 'Overall', defaultExpanded: true,
-      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <input aria-label="Overall Rime.Q" type="checkbox" disabled={!canConfigure} checked={config.enabled} onChange={(event) => onGraphChange({ ...config, enabled: event.target.checked })} /> }],
+      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <input aria-label="Overall Rime.Q" type="range" min="0" max="1" step="1" disabled={!canConfigure} value={config.enabled ? 1 : 0} onChange={(event) => onGraphChange({ ...config, enabled: Number(event.target.value) === 1 })} /> }],
     },
     { id: 'graph', label: 'Hierarchy', defaultExpanded: true, children: graphTreeNodes(normalGraphPresentation.root_id, config, canConfigure, onModuleChange) },
   ];

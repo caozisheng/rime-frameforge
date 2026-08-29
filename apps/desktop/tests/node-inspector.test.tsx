@@ -41,6 +41,10 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('pass-3');
     expect(html).toContain('Rime.Q');
   });
+  it('renders Overall Rime.Q as an accessible range slider', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
+    expect(html).toMatch(/<input[^>]*aria-label="Overall Rime\.Q"[^>]*type="range"[^>]*min="0"[^>]*max="1"[^>]*step="1"[^>]*value="1"/);
+  });
 
   it('uses generated quantization defaults without exposing input profile', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
