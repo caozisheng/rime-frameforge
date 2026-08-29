@@ -21,6 +21,10 @@ impl Default for NormalRuntime {
 impl NormalRuntime {
     #[wasm_bindgen(constructor)]
     #[must_use]
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the statically generated Normal Graph quantization defaults are invalid.
     pub fn new() -> Self {
         let presentation = build_normal_graph_presentation();
         let quantization_config = GraphQuantizationConfig::defaults_for(&presentation)
@@ -111,6 +115,12 @@ impl NormalRuntime {
         snapshot_json(&self.runtime.snapshot())
     }
 
+    /// Validates and stores a graph quantization configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error for malformed JSON, invalid graph configuration, or an
+    /// invalid lifecycle transition.
     pub fn set_quantization_config(&mut self, config_json: &str) -> Result<String, JsValue> {
         let config: GraphQuantizationConfig = serde_json::from_str(config_json)
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
