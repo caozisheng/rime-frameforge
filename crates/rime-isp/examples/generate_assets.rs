@@ -2,7 +2,10 @@ use std::{fs, path::Path};
 
 use rime_core::render_top_graph_presentation_typescript;
 
-use rime_isp::{render_normal_graph_presentation_typescript, render_normal_manifest_typescript};
+use rime_isp::{
+    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
+    render_normal_manifest_typescript,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -22,6 +25,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         web_dir.join("normal_graph.generated.ts"),
         render_normal_graph_presentation_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("normal_quantization.generated.ts"),
+        render_normal_graph_quantization_typescript()?,
     )?;
     Ok(())
 }

@@ -52,6 +52,78 @@ fn blc_is_black_level_correction_and_owns_normalization_contract() {
         "black_level white_level width height"
     );
 }
+
+#[test]
+fn named_operator_outputs_own_rime_q_defaults_without_input_profiles() {
+    let expected = [
+        ("blc", "u0.14"),
+        ("wbc", "u0.12"),
+        ("dem", "u0.12"),
+        ("rgb2yuv", "u0.10"),
+    ];
+
+    for (operator_id, profile) in expected {
+        let operator = rime_isp::normal_operators()
+            .iter()
+            .find(|operator| operator.id == operator_id)
+            .expect("named operator");
+        assert_eq!(operator.output_rime_q_profile, Some(profile));
+    }
+}
+
+#[test]
+fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
+    let typescript = rime_isp::render_normal_graph_quantization_typescript()
+        .expect("normal quantization TypeScript");
+    let json = typescript
+        .strip_prefix("export const normalGraphQuantization = ")
+        .and_then(|value: &str| value.strip_suffix(" as const;\n"))
+        .expect("generated quantization export");
+    let generated: serde_json::Value = serde_json::from_str(json).expect("generated quantization");
+
+    assert_eq!(generated["graph_id"], "normal");
+    assert_eq!(generated["enabled"], true);
+
+    let modules = generated["modules"].as_array().expect("quantization modules");
+    let presentation = build_normal_graph_presentation();
+    let expected_module_ids = presentation
+        .nodes
+        .iter()
+        .filter_map(|node| node.execution_node_id.as_deref())
+        .filter(|module_id| *module_id != "raw_source")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        modules
+            .iter()
+            .map(|module| module["module_id"].as_str().expect("module id"))
+            .collect::<Vec<_>>(),
+        expected_module_ids
+    );
+    assert!(modules.iter().all(|module| module["module_id"] != "raw_source"));
+
+    for (module_id, profile) in [
+        ("blc", "u0.14"),
+        ("wbc", "u0.12"),
+        ("dem", "u0.12"),
+        ("rgb2yuv", "u0.10"),
+    ] {
+        let module = modules
+            .iter()
+            .find(|module| module["module_id"] == module_id)
+            .expect("named quantization module");
+        assert_eq!(module["output_profile"], profile);
+    }
+
+    assert!(modules.iter().all(|module| module["output_enabled"] == true));
+    assert!(modules.iter().all(|module| module["dither_enabled"] == false));
+    assert!(modules.iter().all(|module| module["clip_type"] == "truncate"));
+    assert!(modules.iter().all(|module| module.get("input_profile").is_none()));
+    assert_eq!(
+        typescript,
+        rime_isp::render_normal_graph_quantization_typescript()
+            .expect("deterministic normal quantization TypeScript")
+    );
+}
 #[test]
 fn dem_manifest_exposes_methods_and_parameters() {
     let manifest = build_normal_manifest();
