@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { NodeInspector } from '../src/components/NodeInspector.js';
 import type { RuntimeEnvelope } from '../../web/src/contracts.js';
+import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 
 const envelope: RuntimeEnvelope = {
   graphInstanceId: 1,
@@ -41,9 +42,25 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('pass-3');
     expect(html).toContain('Rime.Q');
   });
-  it('renders Overall Rime.Q as an accessible range slider', () => {
+  it('renders Overall Rime.Q as an accessible binary switch', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
-    expect(html).toMatch(/<input[^>]*aria-label="Overall Rime\.Q"[^>]*type="range"[^>]*min="0"[^>]*max="1"[^>]*step="1"[^>]*value="1"/);
+    expect(html).toMatch(/<input[^>]*aria-label="Overall Rime\.Q"[^>]*type="checkbox"/);
+    expect(html).not.toContain('type="range"');
+  });
+
+  it('hides output parameters when module output Rime.Q is disabled', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="blc" quantization={{ ...normalGraphQuantization, modules: normalGraphQuantization.modules.map((module) => module.module_id === 'blc' ? { ...module, output_enabled: false } : module) }} />);
+    expect(html).toContain('BLC output Rime.Q');
+    expect(html).not.toContain('BLC output profile');
+    expect(html).not.toContain('BLC dither');
+    expect(html).not.toContain('BLC ClipType');
+  });
+
+  it('shows output parameters when module output Rime.Q is enabled', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="blc" />);
+    expect(html).toContain('BLC output profile');
+    expect(html).toContain('BLC dither');
+    expect(html).toContain('BLC ClipType');
   });
 
   it('uses generated quantization defaults without exposing input profile', () => {

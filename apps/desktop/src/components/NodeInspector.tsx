@@ -58,14 +58,21 @@ function moduleControls(
   const profileOptions = PROFILE_OPTIONS.includes(preference.output_profile as typeof PROFILE_OPTIONS[number])
     ? PROFILE_OPTIONS
     : [preference.output_profile, ...PROFILE_OPTIONS];
-
+  const outputControl: InspectorTreeNode = {
+    id: `${node.id}.output`, label: 'Output Rime.Q',
+    control: <input aria-label={`${node.label} output Rime.Q`} type="checkbox" disabled={controlsDisabled} checked={effectiveOutput} onChange={(event) => update('output_enabled', event.target.checked)} />,
+  };
+  if (!preference.output_enabled) {
+    return [
+      { id: `${node.id}.mode`, label: 'Mode', value: node.mode },
+      { id: `${node.id}.status`, label: 'Status', value: 'disabled' },
+      outputControl,
+    ];
+  }
   return [
     { id: `${node.id}.mode`, label: 'Mode', value: node.mode },
     { id: `${node.id}.status`, label: 'Status', value: effectiveOutput ? 'enabled' : 'disabled' },
-    {
-      id: `${node.id}.output`, label: 'Output Rime.Q',
-      control: <input aria-label={`${node.label} output Rime.Q`} type="checkbox" disabled={controlsDisabled} checked={effectiveOutput} onChange={(event) => update('output_enabled', event.target.checked)} />,
-    },
+    outputControl,
     {
       id: `${node.id}.profile`, label: 'Output profile',
       control: <select aria-label={`${node.label} output profile`} disabled={controlsDisabled} value={preference.output_profile} onChange={(event) => update('output_profile', event.target.value)}>{profileOptions.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select>,
@@ -106,7 +113,7 @@ function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }:
   const groups: readonly InspectorTreeGroup[] = [
     {
       id: 'overall', label: 'Overall', defaultExpanded: true,
-      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <input aria-label="Overall Rime.Q" type="range" min="0" max="1" step="1" disabled={!canConfigure} value={config.enabled ? 1 : 0} onChange={(event) => onGraphChange({ ...config, enabled: Number(event.target.value) === 1 })} /> }],
+      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <input aria-label="Overall Rime.Q" aria-checked={config.enabled} role="switch" type="checkbox" disabled={!canConfigure} checked={config.enabled} onChange={(event) => onGraphChange({ ...config, enabled: event.target.checked })} /> }],
     },
     { id: 'graph', label: 'Hierarchy', defaultExpanded: true, children: graphTreeNodes(normalGraphPresentation.root_id, config, canConfigure, onModuleChange) },
   ];
