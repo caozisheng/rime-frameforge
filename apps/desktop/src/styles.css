@@ -362,6 +362,13 @@ dd { color: var(--text-primary); font-size: 11px; text-align: right; }
   font: inherit;
   text-align: right;
 }
+.inspector-switch { display: inline-flex; width: 34px; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; }
+.inspector-switch-track { position: relative; display: block; width: 34px; height: 16px; margin: 2px 0; border-radius: 999px; background: #c6cdd4; transition: background .15s ease; }
+.inspector-switch-thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #87919b; transition: transform .15s ease; }
+.inspector-switch.is-on .inspector-switch-track { background: var(--selection); }
+.inspector-switch.is-on .inspector-switch-thumb { transform: translateX(18px); }
+.inspector-switch:focus-visible { outline: 2px solid var(--selection); outline-offset: 2px; }
+.inspector-switch:disabled { cursor: not-allowed; opacity: .55; }
 .inspector-tree-control output { font: inherit; }
 .inspector-note { margin: 16px; padding: 12px; border-left: 2px solid var(--selection); color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .dng-inspector-body { display: grid; grid-template-rows: auto auto minmax(0, 1fr); flex: 1; min-height: 0; }

@@ -42,9 +42,11 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('pass-3');
     expect(html).toContain('Rime.Q');
   });
-  it('renders Overall Rime.Q as an accessible binary switch', () => {
+  it('renders Overall Rime.Q as a visual switch control', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
-    expect(html).toMatch(/<input[^>]*aria-label="Overall Rime\.Q"[^>]*type="checkbox"/);
+    expect(html).toContain('role="switch"');
+    expect(html).toContain('class="inspector-switch"');
+    expect(html).not.toContain('aria-label="Overall Rime.Q" type="checkbox"');
     expect(html).not.toContain('type="range"');
   });
 

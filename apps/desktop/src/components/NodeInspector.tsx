@@ -41,6 +41,10 @@ const defaultQuantization: GraphQuantizationConfig = normalGraphQuantization;
 const PROFILE_OPTIONS = ['u0.10', 'u0.12', 'u0.14'] as const;
 const CLIP_OPTIONS = ['truncate', 'round', 'dither'] as const;
 
+function ToggleSwitch({ label, checked, disabled, onToggle }: { readonly label: string; readonly checked: boolean; readonly disabled: boolean; readonly onToggle: (checked: boolean) => void }): ReactNode {
+  return <button aria-checked={checked} aria-label={label} className={`inspector-switch${checked ? ' is-on' : ''}`} disabled={disabled} role="switch" type="button" onClick={() => onToggle(!checked)}><span className="inspector-switch-track"><span className="inspector-switch-thumb" /></span></button>;
+}
+
 function moduleControls(
   node: PresentationNode,
   preference: ModuleQuantizationPreference,
@@ -60,7 +64,7 @@ function moduleControls(
     : [preference.output_profile, ...PROFILE_OPTIONS];
   const outputControl: InspectorTreeNode = {
     id: `${node.id}.output`, label: 'Output Rime.Q',
-    control: <input aria-label={`${node.label} output Rime.Q`} type="checkbox" disabled={controlsDisabled} checked={effectiveOutput} onChange={(event) => update('output_enabled', event.target.checked)} />,
+    control: <ToggleSwitch label={`${node.label} output Rime.Q`} disabled={controlsDisabled} checked={effectiveOutput} onToggle={(checked) => update('output_enabled', checked)} />,
   };
   if (!preference.output_enabled) {
     return [
@@ -79,7 +83,7 @@ function moduleControls(
     },
     {
       id: `${node.id}.dither`, label: 'Dither',
-      control: <input aria-label={`${node.label} dither`} type="checkbox" disabled={controlsDisabled || !effectiveOutput} checked={effectiveDither} onChange={(event) => update('dither_enabled', event.target.checked)} />,
+      control: <ToggleSwitch label={`${node.label} dither`} disabled={controlsDisabled || !effectiveOutput} checked={effectiveDither} onToggle={(checked) => update('dither_enabled', checked)} />,
     },
     {
       id: `${node.id}.clip`, label: 'ClipType',
@@ -113,7 +117,7 @@ function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }:
   const groups: readonly InspectorTreeGroup[] = [
     {
       id: 'overall', label: 'Overall', defaultExpanded: true,
-      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <input aria-label="Overall Rime.Q" aria-checked={config.enabled} role="switch" type="checkbox" disabled={!canConfigure} checked={config.enabled} onChange={(event) => onGraphChange({ ...config, enabled: event.target.checked })} /> }],
+      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <ToggleSwitch label="Overall Rime.Q" disabled={!canConfigure} checked={config.enabled} onToggle={(checked) => onGraphChange({ ...config, enabled: checked })} /> }],
     },
     { id: 'graph', label: 'Hierarchy', defaultExpanded: true, children: graphTreeNodes(normalGraphPresentation.root_id, config, canConfigure, onModuleChange) },
   ];
