@@ -24,6 +24,10 @@ describe('acceptsEnvelope', () => {
     expect(acceptsEnvelope(current, { ...current, gpuGeneration: 1 })).toBe(false);
   });
 
+  it('rejects an event from an older quantization configuration', () => {
+    expect(acceptsEnvelope({ ...current, configRevision: 2 }, { ...current, configRevision: 1 })).toBe(false);
+  });
+
   it('accepts a newer run from the same graph', () => {
     expect(acceptsEnvelope(current, { ...current, runRevision: 8 })).toBe(true);
   });

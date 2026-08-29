@@ -16,5 +16,8 @@ export function acceptsEnvelope(
   if (incoming.methodRevision !== current.methodRevision) {
     return incoming.methodRevision > current.methodRevision;
   }
+  if (incoming.configRevision !== current.configRevision) {
+    return incoming.configRevision > current.configRevision;
+  }
   return incoming.runRevision >= current.runRevision;
 }
