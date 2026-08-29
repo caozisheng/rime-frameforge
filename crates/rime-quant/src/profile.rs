@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
 use crate::QuantError;
 
 /// Quantization clipping policy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ClipType {
     /// Round toward negative infinity.
     Truncate,

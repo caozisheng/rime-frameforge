@@ -4,15 +4,7 @@ use std::collections::HashSet;
 
 use thiserror::Error;
 
-use rime_quant::RimeQProfile;
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ClipType {
-    Truncate,
-    Round,
-    Dither,
-}
+use rime_quant::{ClipType, RimeQProfile};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ModuleQuantizationPreference {
@@ -72,16 +64,12 @@ impl GraphQuantizationConfig {
         let modules = presentation
             .nodes
             .iter()
+            .filter(|node| node.kind == GraphTreeKind::Operator && node.id != "raw_source")
             .filter_map(|node| node.execution_node_id.as_deref())
             .map(|module_id| ModuleQuantizationPreference {
                 module_id: module_id.into(),
                 output_enabled: true,
-                output_profile: match module_id {
-                    "blc" => "u0.14",
-                    "wbc" | "dem" => "u0.12",
-                    "rgb2yuv" => "u0.10",
-                    _ => "u0.10",
-                }.into(),
+                output_profile: Self::default_output_profile(module_id).into(),
                 dither_enabled: false,
                 clip_type: ClipType::Truncate,
             })
@@ -104,6 +92,14 @@ impl GraphQuantizationConfig {
         Ok(())
     }
 
+fn default_output_profile(module_id: &str) -> &'static str {
+    match module_id {
+        "blc" => "u0.14",
+        "wbc" | "dem" => "u0.12",
+        "rgb2yuv" => "u0.10",
+        _ => "u0.10",
+    }
+}
     /// Resolve saved preferences against read-only presentation-derived modes.
     pub fn resolve(
         &self,
@@ -119,6 +115,7 @@ impl GraphQuantizationConfig {
         let known: Vec<(&str, NodeExecutionMode)> = presentation
             .nodes
             .iter()
+            .filter(|node| node.kind == GraphTreeKind::Operator && node.id != "raw_source")
             .filter_map(|node| node.execution_node_id.as_deref().map(|id| (id, node.mode)))
             .collect();
         let known_ids: HashSet<&str> = known.iter().map(|(id, _)| *id).collect();

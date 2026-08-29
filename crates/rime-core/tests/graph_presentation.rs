@@ -150,18 +150,57 @@ fn active_groups_are_expanded_and_disabled_groups_are_collapsed() {
 }
  
 #[test]
-fn graph_quantization_defaults_cover_executable_outputs() {
+fn graph_quantization_defaults_exclude_raw_source() {
     use rime_core::GraphQuantizationConfig;
 
     let graph = build_top_graph_presentation();
     let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
 
-    assert_eq!(config.graph_id, "top");
-    assert!(config.enabled);
+    assert!(config.module("raw_source").is_none());
     assert_eq!(config.module("blc").unwrap().output_profile, "u0.14");
     assert_eq!(config.module("wbc").unwrap().output_profile, "u0.12");
     assert_eq!(config.module("dem").unwrap().output_profile, "u0.12");
     assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "u0.10");
+}
+
+#[test]
+fn graph_quantization_rejects_graph_id_mismatch() {
+    use rime_core::{GraphQuantizationConfig, GraphQuantizationError};
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.graph_id = "other".into();
+
+    assert!(matches!(
+        config.resolve(&graph),
+        Err(GraphQuantizationError::GraphIdMismatch { .. })
+    ));
+}
+
+#[test]
+fn graph_quantization_rejects_missing_module_preference() {
+    use rime_core::{GraphQuantizationConfig, GraphQuantizationError};
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.modules.retain(|module| module.module_id != "dem");
+
+    assert!(matches!(
+        config.resolve(&graph),
+        Err(GraphQuantizationError::MissingModule { module_id }) if module_id == "dem"
+    ));
+}
+
+#[test]
+fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
+    use rime_core::GraphQuantizationConfig;
+
+    let graph = build_top_graph_presentation();
+    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    let json = serde_json::to_value(&config).expect("serialize");
+    assert!(json["modules"][0].get("mode").is_none());
+    let state = config.resolve(&graph).expect("resolve");
+    assert_eq!(state.module("blc").unwrap().mode, NodeExecutionMode::Enabled);
 }
 
 #[test]
@@ -234,15 +273,3 @@ fn graph_quantization_rejects_unknown_modules_and_malformed_profiles() {
     assert!(matches!(config.resolve(&graph), Err(GraphQuantizationError::InvalidProfile { .. })));
 }
 
-#[test]
-fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
-    use rime_core::GraphQuantizationConfig;
-
-    let graph = build_top_graph_presentation();
-    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
-    let json = serde_json::to_value(&config).expect("serialize");
-    assert!(json["modules"][0].get("mode").is_none());
-    assert!(json["modules"][0].get("input_profile").is_none());
-    let state = config.resolve(&graph).expect("resolve");
-    assert_eq!(state.module("blc").unwrap().mode, NodeExecutionMode::Enabled);
-}
