@@ -68,6 +68,10 @@ impl GraphQuantizationConfig {
     }
 
     /// Build the default saved preferences for executable output modules.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphQuantizationError::InvalidProfile`] if a default output profile is invalid.
     pub fn defaults_for(presentation: &GraphPresentation) -> Result<Self, GraphQuantizationError> {
         let modules = presentation
             .nodes
@@ -79,7 +83,6 @@ impl GraphQuantizationConfig {
                 output_profile: match module_id {
                     "blc" => "u0.14",
                     "wbc" | "dem" => "u0.12",
-                    "rgb2yuv" => "u0.10",
                     _ => "u0.10",
                 }.into(),
                 dither_enabled: false,
@@ -105,6 +108,11 @@ impl GraphQuantizationConfig {
     }
 
     /// Resolve saved preferences against read-only presentation-derived modes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the graph IDs differ, an output profile is invalid, or the
+    /// configured and presented module sets do not match.
     pub fn resolve(
         &self,
         presentation: &GraphPresentation,
@@ -136,17 +144,19 @@ impl GraphQuantizationConfig {
         let modules = known
             .into_iter()
             .map(|(module_id, mode)| {
-                let preference = self.module(module_id).expect("validated module set").clone();
+                let preference = self.module(module_id).ok_or_else(|| {
+                    GraphQuantizationError::MissingModule { module_id: module_id.into() }
+                })?.clone();
                 let forced_off = !self.enabled || matches!(mode, NodeExecutionMode::Disabled | NodeExecutionMode::Bypass);
-                EffectiveModuleQuantization {
+                Ok(EffectiveModuleQuantization {
                     module_id: module_id.into(),
                     mode,
                     effective_output_enabled: !forced_off && preference.output_enabled,
                     effective_dither_enabled: !forced_off && preference.output_enabled && preference.dither_enabled,
                     preference,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, GraphQuantizationError>>()?;
         Ok(GraphQuantizationState { graph_id: self.graph_id.clone(), enabled: self.enabled, modules })
     }
 }
