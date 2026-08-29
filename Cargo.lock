@@ -2691,6 +2691,7 @@ name = "rime-core"
 version = "0.1.0"
 dependencies = [
  "petgraph",
+ "rime-quant",
  "serde",
  "serde_json",
  "sha2",

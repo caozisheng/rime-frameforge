@@ -1,5 +1,163 @@
 use serde::{Deserialize, Serialize};
 
+use std::collections::HashSet;
+
+use thiserror::Error;
+
+use rime_quant::RimeQProfile;
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipType {
+    Truncate,
+    Round,
+    Dither,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ModuleQuantizationPreference {
+    pub module_id: String,
+    pub output_enabled: bool,
+    pub output_profile: String,
+    pub dither_enabled: bool,
+    pub clip_type: ClipType,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GraphQuantizationConfig {
+    pub graph_id: String,
+    pub enabled: bool,
+    pub modules: Vec<ModuleQuantizationPreference>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct EffectiveModuleQuantization {
+    pub module_id: String,
+    pub mode: NodeExecutionMode,
+    pub preference: ModuleQuantizationPreference,
+    pub effective_output_enabled: bool,
+    pub effective_dither_enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GraphQuantizationState {
+    pub graph_id: String,
+    pub enabled: bool,
+    pub modules: Vec<EffectiveModuleQuantization>,
+}
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum GraphQuantizationError {
+    #[error("unknown graph module `{module_id}`")]
+    UnknownModule { module_id: String },
+    #[error("missing graph module `{module_id}`")]
+    MissingModule { module_id: String },
+    #[error("graph id `{config_graph_id}` does not match presentation graph `{presentation_graph_id}`")]
+    GraphIdMismatch { config_graph_id: String, presentation_graph_id: String },
+    #[error("module `{module_id}` has invalid Rime.Q profile `{profile}`: {source}")]
+    InvalidProfile { module_id: String, profile: String, source: rime_quant::QuantError },
+}
+
+impl GraphQuantizationConfig {
+    #[must_use]
+    pub fn module(&self, module_id: &str) -> Option<&ModuleQuantizationPreference> {
+        self.modules.iter().find(|module| module.module_id == module_id)
+    }
+
+    pub fn module_mut(&mut self, module_id: &str) -> Option<&mut ModuleQuantizationPreference> {
+        self.modules.iter_mut().find(|module| module.module_id == module_id)
+    }
+
+    /// Build the default saved preferences for executable output modules.
+    pub fn defaults_for(presentation: &GraphPresentation) -> Result<Self, GraphQuantizationError> {
+        let modules = presentation
+            .nodes
+            .iter()
+            .filter_map(|node| node.execution_node_id.as_deref())
+            .map(|module_id| ModuleQuantizationPreference {
+                module_id: module_id.into(),
+                output_enabled: true,
+                output_profile: match module_id {
+                    "blc" => "u0.14",
+                    "wbc" | "dem" => "u0.12",
+                    "rgb2yuv" => "u0.10",
+                    _ => "u0.10",
+                }.into(),
+                dither_enabled: false,
+                clip_type: ClipType::Truncate,
+            })
+            .collect();
+        let config = Self { graph_id: presentation.graph_id.clone(), enabled: true, modules };
+        config.validate_profiles()?;
+        Ok(config)
+    }
+
+    fn validate_profiles(&self) -> Result<(), GraphQuantizationError> {
+        for module in &self.modules {
+            module.output_profile.parse::<RimeQProfile>().map_err(|source| {
+                GraphQuantizationError::InvalidProfile {
+                    module_id: module.module_id.clone(),
+                    profile: module.output_profile.clone(),
+                    source,
+                }
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Resolve saved preferences against read-only presentation-derived modes.
+    pub fn resolve(
+        &self,
+        presentation: &GraphPresentation,
+    ) -> Result<GraphQuantizationState, GraphQuantizationError> {
+        if self.graph_id != presentation.graph_id {
+            return Err(GraphQuantizationError::GraphIdMismatch {
+                config_graph_id: self.graph_id.clone(),
+                presentation_graph_id: presentation.graph_id.clone(),
+            });
+        }
+        self.validate_profiles()?;
+        let known: Vec<(&str, NodeExecutionMode)> = presentation
+            .nodes
+            .iter()
+            .filter_map(|node| node.execution_node_id.as_deref().map(|id| (id, node.mode)))
+            .collect();
+        let known_ids: HashSet<&str> = known.iter().map(|(id, _)| *id).collect();
+        for module in &self.modules {
+            if !known_ids.contains(module.module_id.as_str()) {
+                return Err(GraphQuantizationError::UnknownModule { module_id: module.module_id.clone() });
+            }
+        }
+        let configured: HashSet<&str> = self.modules.iter().map(|module| module.module_id.as_str()).collect();
+        for (module_id, _) in &known {
+            if !configured.contains(module_id) {
+                return Err(GraphQuantizationError::MissingModule { module_id: (*module_id).into() });
+            }
+        }
+        let modules = known
+            .into_iter()
+            .map(|(module_id, mode)| {
+                let preference = self.module(module_id).expect("validated module set").clone();
+                let forced_off = !self.enabled || matches!(mode, NodeExecutionMode::Disabled | NodeExecutionMode::Bypass);
+                EffectiveModuleQuantization {
+                    module_id: module_id.into(),
+                    mode,
+                    effective_output_enabled: !forced_off && preference.output_enabled,
+                    effective_dither_enabled: !forced_off && preference.output_enabled && preference.dither_enabled,
+                    preference,
+                }
+            })
+            .collect();
+        Ok(GraphQuantizationState { graph_id: self.graph_id.clone(), enabled: self.enabled, modules })
+    }
+}
+
+impl GraphQuantizationState {
+    #[must_use]
+    pub fn module(&self, module_id: &str) -> Option<&EffectiveModuleQuantization> {
+        self.modules.iter().find(|module| module.module_id == module_id)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeExecutionMode {
