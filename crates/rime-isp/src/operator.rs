@@ -22,6 +22,7 @@ pub struct OperatorDefinition {
     pub mode: NodeExecutionMode,
     pub input: OperatorPort,
     pub output: OperatorPort,
+    pub output_rime_q_profile: Option<&'static str>,
     pub default_method: &'static str,
     pub methods: &'static [OperatorMethod],
 }

@@ -67,6 +67,7 @@ export interface WorkerBridge {
   loadFrame(raw: ArrayBuffer, descriptor: RawFrameDescriptor): void;
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
+  setQuantizationConfig(config: string): void;
   run(): void;
   step(): void;
   reset(): void;
@@ -100,6 +101,7 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
     },
     loadFrame: (raw, descriptor) => send({ type: 'load_frame', raw, descriptor }, [raw]),
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
+    setQuantizationConfig: (config) => send({ type: 'set_quantization_config', config }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),
     run: () => send({ type: 'run' }),
     step: () => send({ type: 'step' }),

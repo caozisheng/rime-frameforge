@@ -66,6 +66,10 @@ pub fn quantize_f32_grid(
 }
 
 /// Quantize an `f32` value using a validated Rime.Q profile and clip policy.
+///
+/// # Errors
+///
+/// Returns an error for an invalid profile or non-finite input/dither values.
 pub fn quantize_f32(
     x: f32,
     profile: &RimeQProfile,

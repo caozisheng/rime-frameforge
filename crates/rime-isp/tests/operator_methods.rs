@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rime_isp::{normal_operators, OperatorDefinition};
+use rime_isp::{OperatorDefinition, normal_operators};
 
 #[test]
 fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
@@ -81,7 +81,11 @@ fn mctf_uses_one_module_schema_and_default_iq_table() {
 
 #[test]
 fn ce_replaces_color_as_the_vpe_operator_name() {
-    assert!(!normal_operators().iter().any(|operator| operator.id == "color"));
+    assert!(
+        !normal_operators()
+            .iter()
+            .any(|operator| operator.id == "color")
+    );
     assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
 #[test]
@@ -108,7 +112,10 @@ fn dem_registers_reference_methods_and_cfa_parameters() {
         .find(|operator| operator.id == "dem")
         .expect("DEM operator");
     assert_eq!(
-        dem.methods.iter().map(|method| method.method).collect::<Vec<_>>(),
+        dem.methods
+            .iter()
+            .map(|method| method.method)
+            .collect::<Vec<_>>(),
         ["00", "01", "02", "03", "04"]
     );
     for method in dem.methods {

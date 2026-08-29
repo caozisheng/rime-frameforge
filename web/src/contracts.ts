@@ -13,6 +13,7 @@ export type FramePhase = 'warmup' | 'output';
 export interface RuntimeEnvelope {
   readonly graphInstanceId: number;
   readonly runRevision: number;
+  readonly configRevision: number;
   readonly methodRevision: number;
   readonly frameIndex: number | null;
   readonly framePhase: FramePhase | null;
@@ -70,6 +71,7 @@ export type RuntimeCommand =
   | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly descriptor: RawFrameDescriptor }
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
+  | { readonly type: 'set_quantization_config'; readonly config: string }
   | { readonly type: 'run' }
   | { readonly type: 'step' }
   | { readonly type: 'reset' };

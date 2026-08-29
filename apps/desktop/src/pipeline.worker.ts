@@ -21,6 +21,7 @@ const parameterValues: Record<string, number> = {
 };
 let envelope: RuntimeEnvelope = {
   graphInstanceId: 1,
+  configRevision: 0,
   runRevision: 0,
   methodRevision: 0,
   frameIndex: null,
@@ -58,6 +59,11 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     descriptor = command.descriptor;
     envelope = authority.reset();
     await createExecutor(envelope.gpuGeneration);
+    self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
+    return;
+  }
+  if (command.type === 'set_quantization_config') {
+    envelope = authority.setQuantizationConfig(command.config);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }

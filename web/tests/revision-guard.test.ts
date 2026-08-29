@@ -6,6 +6,7 @@ import type { RuntimeEnvelope } from '../src/contracts.js';
 const current: RuntimeEnvelope = {
   graphInstanceId: 4,
   runRevision: 7,
+  configRevision: 0,
   methodRevision: 1,
   frameIndex: 0,
   framePhase: 'output',
@@ -21,6 +22,10 @@ describe('acceptsEnvelope', () => {
 
   it('rejects an event from an older GPU generation', () => {
     expect(acceptsEnvelope(current, { ...current, gpuGeneration: 1 })).toBe(false);
+  });
+
+  it('rejects an event from an older quantization configuration', () => {
+    expect(acceptsEnvelope({ ...current, configRevision: 2 }, { ...current, configRevision: 1 })).toBe(false);
   });
 
   it('accepts a newer run from the same graph', () => {

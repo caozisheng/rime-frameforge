@@ -8,12 +8,59 @@ const envelope: RuntimeEnvelope = {
   graphInstanceId: 1,
   runRevision: 0,
   methodRevision: 1,
+  configRevision: 0,
   gpuGeneration: 0,
   frameIndex: null,
   framePhase: null,
   visibleFrameCommitted: false,
   lifecycleState: 'stop',
 };
+
+const inspectorProps = {
+  envelope,
+  dngFrame: null,
+  frameCount: 0,
+  activeMethod: '00',
+  parameterValues: {},
+  onMethodChange: () => undefined,
+  onParameterChange: () => undefined,
+  onGraphQuantizationChange: () => undefined,
+  onModuleQuantizationChange: () => undefined,
+};
+
+describe('graph-level NodeInspector', () => {
+  it('renders the graph tree when selection is null', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
+    expect(html).toContain('Normal Graph');
+    expect(html).toContain('Overall');
+    expect(html).toContain('VFE');
+    expect(html).toContain('VBE');
+    expect(html).toContain('VPE');
+    expect(html).toContain('pass-1');
+    expect(html).toContain('pass-2');
+    expect(html).toContain('pass-3');
+    expect(html).toContain('Rime.Q');
+  });
+  it('renders Overall Rime.Q as an accessible range slider', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
+    expect(html).toMatch(/<input[^>]*aria-label="Overall Rime\.Q"[^>]*type="range"[^>]*min="0"[^>]*max="1"[^>]*step="1"[^>]*value="1"/);
+  });
+
+  it('uses generated quantization defaults without exposing input profile', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
+    expect(html).toContain('u0.14');
+    expect(html).toContain('u0.12');
+    expect(html).toContain('u0.10');
+    expect(html).not.toContain('Input profile');
+  });
+
+  it('disables effective module controls for bypass nodes', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="sbpc_horizontal" />);
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('bypass');
+    expect(html).toContain('ClipType');
+  });
+});
 
 describe('NodeInspector DEM controls', () => {
   it('renders the method selector and active method parameters', () => {

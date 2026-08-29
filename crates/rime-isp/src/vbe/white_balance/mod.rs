@@ -17,6 +17,7 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
+    output_rime_q_profile: Some("u0.12"),
     default_method: "00",
     methods: &[METHOD_00],
 };

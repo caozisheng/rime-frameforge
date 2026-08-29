@@ -14,6 +14,7 @@ export interface InspectorTreeNode {
   readonly summary?: string;
   readonly control?: ReactNode;
   readonly children?: readonly InspectorTreeNode[];
+  readonly defaultExpanded?: boolean;
 }
 
 export interface InspectorTreeGroup extends InspectorTreeNode {
@@ -41,7 +42,13 @@ export function readInspectorExpanded(source: Pick<Storage, 'getItem'> | null, k
     const parsed: unknown = JSON.parse(source?.getItem(`${key}:expanded:v1`) ?? 'null');
     if (Array.isArray(parsed) && parsed.every((value) => typeof value === 'string')) return new Set(parsed);
   } catch { /* use group defaults */ }
-  return new Set(groups.filter((group) => group.defaultExpanded).map((group) => group.id));
+  const expanded = new Set<string>();
+  const visit = (node: InspectorTreeNode): void => {
+    if (node.defaultExpanded) expanded.add(node.id);
+    node.children?.forEach(visit);
+  };
+  groups.forEach(visit);
+  return expanded;
 }
 
 function TreeNode({ node, depth, expanded, onToggle }: { readonly node: InspectorTreeNode; readonly depth: number; readonly expanded: Set<string>; readonly onToggle: (id: string) => void }) {
@@ -88,7 +95,10 @@ export function InspectorTree({ ariaLabel, groups, storageKey }: InspectorTreePr
   };
   const reset = (): void => {
     changeFontSize(DEFAULT_DNG_FONT_SIZE);
-    persistExpanded(new Set(groups.filter((group) => group.defaultExpanded).map((group) => group.id)));
+    const defaults = new Set<string>();
+    const visit = (node: InspectorTreeNode): void => { if (node.defaultExpanded) defaults.add(node.id); node.children?.forEach(visit); };
+    groups.forEach(visit);
+    persistExpanded(defaults);
   };
 
   return <div className="inspector-tree-body">
