@@ -6,3 +6,5 @@ apps/desktop/src-tauri/gen/
 *.tsbuildinfo
 .worktrees/
 pipeline/normal/P1020601.dng
+/docs/rime-frameforge-quantization-design.md
+/docs/plans
