@@ -6,6 +6,7 @@ import type { RuntimeEnvelope } from '../src/contracts.js';
 const current: RuntimeEnvelope = {
   graphInstanceId: 4,
   runRevision: 7,
+  configRevision: 0,
   methodRevision: 1,
   frameIndex: 0,
   framePhase: 'output',
