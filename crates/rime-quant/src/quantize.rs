@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{QuantProfile, RoundingMode, SaturationMode};
+use crate::{ClipType, QuantProfile, RimeQProfile, RoundingMode, SaturationMode};
 
 /// Errors raised by profile validation or quantization.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -8,6 +8,12 @@ pub enum QuantError {
     /// Input is NaN or infinite.
     #[error("quantization input is not finite")]
     NonFiniteInput,
+    /// Dither input is NaN or infinite.
+    #[error("quantization dither is not finite")]
+    NonFiniteDither,
+    /// Rime.Q notation is malformed.
+    #[error("invalid Rime.Q notation")]
+    InvalidNotation,
     /// Fixed-grid code cannot be represented exactly by an `f32` carrier.
     #[error("fixed-grid profile exceeds the exact f32 precision limit")]
     Fp32GridPrecisionExceeded,
@@ -54,6 +60,34 @@ pub fn quantize_f32_grid(
         RoundingMode::Dithered if x > 0.0 => dither_u04 - 0.5,
         RoundingMode::Dithered if x < 0.0 => 0.5 - dither_u04,
         RoundingMode::TruncateFloor | RoundingMode::Dithered => 0.0,
+    };
+    let value = (x * scale + offset).floor() / scale;
+    Ok(value.clamp(profile.qmin(), profile.qmax()))
+}
+
+/// Quantize an `f32` value using a validated Rime.Q profile and clip policy.
+pub fn quantize_f32(
+    x: f32,
+    profile: &RimeQProfile,
+    clip: ClipType,
+    dither_u04: f32,
+) -> Result<f32, QuantError> {
+    profile.validate()?;
+    if !x.is_finite() {
+        return Err(QuantError::NonFiniteInput);
+    }
+    if !dither_u04.is_finite() {
+        return Err(QuantError::NonFiniteDither);
+    }
+    if x == 0.0 {
+        return Ok(0.0);
+    }
+    let scale = profile.scale();
+    let offset = match clip {
+        ClipType::Round => 0.5,
+        ClipType::Dither if x > 0.0 => dither_u04 - 0.5,
+        ClipType::Dither => 0.5 - dither_u04,
+        ClipType::Truncate => 0.0,
     };
     let value = (x * scale + offset).floor() / scale;
     Ok(value.clamp(profile.qmin(), profile.qmax()))

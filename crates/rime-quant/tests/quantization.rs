@@ -1,9 +1,74 @@
 #![allow(clippy::float_cmp)]
 
+use std::str::FromStr;
+
 use rime_quant::{
-    DitherKey, DitherProfile, QuantError, QuantProfile, RoundingMode, SaturationMode, dither_u04,
-    lfsr28_next, quantize_f32_grid, rnd4b,
+    ClipType, DitherKey, DitherProfile, QuantError, QuantProfile, RimeQProfile, RoundingMode,
+    SaturationMode, dither_u04, lfsr28_next, quantize_f32, quantize_f32_grid, rnd4b,
 };
+
+#[test]
+fn rime_q_notation_round_trips_and_exposes_range() {
+    let unsigned = RimeQProfile::from_str("u0.14").unwrap();
+    assert_eq!(unsigned.to_string(), "u0.14");
+    assert_eq!(unsigned.lsb(), 1.0 / 16384.0);
+    assert_eq!(unsigned.qmin(), 0.0);
+    assert_eq!(unsigned.qmax(), 1.0 - unsigned.lsb());
+
+    let signed = RimeQProfile::from_str("s1.12").unwrap();
+    assert_eq!(signed.to_string(), "s1.12");
+    assert_eq!(signed.qmin(), -2.0);
+    assert_eq!(signed.qmax(), 2.0 - signed.lsb());
+}
+
+#[test]
+fn rime_q_notation_rejects_invalid_and_inexact_bounds() {
+    for notation in ["", "x1.2", "u.14", "u1", "u1.2.3", "u-1.2", "U1.2"] {
+        assert!(RimeQProfile::from_str(notation).is_err(), "{notation}");
+    }
+    assert!(RimeQProfile::from_str("u9.16").is_err());
+    assert!(RimeQProfile::new(9, 16, false).is_err());
+    assert!(RimeQProfile::new(0, 25, false).is_err());
+}
+
+#[test]
+fn clip_types_follow_floor_round_and_signed_lsb_dither() {
+    let profile = RimeQProfile::new(1, 2, true).unwrap();
+    assert_eq!(quantize_f32(-0.26, &profile, ClipType::Truncate, 0.0), Ok(-0.5));
+    assert_eq!(quantize_f32(0.26, &profile, ClipType::Truncate, 0.0), Ok(0.25));
+    assert_eq!(quantize_f32(-0.375, &profile, ClipType::Round, 0.0), Ok(-0.25));
+    assert_eq!(quantize_f32(0.375, &profile, ClipType::Round, 0.0), Ok(0.5));
+    assert_eq!(quantize_f32(0.26, &profile, ClipType::Dither, 1.0), Ok(0.25));
+    assert_eq!(quantize_f32(-0.26, &profile, ClipType::Dither, 0.0), Ok(-0.25));
+}
+
+#[test]
+fn clip_types_saturate_and_reject_non_finite_values() {
+    let unsigned = RimeQProfile::from_str("u0.14").unwrap();
+    assert_eq!(quantize_f32(-1.0, &unsigned, ClipType::Truncate, 0.0), Ok(0.0));
+    assert_eq!(quantize_f32(2.0, &unsigned, ClipType::Round, 0.0), Ok(unsigned.qmax()));
+    assert_eq!(quantize_f32(f32::NAN, &unsigned, ClipType::Truncate, 0.0), Err(QuantError::NonFiniteInput));
+    assert_eq!(quantize_f32(f32::INFINITY, &unsigned, ClipType::Round, 0.0), Err(QuantError::NonFiniteInput));
+    assert_eq!(quantize_f32(0.5, &unsigned, ClipType::Dither, f32::NAN), Err(QuantError::NonFiniteDither));
+}
+
+#[test]
+fn dither_is_deterministic_lsb_bounded_and_zero_safe() {
+    let profile = RimeQProfile::from_str("s1.12").unwrap();
+    let a = quantize_f32(0.12345, &profile, ClipType::Dither, 0.0).unwrap();
+    let b = quantize_f32(0.12345, &profile, ClipType::Dither, 1.0).unwrap();
+    assert_eq!(a, quantize_f32(0.12345, &profile, ClipType::Dither, 0.0).unwrap());
+    assert!((a - b).abs() <= profile.lsb());
+    assert_eq!(quantize_f32(0.0, &profile, ClipType::Dither, 1.0), Ok(0.0));
+}
+
+#[test]
+fn exact_fp32_grid_is_available_through_new_profile() {
+    let profile = RimeQProfile::new(1, 23, true).unwrap();
+    assert_eq!(profile.lsb(), 2.0_f32.powi(-23));
+    assert_eq!(quantize_f32(1.0, &profile, ClipType::Truncate, 0.0), Ok(1.0));
+    assert!(RimeQProfile::new(2, 23, true).is_err());
+}
 
 fn profile(rounding: RoundingMode, signed: bool) -> QuantProfile {
     QuantProfile {
