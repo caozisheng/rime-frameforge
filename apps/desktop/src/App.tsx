@@ -4,9 +4,10 @@ import { Group, Panel, Separator, usePanelRef, type Layout } from 'react-resizab
 import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry } from '../../../web/src/contracts.js';
 import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js';
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
+import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
-import { NodeInspector } from './components/NodeInspector.js';
+import { NodeInspector, type GraphQuantizationConfig, type ModuleQuantizationPreference } from './components/NodeInspector.js';
 import { PreviewSurface } from './components/PreviewSurface.js';
 import { loadDngIntoWorker, loadDngPathIntoWorker } from './runtime/dng-loader.js';
 import { commitPendingDngFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from './runtime/dng-sequence.js';
@@ -17,6 +18,7 @@ const INITIAL_ENVELOPE: RuntimeEnvelope = {
   graphInstanceId: 1,
   runRevision: 0,
   methodRevision: 0,
+  configRevision: 0,
   frameIndex: null,
   framePhase: null,
   visibleFrameCommitted: false,
@@ -42,7 +44,8 @@ export function App() {
   const logsPanelRef = usePanelRef();
   const [envelope, setEnvelope] = useState(INITIAL_ENVELOPE);
   const [preview, setPreview] = useState<PreviewDescriptor | null>(null);
-  const [selectedNode, setSelectedNode] = useState('rgb2yuv');
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [quantization, setQuantization] = useState<GraphQuantizationConfig>(normalGraphQuantization);
   const [activeMethods, setActiveMethods] = useState<Record<string, string>>({ dem: '00' });
   const [parameterValues, setParameterValues] = useState<Record<string, string | number>>({
     cfa_pattern: 'rggb',
@@ -170,6 +173,17 @@ export function App() {
     setParameterValues((current) => ({ ...current, [parameter]: value }));
     bridgeRef.current.setParameter(nodeId, parameter, value);
   };
+  const changeGraphQuantization = (next: GraphQuantizationConfig): void => {
+    if (bridgeRef.current === null) return;
+    setCommandPending(true);
+    setQuantization(next);
+    bridgeRef.current.setQuantizationConfig(JSON.stringify(next));
+  };
+
+  const changeModuleQuantization = (moduleId: string, preference: ModuleQuantizationPreference): void => {
+    const next = { ...quantization, modules: quantization.modules.map((module) => module.module_id === moduleId ? preference : module) };
+    changeGraphQuantization(next);
+  };
 
   const transportControls = (
     <div className="transport-toolbar" aria-label="Transport controls">
@@ -238,7 +252,7 @@ export function App() {
             defaultLayout={rightLayout}
             onLayoutChanged={(layout) => writePaneLayout(window.localStorage, RIGHT_LAYOUT_KEY, layout)}
           >
-            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} onMethodChange={changeMethod} onParameterChange={changeParameter} /></div></Panel>
+            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
             <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} preview={preview} /></div></Panel>
           </Group>

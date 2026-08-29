@@ -13,8 +13,8 @@ import { normalFlowTopologyKey } from '../normal-flow-key.js';
 
 interface NormalGraphCanvasProps {
   readonly envelope: RuntimeEnvelope;
-  readonly onSelect: (nodeId: string) => void;
-  readonly selectedNode: string;
+  readonly onSelect: (nodeId: string | null) => void;
+  readonly selectedNode: string | null;
   readonly fitRequest: number;
   readonly headingActions: ReactNode;
 }
@@ -82,6 +82,7 @@ export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest
             nodesDraggable={false}
             nodesConnectable={false}
             onInit={(instance) => { instanceRef.current = instance; }}
+            onPaneClick={() => onSelect(null)}
             onNodeClick={(_, node) => onSelect(node.data.executionNodeId ?? node.id)}
             proOptions={{ hideAttribution: true }}
           >
@@ -138,7 +139,7 @@ function buildFlow(
   nodes: readonly VisibleNormalNode[],
   edges: readonly VisibleNormalEdge[],
   onToggle: (id: string) => void,
-  selectedNode: string,
+  selectedNode: string | null,
 ): { nodes: NormalFlowNode[]; edges: Edge[] } {
   const layout = layoutNormalContainers(nodes, edges);
   return {
@@ -146,8 +147,7 @@ function buildFlow(
     edges: layout.edges.map(toNormalReactFlowEdge),
   };
 }
-
-function toFlowNode(node: NormalContainerLayoutNode, onToggle: (id: string) => void, selectedNode: string): NormalFlowNode {
+function toFlowNode(node: NormalContainerLayoutNode, onToggle: (id: string) => void, selectedNode: string | null): NormalFlowNode {
   return {
     id: node.id,
     type: node.frame ? 'normalFrame' : 'normal',
