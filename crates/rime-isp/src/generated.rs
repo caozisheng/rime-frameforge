@@ -32,15 +32,40 @@ pub fn render_normal_manifest_typescript() -> Result<String, Diagnostic> {
 ///
 /// Returns `ManifestInvalid` when presentation serialization fails.
 pub fn render_normal_graph_presentation_typescript() -> Result<String, Diagnostic> {
-    let json = serde_json::to_string_pretty(&crate::build_normal_graph_presentation()).map_err(
+    let presentation = crate::build_normal_graph_presentation();
+    let graph_json = serde_json::to_string_pretty(&presentation).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize normal graph: {error}"),
+        )
+    })?;
+    Ok(format!(
+        "export const normalGraphPresentation = {graph_json} as const;\n"
+    ))
+}
+
+/// Renders the generated TypeScript Normal Graph quantization defaults.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when quantization serialization fails.
+pub fn render_normal_graph_quantization_typescript() -> Result<String, Diagnostic> {
+    let presentation = crate::build_normal_graph_presentation();
+    let quantization = rime_core::GraphQuantizationConfig::defaults_for(&presentation).map_err(
         |error| {
             Diagnostic::new(
                 DiagnosticCode::ManifestInvalid,
-                format!("failed to serialize normal graph: {error}"),
+                format!("failed to build normal graph quantization defaults: {error}"),
             )
         },
     )?;
+    let quantization_json = serde_json::to_string_pretty(&quantization).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize normal graph quantization defaults: {error}"),
+        )
+    })?;
     Ok(format!(
-        "export const normalGraphPresentation = {json} as const;\n"
+        "export const normalGraphQuantization = {quantization_json} as const;\n"
     ))
 }

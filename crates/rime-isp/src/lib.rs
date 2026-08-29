@@ -11,8 +11,8 @@ pub use graph::{build_normal_graph_presentation, build_normal_manifest};
 pub use operator::{OperatorDefinition, OperatorMethod, OperatorPort};
 
 pub use generated::{
-    render_normal_graph_presentation_typescript, render_normal_manifest_json,
-    render_normal_manifest_typescript,
+    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
+    render_normal_manifest_json, render_normal_manifest_typescript,
 };
 /// Shared fixed-grid quantization and deterministic dither utilities.
 pub use rime_quant;
