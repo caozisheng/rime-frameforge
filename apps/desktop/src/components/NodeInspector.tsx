@@ -12,7 +12,6 @@ export interface ModuleQuantizationPreference {
   readonly module_id: string;
   readonly output_enabled: boolean;
   readonly output_profile: string;
-  readonly dither_enabled: boolean;
   readonly clip_type: 'truncate' | 'round' | 'dither';
 }
 
@@ -55,7 +54,6 @@ function moduleControls(
   const forcedOff = !config.enabled || node.mode === 'disabled' || node.mode === 'bypass';
   const controlsDisabled = !canConfigure || forcedOff;
   const effectiveOutput = !forcedOff && preference.output_enabled;
-  const effectiveDither = effectiveOutput && preference.dither_enabled;
   const update = <K extends keyof ModuleQuantizationPreference>(key: K, value: ModuleQuantizationPreference[K]): void => {
     onChange({ ...preference, [key]: value });
   };
@@ -80,10 +78,6 @@ function moduleControls(
     {
       id: `${node.id}.profile`, label: 'Output profile',
       control: <select aria-label={`${node.label} output profile`} disabled={controlsDisabled} value={preference.output_profile} onChange={(event) => update('output_profile', event.target.value)}>{profileOptions.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select>,
-    },
-    {
-      id: `${node.id}.dither`, label: 'Dither',
-      control: <ToggleSwitch label={`${node.label} dither`} disabled={controlsDisabled || !effectiveOutput} checked={effectiveDither} onToggle={(checked) => update('dither_enabled', checked)} />,
     },
     {
       id: `${node.id}.clip`, label: 'ClipType',

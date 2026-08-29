@@ -55,14 +55,17 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('BLC output Rime.Q');
     expect(html).not.toContain('BLC output profile');
     expect(html).not.toContain('BLC dither');
+    expect(html).not.toContain('Dither');
     expect(html).not.toContain('BLC ClipType');
   });
 
-  it('shows output parameters when module output Rime.Q is enabled', () => {
+  it('shows only output profile and ClipType when module output Rime.Q is enabled', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="blc" />);
     expect(html).toContain('BLC output profile');
-    expect(html).toContain('BLC dither');
+    expect(html).not.toContain('BLC dither');
+    expect(html).not.toContain('Dither');
     expect(html).toContain('BLC ClipType');
+    expect(html).toContain('<option value="dither">dither</option>');
   });
 
   it('uses generated quantization defaults without exposing input profile', () => {

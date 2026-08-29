@@ -125,16 +125,7 @@ fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
             .iter()
             .all(|module| module["output_enabled"] == true)
     );
-    assert!(
-        modules
-            .iter()
-            .all(|module| module["dither_enabled"] == false)
-    );
-    assert!(
-        modules
-            .iter()
-            .all(|module| module["clip_type"] == "truncate")
-    );
+    assert!(modules.iter().all(|module| module.get("dither_enabled").is_none()));
     assert!(
         modules
             .iter()

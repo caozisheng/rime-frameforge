@@ -208,7 +208,9 @@ fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
     let graph = build_top_graph_presentation();
     let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     let json = serde_json::to_value(&config).expect("serialize");
-    assert!(json["modules"][0].get("mode").is_none());
+    let module = &json["modules"][0];
+    assert!(module.get("mode").is_none());
+    assert!(module.get("dither_enabled").is_none());
     let state = config.resolve(&graph).expect("resolve");
     assert_eq!(
         state.module("blc").unwrap().mode,
@@ -217,11 +219,39 @@ fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
 }
 
 #[test]
-fn graph_quantization_global_off_forces_effective_outputs_off() {
+fn graph_quantization_derives_dither_from_effective_output_and_clip_type() {
     use rime_core::GraphQuantizationConfig;
+    use rime_quant::ClipType;
 
     let graph = build_top_graph_presentation();
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.module_mut("blc").unwrap().clip_type = ClipType::Dither;
+
+    let state = config.resolve(&graph).expect("resolve");
+    let blc = state.module("blc").expect("BLC state");
+    assert!(blc.effective_output_enabled);
+    assert!(blc.effective_dither_enabled);
+
+    config.module_mut("blc").unwrap().output_enabled = false;
+    let state = config.resolve(&graph).expect("resolve");
+    let blc = state.module("blc").expect("BLC state");
+    assert!(!blc.effective_output_enabled);
+    assert!(!blc.effective_dither_enabled);
+
+    config.module_mut("blc").unwrap().output_enabled = true;
+    config.module_mut("blc").unwrap().clip_type = ClipType::Truncate;
+    let state = config.resolve(&graph).expect("resolve");
+    assert!(!state.module("blc").expect("BLC state").effective_dither_enabled);
+}
+
+#[test]
+fn graph_quantization_global_off_forces_effective_outputs_off() {
+    use rime_core::GraphQuantizationConfig;
+    use rime_quant::ClipType;
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.module_mut("blc").unwrap().clip_type = ClipType::Dither;
     config.enabled = false;
     let state = config.resolve(&graph).expect("resolve");
 
@@ -287,10 +317,11 @@ fn graph_quantization_disabled_and_bypass_modes_force_outputs_off() {
 #[test]
 fn graph_quantization_reopening_global_switch_restores_preferences() {
     use rime_core::GraphQuantizationConfig;
+    use rime_quant::ClipType;
 
     let graph = build_top_graph_presentation();
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
-    config.module_mut("blc").unwrap().dither_enabled = true;
+    config.module_mut("blc").unwrap().clip_type = ClipType::Dither;
     config.enabled = false;
     assert!(
         !config
@@ -309,7 +340,6 @@ fn graph_quantization_reopening_global_switch_restores_preferences() {
 #[test]
 fn graph_quantization_rejects_unknown_modules_and_malformed_profiles() {
     use rime_core::{GraphQuantizationConfig, GraphQuantizationError};
-
     let graph = build_top_graph_presentation();
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     config.modules[0].module_id = "missing".into();

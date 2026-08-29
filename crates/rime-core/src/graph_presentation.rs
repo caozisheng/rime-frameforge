@@ -11,7 +11,6 @@ pub struct ModuleQuantizationPreference {
     pub module_id: String,
     pub output_enabled: bool,
     pub output_profile: String,
-    pub dither_enabled: bool,
     pub clip_type: ClipType,
 }
 
@@ -92,7 +91,6 @@ impl GraphQuantizationConfig {
                     _ => "u0.10",
                 }
                 .into(),
-                dither_enabled: false,
                 clip_type: ClipType::Truncate,
             })
             .collect();
@@ -176,13 +174,13 @@ impl GraphQuantizationConfig {
                         mode,
                         NodeExecutionMode::Disabled | NodeExecutionMode::Bypass
                     );
+                let effective_output_enabled = !forced_off && preference.output_enabled;
                 Ok(EffectiveModuleQuantization {
                     module_id: module_id.into(),
                     mode,
-                    effective_output_enabled: !forced_off && preference.output_enabled,
-                    effective_dither_enabled: !forced_off
-                        && preference.output_enabled
-                        && preference.dither_enabled,
+                    effective_dither_enabled: effective_output_enabled
+                        && preference.clip_type == ClipType::Dither,
+                    effective_output_enabled,
                     preference,
                 })
             })
