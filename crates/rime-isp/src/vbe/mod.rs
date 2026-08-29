@@ -1,9 +1,9 @@
+pub mod cac;
 pub mod color_correction;
 pub mod dem;
 pub mod drc;
 pub mod gamma;
 pub mod hr;
-pub mod cac;
 pub mod pfr;
 pub mod raw_nr;
 pub mod rgb_to_yuv;

@@ -73,14 +73,22 @@ fn top_graph_uses_hr_and_same_extent_cac_terminology() {
     assert!(graph.node("raw_downscale_cac").is_none());
 }
 
-
 #[test]
 fn top_graph_separates_static_bad_pixels_color_shading_and_luma_shading() {
     let graph = build_top_graph_presentation();
 
-    assert_eq!(graph.node("sbpc").expect("SBPC node").label, "static bad pixel correction");
-    assert_eq!(graph.node("tintless").expect("Tintless node").label, "color shading correction");
-    assert_eq!(graph.node("lsc").expect("LSC node").label, "luma shading correction");
+    assert_eq!(
+        graph.node("sbpc").expect("SBPC node").label,
+        "static bad pixel correction"
+    );
+    assert_eq!(
+        graph.node("tintless").expect("Tintless node").label,
+        "color shading correction"
+    );
+    assert_eq!(
+        graph.node("lsc").expect("LSC node").label,
+        "luma shading correction"
+    );
     assert!(graph.node("sbpc_pdpc").is_none());
     assert!(graph.node("lsc_tintless").is_none());
 }
@@ -108,7 +116,9 @@ fn graph_without_instance_override_uses_module_default_iq() {
 
     assert_eq!(
         graph.resolve_iq_source("mctf_instance"),
-        Ok(Some(IqParameterSource::ModuleDefault { module_id: "mctf".into() }))
+        Ok(Some(IqParameterSource::ModuleDefault {
+            module_id: "mctf".into()
+        }))
     );
 }
 #[test]
@@ -148,7 +158,7 @@ fn active_groups_are_expanded_and_disabled_groups_are_collapsed() {
     assert!(!graph.node("video_post").expect("VPE").default_expanded);
     assert!(!graph.node("encoder").expect("encoder").default_expanded);
 }
- 
+
 #[test]
 fn graph_quantization_defaults_exclude_raw_source() {
     use rime_core::GraphQuantizationConfig;
@@ -200,7 +210,10 @@ fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
     let json = serde_json::to_value(&config).expect("serialize");
     assert!(json["modules"][0].get("mode").is_none());
     let state = config.resolve(&graph).expect("resolve");
-    assert_eq!(state.module("blc").unwrap().mode, NodeExecutionMode::Enabled);
+    assert_eq!(
+        state.module("blc").unwrap().mode,
+        NodeExecutionMode::Enabled
+    );
 }
 
 #[test]
@@ -223,25 +236,52 @@ fn graph_quantization_disabled_and_bypass_modes_force_outputs_off() {
     use rime_core::GraphQuantizationConfig;
     let mut graph = build_top_graph_presentation();
     graph.nodes.push(rime_core::GraphTreeNode {
-        id: "disabled_module".into(), label: "disabled".into(), parent_id: None,
-        kind: GraphTreeKind::Operator, mode: NodeExecutionMode::Disabled,
-        execution_node_id: Some("disabled_module".into()), module_id: None,
-        iq_override_id: None, inputs: vec!["in".into()], outputs: vec!["out".into()],
-        reason: None, default_expanded: false,
+        id: "disabled_module".into(),
+        label: "disabled".into(),
+        parent_id: None,
+        kind: GraphTreeKind::Operator,
+        mode: NodeExecutionMode::Disabled,
+        execution_node_id: Some("disabled_module".into()),
+        module_id: None,
+        iq_override_id: None,
+        inputs: vec!["in".into()],
+        outputs: vec!["out".into()],
+        reason: None,
+        default_expanded: false,
     });
     graph.nodes.push(rime_core::GraphTreeNode {
-        id: "bypass_module".into(), label: "bypass".into(), parent_id: None,
-        kind: GraphTreeKind::Operator, mode: NodeExecutionMode::Bypass,
-        execution_node_id: Some("bypass_module".into()), module_id: None,
-        iq_override_id: None, inputs: vec!["in".into()], outputs: vec!["out".into()],
-        reason: None, default_expanded: false,
+        id: "bypass_module".into(),
+        label: "bypass".into(),
+        parent_id: None,
+        kind: GraphTreeKind::Operator,
+        mode: NodeExecutionMode::Bypass,
+        execution_node_id: Some("bypass_module".into()),
+        module_id: None,
+        iq_override_id: None,
+        inputs: vec!["in".into()],
+        outputs: vec!["out".into()],
+        reason: None,
+        default_expanded: false,
     });
     let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     let state = config.resolve(&graph).expect("resolve");
 
-    assert!(!state.module("disabled_module").expect("disabled module").effective_output_enabled);
-    assert!(!state.module("bypass_module").expect("bypass module").effective_output_enabled);
-    assert_eq!(state.module("bypass_module").unwrap().mode, NodeExecutionMode::Bypass);
+    assert!(
+        !state
+            .module("disabled_module")
+            .expect("disabled module")
+            .effective_output_enabled
+    );
+    assert!(
+        !state
+            .module("bypass_module")
+            .expect("bypass module")
+            .effective_output_enabled
+    );
+    assert_eq!(
+        state.module("bypass_module").unwrap().mode,
+        NodeExecutionMode::Bypass
+    );
 }
 
 #[test]
@@ -252,13 +292,20 @@ fn graph_quantization_reopening_global_switch_restores_preferences() {
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     config.module_mut("blc").unwrap().dither_enabled = true;
     config.enabled = false;
-    assert!(!config.resolve(&graph).unwrap().module("blc").unwrap().effective_dither_enabled);
+    assert!(
+        !config
+            .resolve(&graph)
+            .unwrap()
+            .module("blc")
+            .unwrap()
+            .effective_dither_enabled
+    );
     config.enabled = true;
     let state = config.resolve(&graph).expect("resolve");
     assert!(state.module("blc").unwrap().effective_output_enabled);
     assert!(state.module("blc").unwrap().effective_dither_enabled);
 }
- 
+
 #[test]
 fn graph_quantization_rejects_unknown_modules_and_malformed_profiles() {
     use rime_core::{GraphQuantizationConfig, GraphQuantizationError};
@@ -266,10 +313,15 @@ fn graph_quantization_rejects_unknown_modules_and_malformed_profiles() {
     let graph = build_top_graph_presentation();
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     config.modules[0].module_id = "missing".into();
-    assert!(matches!(config.resolve(&graph), Err(GraphQuantizationError::UnknownModule { .. })));
+    assert!(matches!(
+        config.resolve(&graph),
+        Err(GraphQuantizationError::UnknownModule { .. })
+    ));
 
     let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
     config.module_mut("blc").unwrap().output_profile = "u25.1".into();
-    assert!(matches!(config.resolve(&graph), Err(GraphQuantizationError::InvalidProfile { .. })));
+    assert!(matches!(
+        config.resolve(&graph),
+        Err(GraphQuantizationError::InvalidProfile { .. })
+    ));
 }
-

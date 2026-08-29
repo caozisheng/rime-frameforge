@@ -27,7 +27,11 @@ impl NormalRuntime {
             .expect("normal graph quantization defaults must be valid");
         let manifest_json = serde_json::to_string(&build_normal_manifest())
             .unwrap_or_else(|error| format!(r#"{{"serialization_error":"{error}"}}"#));
-        Self { runtime: GraphRuntime::new(), manifest_json, quantization_config }
+        Self {
+            runtime: GraphRuntime::new(),
+            manifest_json,
+            quantization_config,
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -110,7 +114,8 @@ impl NormalRuntime {
     pub fn set_quantization_config(&mut self, config_json: &str) -> Result<String, JsValue> {
         let config: GraphQuantizationConfig = serde_json::from_str(config_json)
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        config.resolve(&build_normal_graph_presentation())
+        config
+            .resolve(&build_normal_graph_presentation())
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
         self.runtime.change_config().map_err(to_js_error)?;
         self.quantization_config = config;

@@ -1,7 +1,7 @@
 mod tintless_00;
 use crate::operator::{OperatorDefinition, OperatorPort};
-pub use tintless_00::METHOD_00;
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
+pub use tintless_00::METHOD_00;
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "tintless",
     label: "TINTLESS",

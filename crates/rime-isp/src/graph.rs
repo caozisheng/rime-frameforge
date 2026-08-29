@@ -1,14 +1,17 @@
+use crate::{OperatorDefinition, OperatorMethod, normal_operators};
 use rime_core::{
     Extent2d, GraphIqOverride, GraphPresentation, GraphPresentationEdge, GraphTreeKind,
     GraphTreeNode, MethodSpec, NodeExecutionMode, NodeSpec, PipelineManifest, PortRef, PortSpec,
     PreviewPortSpec, ResourceFormat, SignalDomain, TemporalEdge,
 };
-use crate::{OperatorDefinition, OperatorMethod, normal_operators};
 
 const WIDTH: u32 = 32;
 const HEIGHT: u32 = 24;
 
-#[expect(clippy::too_many_lines, reason = "the fixed manifest is the single explicit topology source")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixed manifest is the single explicit topology source"
+)]
 #[must_use]
 pub fn build_normal_manifest() -> PipelineManifest {
     let extent = Extent2d {
@@ -54,7 +57,11 @@ pub fn build_normal_manifest() -> PipelineManifest {
                 .map(|method| MethodSpec {
                     method: method.method.into(),
                     shader_entry: method.shader_entry.into(),
-                    parameters: method.parameters.split_whitespace().map(Into::into).collect(),
+                    parameters: method
+                        .parameters
+                        .split_whitespace()
+                        .map(Into::into)
+                        .collect(),
                 })
                 .collect(),
         });
@@ -150,8 +157,14 @@ pub fn build_normal_graph_presentation() -> GraphPresentation {
         root_id: "normal".into(),
         nodes,
         iq_overrides: vec![
-            GraphIqOverride { id: "mctf_1".into(), module_id: "mctf".into() },
-            GraphIqOverride { id: "mctf_2".into(), module_id: "mctf".into() },
+            GraphIqOverride {
+                id: "mctf_1".into(),
+                module_id: "mctf".into(),
+            },
+            GraphIqOverride {
+                id: "mctf_2".into(),
+                module_id: "mctf".into(),
+            },
         ],
         edges: presentation_edges(),
     }
@@ -165,8 +178,16 @@ fn hydrate_executable_ports(nodes: &mut [GraphTreeNode], manifest: &PipelineMani
         let Some(manifest_node) = manifest.node(execution_node_id) else {
             continue;
         };
-        node.inputs = manifest_node.inputs.iter().map(|port| port.id.clone()).collect();
-        node.outputs = manifest_node.outputs.iter().map(|port| port.id.clone()).collect();
+        node.inputs = manifest_node
+            .inputs
+            .iter()
+            .map(|port| port.id.clone())
+            .collect();
+        node.outputs = manifest_node
+            .outputs
+            .iter()
+            .map(|port| port.id.clone())
+            .collect();
     }
 }
 
@@ -247,7 +268,10 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
     ]
 }
 
-#[expect(clippy::too_many_lines, reason = "the fixed presentation keeps the architecture order explicit")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixed presentation keeps the architecture order explicit"
+)]
 fn vbe_nodes() -> Vec<GraphTreeNode> {
     vec![
         group(
@@ -433,14 +457,16 @@ fn presentation_edges() -> Vec<GraphPresentationEdge> {
     let mut edges: Vec<GraphPresentationEdge> = pairs
         .into_iter()
         .enumerate()
-        .map(|(index, (from, from_port, to, to_port, label))| GraphPresentationEdge {
-            id: format!("normal_edge_{index}"),
-            from: from.into(),
-            to: to.into(),
-            from_port: from_port.into(),
-            to_port: to_port.into(),
-            label: label.map(str::to_owned),
-        })
+        .map(
+            |(index, (from, from_port, to, to_port, label))| GraphPresentationEdge {
+                id: format!("normal_edge_{index}"),
+                from: from.into(),
+                to: to.into(),
+                from_port: from_port.into(),
+                to_port: to_port.into(),
+                label: label.map(str::to_owned),
+            },
+        )
         .collect();
     for prefix in ["vpe_16", "vpe_4", "vpe_full"] {
         for (index, (from, to)) in [
@@ -530,8 +556,16 @@ fn operator(
         execution_node_id: execution_node_id.map(str::to_owned),
         module_id: None,
         iq_override_id: None,
-        inputs: if id.ends_with("_pyrc") { vec!["in".into(), "feedback".into()] } else { vec!["in".into()] },
-        outputs: if id == "pyrd" { vec!["full".into(), "quarter".into(), "sixteenth".into()] } else { vec!["out".into()] },
+        inputs: if id.ends_with("_pyrc") {
+            vec!["in".into(), "feedback".into()]
+        } else {
+            vec!["in".into()]
+        },
+        outputs: if id == "pyrd" {
+            vec!["full".into(), "quarter".into(), "sixteenth".into()]
+        } else {
+            vec!["out".into()]
+        },
         reason: reason.map(str::to_owned),
         default_expanded: false,
     }

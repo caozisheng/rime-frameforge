@@ -51,14 +51,13 @@ pub fn render_normal_graph_presentation_typescript() -> Result<String, Diagnosti
 /// Returns `ManifestInvalid` when quantization serialization fails.
 pub fn render_normal_graph_quantization_typescript() -> Result<String, Diagnostic> {
     let presentation = crate::build_normal_graph_presentation();
-    let quantization = rime_core::GraphQuantizationConfig::defaults_for(&presentation).map_err(
-        |error| {
+    let quantization =
+        rime_core::GraphQuantizationConfig::defaults_for(&presentation).map_err(|error| {
             Diagnostic::new(
                 DiagnosticCode::ManifestInvalid,
                 format!("failed to build normal graph quantization defaults: {error}"),
             )
-        },
-    )?;
+        })?;
     let quantization_json = serde_json::to_string_pretty(&quantization).map_err(|error| {
         Diagnostic::new(
             DiagnosticCode::ManifestInvalid,

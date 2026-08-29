@@ -70,7 +70,9 @@ fn method_change_invalidates_visible_frame_and_increments_revision() {
     let mut runtime = completed_runtime();
     let revision = runtime.snapshot().method_revision;
 
-    runtime.change_method().expect("completed graph method may change");
+    runtime
+        .change_method()
+        .expect("completed graph method may change");
 
     assert_eq!(runtime.snapshot().method_revision, revision + 1);
     assert_eq!(runtime.snapshot().visible_frame, None);
@@ -81,7 +83,9 @@ fn quantization_change_in_stop_increments_config_revision() {
     let mut runtime = loaded_runtime();
     let revision = runtime.snapshot().config_revision;
 
-    runtime.change_config().expect("config may change while stopped");
+    runtime
+        .change_config()
+        .expect("config may change while stopped");
 
     assert_eq!(runtime.snapshot().config_revision, revision + 1);
 }

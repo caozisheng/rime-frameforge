@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD013 -->
+
 # Rime FrameForge Rime.Q 量化设计
 
 ## 1. 目的与边界
