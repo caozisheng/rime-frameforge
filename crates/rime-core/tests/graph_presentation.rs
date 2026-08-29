@@ -148,3 +148,101 @@ fn active_groups_are_expanded_and_disabled_groups_are_collapsed() {
     assert!(!graph.node("video_post").expect("VPE").default_expanded);
     assert!(!graph.node("encoder").expect("encoder").default_expanded);
 }
+ 
+#[test]
+fn graph_quantization_defaults_cover_executable_outputs() {
+    use rime_core::GraphQuantizationConfig;
+
+    let graph = build_top_graph_presentation();
+    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+
+    assert_eq!(config.graph_id, "top");
+    assert!(config.enabled);
+    assert_eq!(config.module("blc").unwrap().output_profile, "u0.14");
+    assert_eq!(config.module("wbc").unwrap().output_profile, "u0.12");
+    assert_eq!(config.module("dem").unwrap().output_profile, "u0.12");
+    assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "u0.10");
+}
+
+#[test]
+fn graph_quantization_global_off_forces_effective_outputs_off() {
+    use rime_core::GraphQuantizationConfig;
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.enabled = false;
+    let state = config.resolve(&graph).expect("resolve");
+
+    let blc = state.module("blc").expect("BLC state");
+    assert!(!blc.effective_output_enabled);
+    assert!(!blc.effective_dither_enabled);
+    assert!(blc.preference.output_enabled);
+}
+
+#[test]
+fn graph_quantization_disabled_and_bypass_modes_force_outputs_off() {
+    use rime_core::GraphQuantizationConfig;
+    let mut graph = build_top_graph_presentation();
+    graph.nodes.push(rime_core::GraphTreeNode {
+        id: "disabled_module".into(), label: "disabled".into(), parent_id: None,
+        kind: GraphTreeKind::Operator, mode: NodeExecutionMode::Disabled,
+        execution_node_id: Some("disabled_module".into()), module_id: None,
+        iq_override_id: None, inputs: vec!["in".into()], outputs: vec!["out".into()],
+        reason: None, default_expanded: false,
+    });
+    graph.nodes.push(rime_core::GraphTreeNode {
+        id: "bypass_module".into(), label: "bypass".into(), parent_id: None,
+        kind: GraphTreeKind::Operator, mode: NodeExecutionMode::Bypass,
+        execution_node_id: Some("bypass_module".into()), module_id: None,
+        iq_override_id: None, inputs: vec!["in".into()], outputs: vec!["out".into()],
+        reason: None, default_expanded: false,
+    });
+    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    let state = config.resolve(&graph).expect("resolve");
+
+    assert!(!state.module("disabled_module").expect("disabled module").effective_output_enabled);
+    assert!(!state.module("bypass_module").expect("bypass module").effective_output_enabled);
+    assert_eq!(state.module("bypass_module").unwrap().mode, NodeExecutionMode::Bypass);
+}
+
+#[test]
+fn graph_quantization_reopening_global_switch_restores_preferences() {
+    use rime_core::GraphQuantizationConfig;
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.module_mut("blc").unwrap().dither_enabled = true;
+    config.enabled = false;
+    assert!(!config.resolve(&graph).unwrap().module("blc").unwrap().effective_dither_enabled);
+    config.enabled = true;
+    let state = config.resolve(&graph).expect("resolve");
+    assert!(state.module("blc").unwrap().effective_output_enabled);
+    assert!(state.module("blc").unwrap().effective_dither_enabled);
+}
+ 
+#[test]
+fn graph_quantization_rejects_unknown_modules_and_malformed_profiles() {
+    use rime_core::{GraphQuantizationConfig, GraphQuantizationError};
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.modules[0].module_id = "missing".into();
+    assert!(matches!(config.resolve(&graph), Err(GraphQuantizationError::UnknownModule { .. })));
+
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.module_mut("blc").unwrap().output_profile = "u25.1".into();
+    assert!(matches!(config.resolve(&graph), Err(GraphQuantizationError::InvalidProfile { .. })));
+}
+
+#[test]
+fn graph_quantization_serializes_output_only_preferences_and_derives_mode() {
+    use rime_core::GraphQuantizationConfig;
+
+    let graph = build_top_graph_presentation();
+    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    let json = serde_json::to_value(&config).expect("serialize");
+    assert!(json["modules"][0].get("mode").is_none());
+    assert!(json["modules"][0].get("input_profile").is_none());
+    let state = config.resolve(&graph).expect("resolve");
+    assert_eq!(state.module("blc").unwrap().mode, NodeExecutionMode::Enabled);
+}
