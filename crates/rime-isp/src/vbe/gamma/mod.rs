@@ -17,6 +17,7 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
         domain: SignalDomain::EncodedRgb,
         format: ResourceFormat::Rgba32Float,
     },
+    output_rime_q_profile: None,
     default_method: "00",
     methods: &[METHOD_00],
 };

@@ -24,6 +24,7 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
         domain: SignalDomain::LinearRgb,
         format: ResourceFormat::Rgba32Float,
     },
+    output_rime_q_profile: Some("u0.12"),
     default_method: "00",
     methods: &[METHOD_00, METHOD_01, METHOD_02, METHOD_03, METHOD_04],
 };
