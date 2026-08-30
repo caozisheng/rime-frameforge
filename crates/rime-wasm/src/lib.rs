@@ -38,6 +38,14 @@ impl NormalRuntime {
         }
     }
 
+
+    /// Returns the validated graph quantization configuration.
+    #[wasm_bindgen]
+    #[must_use]
+    pub fn quantization_config_json(&self) -> String {
+        serde_json::to_string(&self.quantization_config)
+            .unwrap_or_else(|error| format!(r#"{{"serialization_error":"{error}"}}"#))
+    }
     #[wasm_bindgen(getter)]
     #[must_use]
     pub fn manifest_json(&self) -> String {

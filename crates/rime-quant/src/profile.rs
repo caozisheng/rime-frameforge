@@ -7,22 +7,24 @@ use crate::QuantError;
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClipType {
-    /// Round toward negative infinity.
+    /// Truncate toward zero.
     Truncate,
     /// Compute `floor(code + 0.5)`.
     Round,
-    /// Apply signed deterministic LSB dither, then round toward negative infinity.
+    /// Apply signed deterministic LSB dither, then truncate toward zero.
     Dither,
+    /// Apply stateless GPU PRNG dither, then truncate toward zero.
+    DitherGpu,
 }
 
 /// Quantization rounding policy supported by the compatibility API.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RoundingMode {
-    /// Round toward negative infinity.
+    /// Truncate toward zero.
     TruncateFloor,
     /// Compute `floor(code + 0.5)`, including for negative values.
     RoundFloorPlusHalf,
-    /// Apply signed four-bit dither before rounding toward negative infinity.
+    /// Apply signed four-bit dither before truncating toward zero.
     Dithered,
 }
 

@@ -1,4 +1,5 @@
 import { normalManifest } from '../generated/normal_manifest.generated.js';
+import quantizeShader from '../../../crates/rime-quant/shaders/quantize.wgsl?raw';
 import colorCorrectionShader from '../../../crates/rime-isp/src/vbe/color_correction/color_correction_00.wgsl?raw';
 import demBilinearShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_00.wgsl?raw';
 import demMhcShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_01.wgsl?raw';
@@ -13,13 +14,42 @@ import blcShader from '../../../crates/rime-isp/src/vfe/blc/blc_00.wgsl?raw';
 import wbcShader from '../../../crates/rime-isp/src/vbe/white_balance/white_balance_00.wgsl?raw';
 import type { FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSnapshot } from '../contracts.js';
 import type { ExecutionIdentity } from '../runtime-controller.js';
+import { buildGpuQuantizationPlans, defaultQuantizationConfig, type GpuQuantizationPlan, type QuantizationConfig } from './quantization.js';
 import { GpuPreviewPresenter } from './presenter.js';
 import { GpuResourceRegistry, type GpuResourceRef } from './resource-registry.js';
 import { GpuTexturePool, type TextureLease } from './texture-pool.js';
 import { TransferAudit } from './transfer-audit.js';
 import type { GpuContext } from './device.js';
 import { resolveShaderEntry } from './method-selection.js';
+const QUANTIZE_COMMON = quantizeShader.slice(0, quantizeShader.indexOf('@group(0)'));
+const QUANTIZE_RGBA_SHADER = `${QUANTIZE_COMMON}
+@group(0) @binding(0) var<uniform> quant_params: QuantParams;
+@group(0) @binding(1) var quant_input: texture_2d<f32>;
+@group(0) @binding(2) var quant_output: texture_storage_2d<rgba32float, write>;
+
+@compute @workgroup_size(8, 8)
+fn quantize_rgba32_main(@builtin(global_invocation_id) id: vec3<u32>) {
+  let dimensions = textureDimensions(quant_output);
+  if (id.x >= dimensions.x || id.y >= dimensions.y) { return; }
+  let ppc = max(quant_params.ppc, 1u);
+  let pixel_group = id.y * quant_params.groups_per_row + id.x / ppc;
+  let ppc_lane = id.x % ppc;
+  let sample = textureLoad(quant_input, vec2<i32>(id.xy), 0);
+  var result: vec4<f32>;
+  var params = quant_params;
+  params.channel = 0u;
+  result.r = quantize_sample(sample.r, params, pixel_group, ppc_lane);
+  params.channel = 1u;
+  result.g = quantize_sample(sample.g, params, pixel_group, ppc_lane);
+  params.channel = 2u;
+  result.b = quantize_sample(sample.b, params, pixel_group, ppc_lane);
+  params.channel = 3u;
+  result.a = quantize_sample(sample.a, params, pixel_group, ppc_lane);
+  textureStore(quant_output, vec2<i32>(id.xy), result);
+}`;
 const SHADER_BY_ENTRY: Record<string, string> = {
+  quantize_r32_main: quantizeShader,
+  quantize_rgba32_main: QUANTIZE_RGBA_SHADER,
   blc_main: blcShader,
   identity_r32_main: identityR32Shader,
   identity_rgba32_main: identityRgba32Shader,
@@ -51,6 +81,7 @@ export class NormalGpuExecutor {
   readonly #blcParams: GPUBuffer;
   readonly #demosaicParams: GPUBuffer;
   readonly #rawTexture: GPUTexture;
+  #quantizationConfig: QuantizationConfig = defaultQuantizationConfig;
   #rawRef: GpuResourceRef;
   #generation: number;
   readonly #selectedMethods: Record<string, string> = {};
@@ -59,7 +90,6 @@ export class NormalGpuExecutor {
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
   };
-
   public constructor(gpu: GpuContext, raw: ArrayBuffer, generation: number, descriptor: RawFrameDescriptor) {
     this.#gpu = gpu;
     this.#generation = generation;
@@ -107,6 +137,12 @@ export class NormalGpuExecutor {
   public async execute(phase: FramePhase, identity: ExecutionIdentity): Promise<PreviewDescriptor> {
     let previousTexture = this.#rawTexture;
     let previousLease: TextureLease | null = null;
+    const plans = buildGpuQuantizationPlans(
+      this.#quantizationConfig,
+      this.#descriptor.width,
+      this.#descriptor.height,
+      0,
+    );
 
     for (const node of normalManifest.nodes.slice(1)) {
       const output = node.outputs[0];
@@ -153,9 +189,28 @@ export class NormalGpuExecutor {
       pass.end();
       this.#gpu.device.queue.submit([encoder.finish()]);
       await this.#gpu.device.queue.onSubmittedWorkDone();
-      if (previousLease !== null) this.#pool.release(previousLease);
-      previousTexture = outputTexture;
-      previousLease = outputLease;
+
+      const plan = plans.get(node.id);
+      if (plan?.outputEnabled === true) {
+        const quantizedLease = this.#pool.acquire(
+          { domain: output.domain, format, width: this.#descriptor.width, height: this.#descriptor.height, usage },
+          () => this.#gpu.device.createTexture({
+            label: `${node.id}.rime-q`,
+            size: [this.#descriptor.width, this.#descriptor.height, 1],
+            format,
+            usage,
+          }),
+        );
+        await this.quantizeOutput(outputTexture, quantizedLease, format, plan);
+        this.#pool.release(outputLease);
+        if (previousLease !== null) this.#pool.release(previousLease);
+        previousTexture = quantizedLease.texture;
+        previousLease = quantizedLease;
+      } else {
+        if (previousLease !== null) this.#pool.release(previousLease);
+        previousTexture = outputTexture;
+        previousLease = outputLease;
+      }
     }
 
     if (previousLease === null) throw new Error('NODE_EXECUTION_FAILED: no final texture');
@@ -192,6 +247,59 @@ export class NormalGpuExecutor {
       throw new Error(`METHOD_INVALID: ${nodeId}.${method}`);
     }
     this.#selectedMethods[nodeId] = method;
+  }
+
+  public setQuantizationConfig(config: QuantizationConfig): void {
+    this.#quantizationConfig = config;
+  }
+
+  private async quantizeOutput(
+    input: GPUTexture,
+    outputLease: TextureLease,
+    format: GPUTextureFormat,
+    plan: GpuQuantizationPlan,
+  ): Promise<void> {
+    const entryPoint = format === 'r32float' ? 'quantize_r32_main' : 'quantize_rgba32_main';
+    const pipeline = this.pipeline(entryPoint);
+    const params = this.#gpu.device.createBuffer({
+      label: `${plan.moduleId}.rime-q-params`,
+      size: 64,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const bytes = new ArrayBuffer(64);
+    const view = new DataView(bytes);
+    view.setFloat32(0, plan.scale, true);
+    view.setFloat32(4, plan.qmin, true);
+    view.setFloat32(8, plan.qmax, true);
+    view.setUint32(12, plan.roundingMode, true);
+    view.setUint32(16, plan.seed, true);
+    view.setUint32(20, plan.streamId, true);
+    view.setUint32(24, plan.frameIndex, true);
+    view.setUint32(28, plan.plane, true);
+    view.setUint32(32, this.#descriptor.width, true);
+    view.setUint32(36, this.#descriptor.height, true);
+    view.setUint32(40, plan.ppc, true);
+    view.setUint32(44, 0, true);
+    view.setUint32(48, plan.groupsPerRow, true);
+    view.setUint32(52, plan.groupsPerFrame, true);
+    this.#gpu.device.queue.writeBuffer(params, 0, bytes);
+    const bindGroup = this.#gpu.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: params } },
+        { binding: 1, resource: input.createView() },
+        { binding: 2, resource: outputLease.texture.createView() },
+      ],
+    });
+    const encoder = this.#gpu.device.createCommandEncoder({ label: `${plan.moduleId}.rime-q` });
+    const pass = encoder.beginComputePass({ label: `${plan.moduleId}.rime-q` });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8));
+    pass.end();
+    this.#gpu.device.queue.submit([encoder.finish()]);
+    await this.#gpu.device.queue.onSubmittedWorkDone();
+    params.destroy();
   }
 
   public setParameter(parameter: string, value: number): void {

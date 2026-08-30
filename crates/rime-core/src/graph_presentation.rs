@@ -81,14 +81,18 @@ impl GraphQuantizationConfig {
             .nodes
             .iter()
             .filter(|node| node.kind == GraphTreeKind::Operator && node.id != "raw_source")
-            .filter_map(|node| node.execution_node_id.as_deref())
-            .map(|module_id| ModuleQuantizationPreference {
+            .filter_map(|node| {
+                node.execution_node_id
+                    .as_deref()
+                    .map(|module_id| (module_id, node.mode))
+            })
+            .map(|(module_id, mode)| ModuleQuantizationPreference {
                 module_id: module_id.into(),
-                output_enabled: true,
+                output_enabled: mode == NodeExecutionMode::Enabled,
                 output_profile: match module_id {
-                    "blc" => "u0.14",
-                    "wbc" | "dem" => "u0.12",
-                    _ => "u0.10",
+                    "blc" => "s0.14",
+                    "wbc" | "dem" => "s0.12",
+                    _ => "s0.10",
                 }
                 .into(),
                 clip_type: ClipType::Truncate,
@@ -179,7 +183,7 @@ impl GraphQuantizationConfig {
                     module_id: module_id.into(),
                     mode,
                     effective_dither_enabled: effective_output_enabled
-                        && preference.clip_type == ClipType::Dither,
+                        && matches!(preference.clip_type, ClipType::Dither | ClipType::DitherGpu),
                     effective_output_enabled,
                     preference,
                 })

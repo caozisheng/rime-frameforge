@@ -59,28 +59,27 @@ describe('graph-level NodeInspector', () => {
     expect(html).not.toContain('BLC ClipType');
   });
 
-  it('shows only output profile and ClipType when module output Rime.Q is enabled', () => {
+  it('shows signed profiles and the dither-gpu ClipType option', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="blc" />);
-    expect(html).toContain('BLC output profile');
-    expect(html).not.toContain('BLC dither');
-    expect(html).not.toContain('Dither');
-    expect(html).toContain('BLC ClipType');
-    expect(html).toContain('<option value="dither">dither</option>');
+    expect(html).toContain('s0.14');
+    expect(html).toContain('<option value="dither_gpu">dither-gpu</option>');
   });
 
-  it('uses generated quantization defaults without exposing input profile', () => {
+  it('uses generated signed quantization defaults without exposing input profile', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
-    expect(html).toContain('u0.14');
-    expect(html).toContain('u0.12');
-    expect(html).toContain('u0.10');
+    expect(html).toContain('s0.14');
+    expect(html).toContain('s0.12');
+    expect(html).toContain('s0.10');
     expect(html).not.toContain('Input profile');
   });
 
-  it('disables effective module controls for bypass nodes', () => {
+  it('disables Rime.Q and hides quantization parameters for bypass nodes', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="sbpc_horizontal" />);
     expect(html).toContain('disabled=""');
     expect(html).toContain('bypass');
-    expect(html).toContain('ClipType');
+    expect(html).toContain('SBPC-H output Rime.Q');
+    expect(html).not.toContain('SBPC-H output profile');
+    expect(html).not.toContain('SBPC-H ClipType');
   });
 });
 

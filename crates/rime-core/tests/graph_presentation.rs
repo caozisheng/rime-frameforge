@@ -167,10 +167,28 @@ fn graph_quantization_defaults_exclude_raw_source() {
     let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
 
     assert!(config.module("raw_source").is_none());
-    assert_eq!(config.module("blc").unwrap().output_profile, "u0.14");
-    assert_eq!(config.module("wbc").unwrap().output_profile, "u0.12");
-    assert_eq!(config.module("dem").unwrap().output_profile, "u0.12");
-    assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "u0.10");
+    assert_eq!(config.module("blc").unwrap().output_profile, "s0.14");
+    assert_eq!(config.module("wbc").unwrap().output_profile, "s0.12");
+    assert_eq!(config.module("dem").unwrap().output_profile, "s0.12");
+    assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "s0.10");
+}
+
+#[test]
+fn graph_quantization_defaults_enable_only_enabled_modules() {
+    use rime_core::{GraphQuantizationConfig, GraphTreeKind, NodeExecutionMode};
+
+    let graph = build_top_graph_presentation();
+    let config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    for node in graph
+        .nodes
+        .iter()
+        .filter(|node| node.kind == GraphTreeKind::Operator && node.id != "raw_source")
+        .filter(|node| node.execution_node_id.is_some())
+    {
+        let module_id = node.execution_node_id.as_deref().expect("operator execution id");
+        let preference = config.module(module_id).expect("preference");
+        assert_eq!(preference.output_enabled, node.mode == NodeExecutionMode::Enabled, "{}", node.id);
+    }
 }
 
 #[test]
@@ -242,6 +260,21 @@ fn graph_quantization_derives_dither_from_effective_output_and_clip_type() {
     config.module_mut("blc").unwrap().clip_type = ClipType::Truncate;
     let state = config.resolve(&graph).expect("resolve");
     assert!(!state.module("blc").expect("BLC state").effective_dither_enabled);
+}
+
+#[test]
+fn graph_quantization_treats_dither_gpu_as_effective_dither() {
+    use rime_core::GraphQuantizationConfig;
+    use rime_quant::ClipType;
+
+    let graph = build_top_graph_presentation();
+    let mut config = GraphQuantizationConfig::defaults_for(&graph).expect("defaults");
+    config.module_mut("blc").unwrap().clip_type = ClipType::DitherGpu;
+
+    let state = config.resolve(&graph).expect("resolve");
+    let blc = state.module("blc").expect("BLC state");
+    assert!(blc.effective_output_enabled);
+    assert!(blc.effective_dither_enabled);
 }
 
 #[test]

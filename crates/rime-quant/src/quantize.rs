@@ -37,7 +37,7 @@ pub enum QuantError {
 /// Quantize one `f32` value onto a fixed-point grid.
 ///
 /// The arithmetic intentionally follows the `f32` reference sequence: scale,
-/// apply the selected offset, floor, rescale, then saturate.
+/// apply the selected offset, truncate toward zero, rescale, then saturate.
 ///
 /// # Errors
 ///
@@ -61,7 +61,11 @@ pub fn quantize_f32_grid(
         RoundingMode::Dithered if x < 0.0 => 0.5 - dither_u04,
         RoundingMode::TruncateFloor | RoundingMode::Dithered => 0.0,
     };
-    let value = (x * scale + offset).floor() / scale;
+    let code = x * scale + offset;
+    let value = match profile.rounding {
+        RoundingMode::RoundFloorPlusHalf => code.floor() / scale,
+        RoundingMode::TruncateFloor | RoundingMode::Dithered => code.trunc() / scale,
+    };
     Ok(value.clamp(profile.qmin(), profile.qmax()))
 }
 
@@ -83,16 +87,20 @@ pub fn quantize_f32(
     if !dither_u04.is_finite() {
         return Err(QuantError::NonFiniteDither);
     }
+    let scale = profile.scale();
     if x == 0.0 {
         return Ok(0.0);
     }
-    let scale = profile.scale();
     let offset = match clip {
         ClipType::Round => 0.5,
-        ClipType::Dither if x > 0.0 => dither_u04 - 0.5,
-        ClipType::Dither => 0.5 - dither_u04,
+        ClipType::Dither | ClipType::DitherGpu if x > 0.0 => dither_u04 - 0.5,
+        ClipType::Dither | ClipType::DitherGpu => 0.5 - dither_u04,
         ClipType::Truncate => 0.0,
     };
-    let value = (x * scale + offset).floor() / scale;
+    let code = x * scale + offset;
+    let value = match clip {
+        ClipType::Round => code.floor() / scale,
+        ClipType::Truncate | ClipType::Dither | ClipType::DitherGpu => code.trunc() / scale,
+    };
     Ok(value.clamp(profile.qmin(), profile.qmax()))
 }

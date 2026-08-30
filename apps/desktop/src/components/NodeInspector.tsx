@@ -12,7 +12,7 @@ export interface ModuleQuantizationPreference {
   readonly module_id: string;
   readonly output_enabled: boolean;
   readonly output_profile: string;
-  readonly clip_type: 'truncate' | 'round' | 'dither';
+  readonly clip_type: 'truncate' | 'round' | 'dither' | 'dither_gpu';
 }
 
 export interface GraphQuantizationConfig {
@@ -37,8 +37,8 @@ interface NodeInspectorProps {
 
 type PresentationNode = (typeof normalGraphPresentation.nodes)[number];
 const defaultQuantization: GraphQuantizationConfig = normalGraphQuantization;
-const PROFILE_OPTIONS = ['u0.10', 'u0.12', 'u0.14'] as const;
-const CLIP_OPTIONS = ['truncate', 'round', 'dither'] as const;
+const PROFILE_OPTIONS = ['s0.10', 's0.12', 's0.14', 'u0.10', 'u0.12', 'u0.14'] as const;
+const CLIP_OPTIONS = ['truncate', 'round', 'dither', 'dither_gpu'] as const;
 
 function ToggleSwitch({ label, checked, disabled, onToggle }: { readonly label: string; readonly checked: boolean; readonly disabled: boolean; readonly onToggle: (checked: boolean) => void }): ReactNode {
   return <button aria-checked={checked} aria-label={label} className={`inspector-switch${checked ? ' is-on' : ''}`} disabled={disabled} role="switch" type="button" onClick={() => onToggle(!checked)}><span className="inspector-switch-track"><span className="inspector-switch-thumb" /></span></button>;
@@ -81,7 +81,7 @@ function moduleControls(
     },
     {
       id: `${node.id}.clip`, label: 'ClipType',
-      control: <select aria-label={`${node.label} ClipType`} disabled={controlsDisabled} value={preference.clip_type} onChange={(event) => update('clip_type', event.target.value as ModuleQuantizationPreference['clip_type'])}>{CLIP_OPTIONS.map((clip) => <option key={clip} value={clip}>{clip}</option>)}</select>,
+      control: <select aria-label={`${node.label} ClipType`} disabled={controlsDisabled} value={preference.clip_type} onChange={(event) => update('clip_type', event.target.value as ModuleQuantizationPreference['clip_type'])}>{CLIP_OPTIONS.map((clip) => <option key={clip} value={clip}>{clip === 'dither_gpu' ? 'dither-gpu' : clip}</option>)}</select>,
     },
   ];
 }

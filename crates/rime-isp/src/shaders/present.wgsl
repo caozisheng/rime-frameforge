@@ -24,5 +24,6 @@ fn present_fragment(in: VertexOut) -> @location(0) vec4<f32> {
   let u = yuv.y - 0.5;
   let v = yuv.z - 0.5;
   let rgb = vec3<f32>(y + 1.5748 * v, y - 0.187324 * u - 0.468124 * v, y + 1.8556 * u);
-  return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+  let display_code = clamp(trunc(rgb * 256.0), vec3<f32>(0.0), vec3<f32>(255.0));
+  return vec4<f32>(display_code / 255.0, 1.0);
 }

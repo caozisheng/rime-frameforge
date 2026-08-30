@@ -57,6 +57,10 @@ export class WasmRuntimeAuthority {
     return this.map(this.#runtime.set_quantization_config(config));
   }
 
+  public quantizationConfig(): string {
+    return this.#runtime.quantization_config_json();
+  }
+
   public fail(): RuntimeEnvelope {
     return this.map(this.#runtime.fail());
   }

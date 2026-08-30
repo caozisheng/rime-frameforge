@@ -64,6 +64,7 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
   if (command.type === 'set_quantization_config') {
     envelope = authority.setQuantizationConfig(command.config);
+    executor?.setQuantizationConfig(JSON.parse(command.config) as Parameters<typeof executor.setQuantizationConfig>[0]);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -117,6 +118,7 @@ async function createExecutor(generation: number): Promise<void> {
   }
   const gpu = await createGpuContext(canvas, descriptor);
   executor = new NormalGpuExecutor(gpu, rawAsset.slice(0), generation, descriptor);
+  executor.setQuantizationConfig(JSON.parse(authority.quantizationConfig()));
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter, value);
   controller = new RuntimeController(
@@ -130,7 +132,7 @@ async function createExecutor(generation: number): Promise<void> {
         envelope,
         entry: { level: 'info', message: `frame 0 ${phase} completed`, framePhase: phase },
       } satisfies RuntimeEvent);
-    },
+    }
   );
   void gpu.device.lost.then((info) => {
     void commands.enqueue(() => {

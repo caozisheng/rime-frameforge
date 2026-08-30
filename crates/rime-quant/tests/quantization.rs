@@ -3,8 +3,8 @@
 use std::str::FromStr;
 
 use rime_quant::{
-    ClipType, DitherKey, DitherProfile, QuantError, QuantProfile, RimeQProfile, RoundingMode,
-    SaturationMode, dither_u04, lfsr28_next, quantize_f32, quantize_f32_grid, rnd4b,
+    dither_u04, lfsr28_next, quantize_f32, quantize_f32_grid, rnd4b, ClipType, DitherKey,
+    DitherProfile, QuantError, QuantProfile, RimeQProfile, RoundingMode, SaturationMode,
 };
 
 #[test]
@@ -32,11 +32,44 @@ fn rime_q_notation_rejects_invalid_and_inexact_bounds() {
 }
 
 #[test]
+fn clip_types_truncate_toward_zero_for_signed_zero_profile() {
+    let profile = RimeQProfile::new(0, 2, true).unwrap();
+    assert_eq!(profile.qmin(), -1.0);
+    assert_eq!(profile.qmax(), 0.75);
+    assert_eq!(
+        quantize_f32(-0.24, &profile, ClipType::Truncate, 0.0),
+        Ok(-0.0)
+    );
+    assert_eq!(
+        quantize_f32(-0.26, &profile, ClipType::Truncate, 0.0),
+        Ok(-0.25)
+    );
+    assert_eq!(
+        quantize_f32(0.26, &profile, ClipType::Truncate, 0.0),
+        Ok(0.25)
+    );
+}
+
+#[test]
+fn dither_truncates_toward_zero_after_signed_perturbation() {
+    let profile = RimeQProfile::new(0, 2, true).unwrap();
+    assert_eq!(
+        quantize_f32(-0.26, &profile, ClipType::Dither, 0.0),
+        Ok(-0.0)
+    );
+    assert_eq!(
+        quantize_f32(0.26, &profile, ClipType::Dither, 1.0),
+        Ok(0.25)
+    );
+    assert_eq!(quantize_f32(0.0, &profile, ClipType::Dither, 1.0), Ok(0.0));
+}
+
+#[test]
 fn clip_types_follow_floor_round_and_signed_lsb_dither() {
     let profile = RimeQProfile::new(1, 2, true).unwrap();
     assert_eq!(
         quantize_f32(-0.26, &profile, ClipType::Truncate, 0.0),
-        Ok(-0.5)
+        Ok(-0.25)
     );
     assert_eq!(
         quantize_f32(0.26, &profile, ClipType::Truncate, 0.0),
@@ -53,7 +86,7 @@ fn clip_types_follow_floor_round_and_signed_lsb_dither() {
     );
     assert_eq!(
         quantize_f32(-0.26, &profile, ClipType::Dither, 0.0),
-        Ok(-0.25)
+        Ok(-0.0)
     );
 }
 
@@ -118,9 +151,9 @@ fn profile(rounding: RoundingMode, signed: bool) -> QuantProfile {
 }
 
 #[test]
-fn truncate_floor_matches_reference_for_negative_values() {
+fn truncate_toward_zero_matches_reference_for_negative_values() {
     let p = profile(RoundingMode::TruncateFloor, true);
-    assert_eq!(quantize_f32_grid(-0.26, &p, 0.0), Ok(-0.5));
+    assert_eq!(quantize_f32_grid(-0.26, &p, 0.0), Ok(-0.25));
     assert_eq!(quantize_f32_grid(0.26, &p, 0.0), Ok(0.25));
 }
 
@@ -204,4 +237,94 @@ fn lfsr_and_rnd4b_are_deterministic() {
         ppc_lane: 0,
     };
     assert_eq!(dither_u04(key), dither_u04(key));
+}
+
+#[test]
+fn dither_gpu_serializes_and_deserializes_as_snake_case() {
+    let value = serde_json::to_string(&ClipType::DitherGpu).unwrap();
+    assert_eq!(value, "\"dither_gpu\"");
+    assert_eq!(
+        serde_json::from_str::<ClipType>("\"dither_gpu\"").unwrap(),
+        ClipType::DitherGpu
+    );
+}
+
+#[test]
+fn dither_gpu_numeric_transform_matches_reference_dither_for_same_sample() {
+    let profile = RimeQProfile::new(0, 8, true).unwrap();
+    let dither_sample = 7.0 / 16.0;
+    assert_eq!(
+        quantize_f32(0.5, &profile, ClipType::DitherGpu, dither_sample),
+        quantize_f32(0.5, &profile, ClipType::Dither, dither_sample)
+    );
+    assert_eq!(
+        quantize_f32(-0.5, &profile, ClipType::DitherGpu, dither_sample),
+        quantize_f32(-0.5, &profile, ClipType::Dither, dither_sample)
+    );
+}
+
+
+#[test]
+fn quantization_shader_declares_stateless_gpu_dither_mode() {
+    let shader = rime_quant::QUANTIZE_WGSL;
+    assert!(shader.contains("ROUND_DITHER_GPU"));
+    assert!(shader.contains("gpu_random_u04"));
+    assert!(shader.contains("pixel_group"));
+    assert!(shader.contains("ppc_lane"));
+}
+#[test]
+fn lfsr_dither_generator_is_uniform_over_four_bit_codes() {
+    const SAMPLES: usize = 16_384;
+    const BIN_COUNT: usize = 16;
+    const KEY: u16 = 0x13ab;
+    let mut histogram = [0_usize; BIN_COUNT];
+    let mut state = 0x1a5b_6cfd;
+
+    for _ in 0..SAMPLES {
+        state = lfsr28_next(state);
+        let rnd16 = u16::try_from(state & 0xffff).unwrap();
+        histogram[usize::from(rnd4b(rnd16, KEY))] += 1;
+    }
+
+    let expected = SAMPLES / BIN_COUNT;
+    let tolerance = expected / 8;
+    for (bin, count) in histogram.into_iter().enumerate() {
+        assert!(
+            count.abs_diff(expected) <= tolerance,
+            "LFSR dither bin {bin} count {count} differs from expected {expected}"
+        );
+    }
+}
+
+#[test]
+fn lfsr_last_bit_dither_preserves_zero_mean_from_s0_8_through_s0_14() {
+    const SAMPLES: usize = 16_384;
+    const KEY: u16 = 0x13ab;
+
+    for frac_bits in 8..=14 {
+        let profile = RimeQProfile::new(0, frac_bits, true).unwrap();
+        let lsb = profile.lsb();
+        let mut state = 0x1a5b_6cfd;
+        let mut sum = 0.0;
+        let mut positive_count = 0_usize;
+        let mut negative_count = 0_usize;
+
+        for _ in 0..SAMPLES {
+            state = lfsr28_next(state);
+            let rnd16 = u16::try_from(state & 0xffff).unwrap();
+            let dither = f32::from(rnd4b(rnd16, KEY)) / 16.0;
+            let positive = quantize_f32(lsb, &profile, ClipType::Dither, dither).unwrap();
+            let negative = quantize_f32(-lsb, &profile, ClipType::Dither, dither).unwrap();
+
+            assert!(positive == 0.0 || positive == lsb);
+            assert!(negative == -0.0 || negative == -lsb);
+            positive_count += usize::from(positive == lsb);
+            negative_count += usize::from(negative == -lsb);
+            sum += positive + negative;
+        }
+
+        assert!(positive_count > SAMPLES / 3 && positive_count < SAMPLES * 2 / 3);
+        assert!(negative_count > SAMPLES / 3 && negative_count < SAMPLES * 2 / 3);
+        assert_eq!(sum, 0.0, "s0.{frac_bits} dither is not zero mean");
+    }
 }
