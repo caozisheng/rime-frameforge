@@ -72,12 +72,12 @@ const FORMAT_BY_NAME: Record<string, GPUTextureFormat> = {
 
 export class NormalGpuExecutor {
   readonly #gpu: GpuContext;
-  readonly #audit = new TransferAudit();
+  #audit = new TransferAudit();
   readonly #registry: GpuResourceRegistry;
   readonly #presenter: GpuPreviewPresenter;
   readonly #pipelines = new Map<string, GPUComputePipeline>();
   readonly #pool: GpuTexturePool;
-  readonly #descriptor: RawFrameDescriptor;
+  #descriptor: RawFrameDescriptor;
   readonly #blcParams: GPUBuffer;
   readonly #demosaicParams: GPUBuffer;
   readonly #rawTexture: GPUTexture;
@@ -90,7 +90,7 @@ export class NormalGpuExecutor {
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
   };
-  public constructor(gpu: GpuContext, raw: ArrayBuffer, generation: number, descriptor: RawFrameDescriptor) {
+  public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, generation: number, descriptor: RawFrameDescriptor) {
     this.#gpu = gpu;
     this.#generation = generation;
     this.#descriptor = descriptor;
@@ -104,28 +104,61 @@ export class NormalGpuExecutor {
       usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING,
     });
     this.#rawRef = this.#registry.register('raw_source.out', this.#rawTexture, { destroyOnInvalidate: false });
-    const rawSamples = new Uint16Array(raw);
-    const expected = descriptor.rowStrideSamples * descriptor.height;
-    if (rawSamples.length !== expected) throw new Error(`INPUT_INVALID: expected ${expected} RAW samples`);
     this.#blcParams = gpu.device.createBuffer({
       label: 'blc-params',
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+    this.#demosaicParams = gpu.device.createBuffer({
+      label: 'demosaic-params',
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.uploadFrame(raw, rawByteOffset, descriptor);
+  }
+
+  public canReplaceFrame(descriptor: RawFrameDescriptor): boolean {
+    return descriptor.width === this.#descriptor.width
+      && descriptor.height === this.#descriptor.height
+      && descriptor.rowStrideSamples === this.#descriptor.rowStrideSamples;
+  }
+
+  public replaceFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {
+    if (!this.canReplaceFrame(descriptor)) {
+      throw new Error('GPU_FRAME_EXTENT_CHANGED: executor resources must be rebuilt');
+    }
+    this.#descriptor = descriptor;
+    this.#generation += 1;
+    this.#registry.invalidate(this.#generation);
+    this.#pool.invalidateGeneration(this.#generation);
+    this.#rawRef = this.#registry.register('raw_source.out', this.#rawTexture, { destroyOnInvalidate: false });
+    this.#audit = new TransferAudit();
+    this.uploadFrame(raw, rawByteOffset, descriptor);
+  }
+
+  public dispose(): void {
+    this.#registry.invalidate(this.#generation + 1);
+    this.#pool.dispose();
+    this.#rawTexture.destroy();
+    this.#blcParams.destroy();
+    this.#demosaicParams.destroy();
+  }
+
+  private uploadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {
+    const expected = descriptor.rowStrideSamples * descriptor.height;
+    if (rawByteOffset % 2 !== 0 || rawByteOffset < 0 || rawByteOffset + expected * 2 !== raw.byteLength) {
+      throw new Error(`INPUT_INVALID: expected ${expected} RAW samples`);
+    }
+    const rawSamples = new Uint16Array(raw, rawByteOffset, expected);
     const bytes = new ArrayBuffer(16);
     const view = new DataView(bytes);
     view.setFloat32(0, descriptor.blackLevel, true);
     view.setFloat32(4, descriptor.whiteLevel, true);
     view.setUint32(8, descriptor.width, true);
     view.setUint32(12, descriptor.height, true);
-    this.#demosaicParams = gpu.device.createBuffer({
-      label: 'demosaic-params',
-      size: 32,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
+    this.#gpu.device.queue.writeBuffer(this.#blcParams, 0, bytes);
     this.writeDemosaicParams(descriptor);
-    gpu.device.queue.writeBuffer(this.#blcParams, 0, bytes);
-    gpu.device.queue.writeTexture(
+    this.#gpu.device.queue.writeTexture(
       { texture: this.#rawTexture },
       rawSamples,
       { bytesPerRow: descriptor.width * 2, rowsPerImage: descriptor.height },

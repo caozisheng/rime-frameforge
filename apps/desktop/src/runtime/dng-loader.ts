@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import type { RawFrameDescriptor } from '../../../../web/src/contracts.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './worker-bridge.js';
+import { decodeDngFramePayload } from './dng-frame-payload.js';
 
 export interface LoadedDngSelection {
   readonly descriptor: DngFrameDescriptor;
@@ -50,9 +51,10 @@ export async function loadDngPathIntoWorker(
   path: string,
   frameIndex = 0,
 ): Promise<DngFrameDescriptor> {
-  const descriptor = await invoke<DngFrameDescriptor>('inspect_dng_frame', { path, frameIndex });
-  const rawResponse = await invoke<ArrayBuffer>('read_dng_raw', { path });
-  bridge.loadFrame(rawResponse, {
+  const payload = await invoke<ArrayBuffer>('read_dng_frame', { path, frameIndex });
+  const decoded = decodeDngFramePayload(payload);
+  const descriptor = decoded.descriptor;
+  bridge.loadFrame(decoded.payload, decoded.rawByteOffset, {
     width: descriptor.width,
     height: descriptor.height,
     rowStrideSamples: descriptor.rowStrideSamples,

@@ -79,6 +79,13 @@ export class GpuTexturePool {
     this.#generation = nextGeneration;
   }
 
+  public dispose(): void {
+    for (const entry of this.#entries.values()) {
+      entry.texture.destroy();
+    }
+    this.#entries.clear();
+  }
+
   private createEntry(key: TextureKey, factory: () => GPUTexture): PoolEntry {
     const entry: PoolEntry = {
       resourceId: this.#nextResourceId++,

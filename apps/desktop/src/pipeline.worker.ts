@@ -1,4 +1,5 @@
-import { createGpuContext } from '../../../web/src/gpu/device.js';
+import { createGpuContext, type GpuContext } from '../../../web/src/gpu/device.js';
+import { validateGpuInput } from '../../../web/src/gpu/capability.js';
 import { NormalGpuExecutor } from '../../../web/src/gpu/executor.js';
 import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
@@ -7,10 +8,12 @@ import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
 import { canLoadNextDngFrame } from './runtime/dng-sequence.js';
 
 let executor: NormalGpuExecutor | null = null;
+let gpu: GpuContext | null = null;
 let controller: RuntimeController | null = null;
 let authority: WasmRuntimeAuthority | null = null;
 let canvas: OffscreenCanvas | null = null;
 let rawAsset: ArrayBuffer | null = null;
+let rawByteOffset = 0;
 let descriptor: RawFrameDescriptor | null = null;
 let deviceWasLost = false;
 const selectedMethods: Record<string, string> = { dem: '00' };
@@ -43,10 +46,13 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   if (command.type === 'initialize') {
     canvas = command.canvas;
     rawAsset = command.raw;
+    rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
     authority = await WasmRuntimeAuthority.create();
     envelope = authority.load();
-    await createExecutor(envelope.gpuGeneration);
+    gpu = await createGpuContext(canvas, descriptor);
+    createExecutor(envelope.gpuGeneration);
+    watchDeviceLoss(gpu.device);
     self.postMessage({ type: 'ready', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -56,9 +62,17 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
       throw new Error('INVALID_STATE_TRANSITION: DNG frame can only load while stopped or completed');
     }
     rawAsset = command.raw;
+    rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
     envelope = authority.reset();
-    await createExecutor(envelope.gpuGeneration);
+    if (executor?.canReplaceFrame(descriptor) === true) {
+      executor.replaceFrame(rawAsset, rawByteOffset, descriptor);
+    } else {
+      executor?.dispose();
+      if (gpu === null) throw new Error('INVALID_STATE_TRANSITION: GPU context is unavailable');
+      validateGpuInput(descriptor, 4096, gpu.device.limits.maxTextureDimension2D);
+      createExecutor(envelope.gpuGeneration);
+    }
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -102,7 +116,10 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   if (command.type === 'reset') {
     if (deviceWasLost) {
       envelope = authority.reset();
-      await createExecutor(envelope.gpuGeneration);
+      if (canvas === null || descriptor === null) throw new Error('INVALID_STATE_TRANSITION: GPU inputs are unavailable');
+      gpu = await createGpuContext(canvas, descriptor);
+      createExecutor(envelope.gpuGeneration);
+      watchDeviceLoss(gpu.device);
       deviceWasLost = false;
     } else {
       if (controller === null) throw new Error('INVALID_STATE_TRANSITION: GPU executor is unavailable');
@@ -113,12 +130,11 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
 }
 
-async function createExecutor(generation: number): Promise<void> {
-  if (canvas === null || rawAsset === null || descriptor === null || authority === null) {
+function createExecutor(generation: number): void {
+  if (gpu === null || rawAsset === null || descriptor === null || authority === null) {
     throw new Error('INVALID_STATE_TRANSITION: GPU inputs are unavailable');
   }
-  const gpu = await createGpuContext(canvas, descriptor);
-  executor = new NormalGpuExecutor(gpu, rawAsset.slice(0), generation, descriptor);
+  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor);
   executor.setQuantizationConfig(JSON.parse(authority.quantizationConfig()));
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter, value);
@@ -135,12 +151,16 @@ async function createExecutor(generation: number): Promise<void> {
       } satisfies RuntimeEvent);
     }
   );
-  void gpu.device.lost.then((info) => {
+}
+
+function watchDeviceLoss(device: GPUDevice): void {
+  void device.lost.then((info) => {
     void commands.enqueue(() => {
-      if (authority === null) return;
+      if (authority === null || gpu?.device !== device) return;
       deviceWasLost = true;
       controller = null;
       executor = null;
+      gpu = null;
       envelope = authority.deviceLost();
       postError(`WebGPU device lost: ${info.message || info.reason}`, 'GPU_DEVICE_LOST');
     });

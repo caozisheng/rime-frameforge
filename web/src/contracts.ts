@@ -67,8 +67,8 @@ export interface RuntimeLogEntry {
 }
 
 export type RuntimeCommand =
-  | { readonly type: 'initialize'; readonly canvas: OffscreenCanvas; readonly raw: ArrayBuffer; readonly descriptor: RawFrameDescriptor }
-  | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly descriptor: RawFrameDescriptor }
+  | { readonly type: 'initialize'; readonly canvas: OffscreenCanvas; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
+  | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
   | { readonly type: 'set_quantization_config'; readonly config: string }

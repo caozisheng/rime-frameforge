@@ -71,7 +71,7 @@ export interface DngSequenceDescriptor {
 export interface WorkerBridge {
   readonly worker: Worker;
   initialize(canvas: OffscreenCanvas): Promise<void>;
-  loadFrame(raw: ArrayBuffer, descriptor: RawFrameDescriptor): void;
+  loadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void;
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
   setQuantizationConfig(config: string): void;
@@ -104,9 +104,9 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
         blackLevel: 64,
         whiteLevel: 4095,
       };
-      send({ type: 'initialize', canvas, raw, descriptor }, [canvas, raw]);
+      send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor }, [canvas, raw]);
     },
-    loadFrame: (raw, descriptor) => send({ type: 'load_frame', raw, descriptor }, [raw]),
+    loadFrame: (raw, rawByteOffset, descriptor) => send({ type: 'load_frame', raw, rawByteOffset, descriptor }, [raw]),
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
     setQuantizationConfig: (config) => send({ type: 'set_quantization_config', config }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),

@@ -191,30 +191,30 @@ fn significant_digits(value: &[u8], mut start: usize, end: usize) -> &[u8] {
 }
 
 #[tauri::command]
-pub fn inspect_dng_frame(
-    path: String,
-    frame_index: Option<u64>,
-) -> Result<DngFrameDescriptor, String> {
+pub fn read_dng_frame(path: String, frame_index: Option<u64>) -> Result<Response, String> {
+    let path = Path::new(&path);
     let frame = DngReader::new()
-        .decode_file(Path::new(&path), frame_index.unwrap_or(0))
+        .decode_file(path, frame_index.unwrap_or(0))
         .map_err(|error| error.to_string())?;
-    Ok(descriptor_from_frame(&frame, Path::new(&path)))
+    Ok(Response::new(dng_frame_payload(&frame, path)?))
 }
 
-#[tauri::command]
-pub fn read_dng_raw(path: String) -> Result<Response, String> {
-    let frame = DngReader::new()
-        .decode_file(Path::new(&path), 0)
-        .map_err(|error| error.to_string())?;
-    Ok(Response::new(raw_samples_le(&frame)))
-}
-
-fn raw_samples_le(frame: &rime_dng::DecodedRawFrame) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(frame.samples.len() * 2);
-    for sample in &frame.samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
+fn dng_frame_payload(frame: &rime_dng::DecodedRawFrame, path: &Path) -> Result<Vec<u8>, String> {
+    let descriptor = serde_json::to_vec(&descriptor_from_frame(frame, path))
+        .map_err(|error| format!("DNG_DESCRIPTOR_ENCODE_FAILED: {error}"))?;
+    let descriptor_length = u32::try_from(descriptor.len())
+        .map_err(|_| "DNG_DESCRIPTOR_ENCODE_FAILED: descriptor exceeds u32 length".to_owned())?;
+    let padding = descriptor.len() & 1;
+    let mut payload = Vec::with_capacity(4 + descriptor.len() + padding + frame.samples.len() * 2);
+    payload.extend_from_slice(&descriptor_length.to_le_bytes());
+    payload.extend_from_slice(&descriptor);
+    if padding != 0 {
+        payload.push(0);
     }
-    bytes
+    for sample in &frame.samples {
+        payload.extend_from_slice(&sample.to_le_bytes());
+    }
+    Ok(payload)
 }
 
 pub fn descriptor_from_frame(frame: &rime_dng::DecodedRawFrame, path: &Path) -> DngFrameDescriptor {
@@ -303,11 +303,33 @@ mod tests {
             .decode_file(Path::new(GH5S), 0)
             .expect("GH5S frame must decode");
         let descriptor = descriptor_from_frame(&frame, Path::new(GH5S));
-        let bytes = raw_samples_le(&frame);
+        let payload =
+            dng_frame_payload(&frame, Path::new(GH5S)).expect("frame payload must encode");
+        let descriptor_length =
+            u32::from_le_bytes(payload[0..4].try_into().expect("length header")) as usize;
+        let raw_offset = 4 + descriptor_length + (descriptor_length & 1);
         assert_eq!(descriptor.width, 3744);
         assert_eq!(descriptor.height, 2776);
-        assert_eq!(bytes.len(), frame.samples.len() * 2);
+        assert_eq!(payload.len() - raw_offset, frame.samples.len() * 2);
         assert!(!descriptor.metadata.raw_extra.is_empty());
+    }
+
+    #[test]
+    fn dng_frame_payload_contains_descriptor_and_raw_samples() {
+        let frame = DngReader::new()
+            .decode_file(Path::new(GH5S), 9)
+            .expect("GH5S frame must decode");
+
+        let payload =
+            dng_frame_payload(&frame, Path::new(GH5S)).expect("frame payload must encode");
+        let descriptor_length =
+            u32::from_le_bytes(payload[0..4].try_into().expect("length header")) as usize;
+        let raw_offset = 4 + descriptor_length + (descriptor_length & 1);
+        let descriptor: serde_json::Value =
+            serde_json::from_slice(&payload[4..4 + descriptor_length]).expect("descriptor JSON");
+
+        assert_eq!(descriptor["frameIndex"], 9);
+        assert_eq!(payload.len() - raw_offset, frame.samples.len() * 2);
     }
 
     #[test]
