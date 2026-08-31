@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+use std::borrow::Cow;
+
 use std::path::{Path, PathBuf};
 
 use gamut_dng::{DngDecoder, RawPhotometry, cfa_color};
@@ -72,10 +74,29 @@ pub struct DngMetadata {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedRawFrame {
     pub frame_index: u64,
-    pub samples: Box<[u16]>,
+    pub raw: gamut_dng::RawImage,
     pub layout: RawFrameLayout,
     pub metadata: DngMetadata,
     pub raw_digest: String,
+}
+
+impl DecodedRawFrame {
+    #[must_use]
+    pub fn samples(&self) -> &[u16] {
+        self.raw.samples()
+    }
+
+    #[must_use]
+    pub fn sample_bytes_le(&self) -> Cow<'_, [u8]> {
+        #[cfg(target_endian = "little")]
+        {
+            Cow::Borrowed(bytemuck::cast_slice(self.samples()))
+        }
+        #[cfg(target_endian = "big")]
+        {
+            Cow::Owned(self.samples().iter().flat_map(|sample| sample.to_le_bytes()).collect())
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -177,13 +198,14 @@ impl DngReader {
         {
             return Err(DngReaderError::MissingCalibration);
         }
-        let samples = raw.samples().to_vec().into_boxed_slice();
+        let raw_digest = digest_u16(raw.samples());
+        let metadata = metadata_from_decoded(&decoded, raw);
         let storage_bits = u8::try_from(storage_bits)
             .map_err(|_| DngReaderError::UnsupportedBitDepth(storage_bits))?;
         Ok(DecodedRawFrame {
             frame_index,
-            raw_digest: digest_u16(&samples),
-            samples,
+            raw: decoded.raw,
+            raw_digest,
             layout: RawFrameLayout {
                 width,
                 height,
@@ -191,7 +213,7 @@ impl DngReader {
                 storage_bits,
                 cfa,
             },
-            metadata: metadata_from_decoded(&decoded, raw),
+            metadata,
         })
     }
 
@@ -366,9 +388,16 @@ fn digest_bytes(bytes: &[u8]) -> String {
 }
 
 fn digest_u16(samples: &[u16]) -> String {
-    let mut bytes = Vec::with_capacity(samples.len() * 2);
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
+    #[cfg(target_endian = "little")]
+    {
+        digest_bytes(bytemuck::cast_slice(samples))
     }
-    digest_bytes(&bytes)
+    #[cfg(target_endian = "big")]
+    {
+        let mut hasher = Sha256::new();
+        for sample in samples {
+            hasher.update(sample.to_le_bytes());
+        }
+        format!("{hasher:x}")
+    }
 }

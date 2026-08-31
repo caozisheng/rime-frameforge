@@ -13,6 +13,14 @@ export function dngFrameForStep<T>(pending: { readonly index: number; readonly d
   return pending === null ? { index: currentIndex, descriptor: null } : pending;
 }
 
+export function isCurrentDngPrefetch(
+  pending: { readonly index: number; readonly generation: number } | null,
+  expectedIndex: number,
+  generation: number,
+): boolean {
+  return pending?.index === expectedIndex && pending.generation === generation;
+}
+
 export function canLoadNextDngFrame(lifecycleState: string): boolean {
   return lifecycleState === 'stop' || lifecycleState === 'completed';
 }

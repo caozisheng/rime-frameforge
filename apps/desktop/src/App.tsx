@@ -9,8 +9,9 @@ import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
 import { NodeInspector, type GraphQuantizationConfig, type ModuleQuantizationPreference } from './components/NodeInspector.js';
 import { PreviewSurface } from './components/PreviewSurface.js';
-import { loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker } from './runtime/dng-loader.js';
-import { commitPendingDngFrame, dngFrameForStep, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor } from './runtime/dng-sequence.js';
+import { decodeDngPath, loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker, loadDngSequencePathIntoWorker, loadDecodedDngIntoWorker } from './runtime/dng-loader.js';
+import { isCurrentDngPrefetch, nextDngRunFrame, nextDngSequenceFrame } from './runtime/dng-sequence.js';
+import type { DecodedDngFramePayload } from './runtime/dng-frame-payload.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './runtime/worker-bridge.js';
 import { createWorkerBridge } from './runtime/worker-bridge.js';
 
@@ -62,7 +63,9 @@ export function App() {
   const sequencePlayingRef = useRef(false);
   const dngPathsRef = useRef<readonly string[]>([]);
   const dngFrameIndexRef = useRef(0);
-  const pendingDngRef = useRef<{ readonly index: number; readonly descriptor: DngFrameDescriptor } | null>(null);
+  const pendingDngRef = useRef<{ readonly index: number; readonly generation: number; readonly decoded: DecodedDngFramePayload } | null>(null);
+  const prefetchSlotRef = useRef<{ readonly index: number; readonly generation: number; readonly promise: Promise<DecodedDngFramePayload> } | null>(null);
+  const sequenceGenerationRef = useRef(0);
   const [commandPending, setCommandPending] = useState(false);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
   const [fitGraphRequest, setFitGraphRequest] = useState(0);
@@ -70,6 +73,53 @@ export function App() {
   const [workspaceLayout] = useState(() => persistedLayout(WORKSPACE_LAYOUT_KEY, WORKSPACE_LAYOUT));
   const [leftLayout] = useState(() => persistedLayout(LEFT_LAYOUT_KEY, LEFT_LAYOUT));
   const [rightLayout] = useState(() => persistedLayout(RIGHT_LAYOUT_KEY, RIGHT_LAYOUT));
+  const beginDngPrefetch = (index: number): void => {
+    const path = dngPathsRef.current[index];
+    const generation = sequenceGenerationRef.current;
+    const slot = prefetchSlotRef.current;
+    if (path === undefined || isCurrentDngPrefetch(pendingDngRef.current, index, generation) || (slot !== null && isCurrentDngPrefetch(slot, index, generation))) return;
+    const promise = decodeDngPath(path, index);
+    prefetchSlotRef.current = { index, generation, promise };
+    void promise.then((decoded) => {
+      if (generation !== sequenceGenerationRef.current || prefetchSlotRef.current?.promise !== promise) return;
+      pendingDngRef.current = { index, generation, decoded };
+    }).catch((error: unknown) => {
+      if (generation !== sequenceGenerationRef.current) return;
+      sequencePlayingRef.current = false;
+      setSequencePlaying(false);
+      setCommandPending(false);
+      setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }]);
+    }).finally(() => {
+      if (prefetchSlotRef.current?.promise === promise) prefetchSlotRef.current = null;
+    });
+  };
+  const consumeDngFrame = async (index: number, mode: 'run' | 'step'): Promise<void> => {
+    const generation = sequenceGenerationRef.current;
+    const path = dngPathsRef.current[index];
+    if (path === undefined || bridgeRef.current === null) return;
+    let pending = isCurrentDngPrefetch(pendingDngRef.current, index, generation) ? pendingDngRef.current : null;
+    if (pending === null) {
+      const slot = prefetchSlotRef.current;
+      const decoded = slot !== null && isCurrentDngPrefetch(slot, index, generation) ? await slot.promise : await decodeDngPath(path, index);
+      if (generation !== sequenceGenerationRef.current || decoded.descriptor.frameIndex !== index) return;
+      pending = { index, generation, decoded };
+    }
+    if (!isCurrentDngPrefetch(pending, index, generation)) return;
+    pendingDngRef.current = null;
+    prefetchSlotRef.current = null;
+    loadDecodedDngIntoWorker(bridgeRef.current, pending.decoded);
+    dngFrameIndexRef.current = index;
+    setDngFrameIndex(index);
+    setLoadedDng(pending.decoded.descriptor);
+    if (mode === 'run') beginDngPrefetch(index + 1);
+    bridgeRef.current[mode](index);
+  };
+
+  const invalidateDngPrefetch = (): void => {
+    sequenceGenerationRef.current += 1;
+    pendingDngRef.current = null;
+    prefetchSlotRef.current = null;
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -78,6 +128,21 @@ export function App() {
     const bridge = createWorkerBridge(handleEvent);
     bridgeRef.current = bridge;
     void bridge.initialize(offscreen).then(async () => {
+      const smokeSequencePath = import.meta.env.VITE_RIME_DNG_SEQUENCE_SMOKE_PATH;
+      if (smokeSequencePath !== undefined && smokeSequencePath.length > 0) {
+        try {
+          const { descriptor, sequence } = await loadDngSequencePathIntoWorker(bridge, smokeSequencePath);
+          setLoadedDng(descriptor);
+          setDngSequence(sequence);
+          setDngPaths(sequence.paths);
+          dngPathsRef.current = sequence.paths;
+          beginDngPrefetch(1);
+          appendLog({ level: 'info', message: `DNG sequence smoke loaded: ${sequence.frameCount} frames` });
+        } catch (error) {
+          appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_SMOKE_FAILED' });
+        }
+        return;
+      }
       const smokePath = import.meta.env.VITE_RIME_DNG_SMOKE_PATH;
       if (smokePath === undefined || smokePath.length === 0) return;
       try {
@@ -111,21 +176,12 @@ export function App() {
         const nextIndex = nextDngSequenceFrame(committedIndex, dngPathsRef.current.length, sequencePlayingRef.current);
         if (nextIndex !== null && bridgeRef.current !== null) {
           setCommandPending(true);
-          void loadDngPathIntoWorker(bridgeRef.current, dngPathsRef.current[nextIndex]!, nextIndex)
-            .then((descriptor) => {
-              pendingDngRef.current = { index: nextIndex, descriptor };
-              if (!shouldCommitDngDescriptor(sequencePlayingRef.current, descriptor.frameIndex, nextIndex)) {
-                setCommandPending(false);
-                return;
-              }
-              pendingDngRef.current = null;
-              dngFrameIndexRef.current = nextIndex;
-              setDngFrameIndex(nextIndex);
-              setLoadedDng(descriptor);
-              setCommandPending(true);
-              bridgeRef.current?.run(nextIndex);
-            })
-            .catch((error: unknown) => { sequencePlayingRef.current = false; setSequencePlaying(false); setCommandPending(false); appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }); });
+          void consumeDngFrame(nextIndex, 'run').catch((error: unknown) => {
+            sequencePlayingRef.current = false;
+            setSequencePlaying(false);
+            setCommandPending(false);
+            appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' });
+          });
         } else if (sequencePlayingRef.current) {
           sequencePlayingRef.current = false;
           setSequencePlaying(false);
@@ -151,6 +207,7 @@ export function App() {
   const loadDng = (): void => {
     if (bridgeRef.current === null) return;
     setOpenMenu(null);
+    invalidateDngPrefetch();
     setCommandPending(true);
     void loadDngIntoWorker(bridgeRef.current).then(({ descriptor, paths }) => {
       pendingDngRef.current = null;
@@ -168,6 +225,7 @@ export function App() {
 
   const loadDngSequence = (): void => {
     if (bridgeRef.current === null) return;
+    invalidateDngPrefetch();
     setOpenMenu(null);
     setCommandPending(true);
     sequencePlayingRef.current = false;
@@ -180,6 +238,7 @@ export function App() {
       dngPathsRef.current = sequence.paths;
       setDngFrameIndex(0);
       dngFrameIndexRef.current = 0;
+      beginDngPrefetch(1);
     }).catch((error: unknown) => {
       setCommandPending(false);
       setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_LOAD_FAILED' }]);
@@ -216,28 +275,13 @@ export function App() {
   };
   const runGraph = (): void => {
     if (bridgeRef.current === null) return;
-    const pending = commitPendingDngFrame(pendingDngRef.current, dngFrameIndexRef.current);
+    const pending = pendingDngRef.current;
     const runIndex = nextDngRunFrame(dngFrameIndexRef.current, dngPathsRef.current.length, envelope.visibleFrameCommitted, pending?.index ?? null);
     sequencePlayingRef.current = dngPathsRef.current.length > 1 && runIndex + 1 < dngPathsRef.current.length;
     setSequencePlaying(sequencePlayingRef.current);
     setCommandPending(true);
-    if (pending !== null) {
-      pendingDngRef.current = null;
-      dngFrameIndexRef.current = pending.index;
-      setDngFrameIndex(pending.index);
-      setLoadedDng(pending.descriptor);
-      bridgeRef.current.run(pending.index);
-      return;
-    }
-    if (runIndex !== dngFrameIndexRef.current) {
-      const path = dngPathsRef.current[runIndex];
-      if (path === undefined) return;
-      void loadDngPathIntoWorker(bridgeRef.current, path, runIndex).then((descriptor) => {
-        dngFrameIndexRef.current = runIndex;
-        setDngFrameIndex(runIndex);
-        setLoadedDng(descriptor);
-        bridgeRef.current?.run(runIndex);
-      }).catch((error: unknown) => {
+    if (runIndex !== dngFrameIndexRef.current || pending?.index === runIndex) {
+      void consumeDngFrame(runIndex, 'run').catch((error: unknown) => {
         sequencePlayingRef.current = false;
         setSequencePlaying(false);
         setCommandPending(false);
@@ -245,16 +289,40 @@ export function App() {
       });
       return;
     }
+    beginDngPrefetch(runIndex + 1);
     bridgeRef.current.run(runIndex);
+  };
+
+  const stepGraph = (): void => {
+    sequencePlayingRef.current = false;
+    setSequencePlaying(false);
+    setCommandPending(true);
+    const pending = pendingDngRef.current;
+    if (pending !== null && pending.generation === sequenceGenerationRef.current) {
+      void consumeDngFrame(pending.index, 'step').catch((error: unknown) => {
+        setCommandPending(false);
+        setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }]);
+      });
+      return;
+    }
+    bridgeRef.current?.step(dngFrameIndexRef.current);
+  };
+
+  const resetGraph = (): void => {
+    sequencePlayingRef.current = false;
+    setSequencePlaying(false);
+    invalidateDngPrefetch();
+    setCommandPending(true);
+    bridgeRef.current?.reset();
   };
 
 
   const transportControls = (
     <div className="transport-toolbar" aria-label="Transport controls">
       <button disabled={!canRun} onClick={runGraph} type="button">Run</button>
-      <button disabled={!canStep} onClick={() => { sequencePlayingRef.current = false; setSequencePlaying(false); const frame = dngFrameForStep(pendingDngRef.current, dngFrameIndexRef.current); pendingDngRef.current = null; if (frame.descriptor !== null) { dngFrameIndexRef.current = frame.index; setDngFrameIndex(frame.index); setLoadedDng(frame.descriptor); } setCommandPending(true); bridgeRef.current?.step(frame.index); }} type="button">Step <span className="shortcut">▷|</span></button>
+      <button disabled={!canStep} onClick={stepGraph} type="button">Step <span className="shortcut">▷|</span></button>
       <button disabled={!sequencePlaying} onClick={() => { sequencePlayingRef.current = false; setSequencePlaying(false); }} type="button">Pause</button>
-      <button disabled={!canReset} onClick={() => { sequencePlayingRef.current = false; setSequencePlaying(false); setCommandPending(true); bridgeRef.current?.reset(); }} type="button">Reset</button>
+      <button disabled={!canReset} onClick={resetGraph} type="button">Reset</button>
     </div>
   );
 
@@ -268,7 +336,7 @@ export function App() {
             {openMenu === 'file' && <div className="menu-popover">
               <button disabled={!canLoad} onClick={loadDng} type="button">Load DNG</button>
               <button disabled={!canLoad} onClick={loadDngSequence} type="button">Load DNG sequence</button>
-              <button disabled={!canReset} onClick={() => { setOpenMenu(null); setCommandPending(true); bridgeRef.current?.reset(); }} type="button">Reset</button>
+              <button disabled={!canReset} onClick={() => { setOpenMenu(null); resetGraph(); }} type="button">Reset</button>
             </div>}
           </div>
           <div className="menu-item">

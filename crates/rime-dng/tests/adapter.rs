@@ -25,7 +25,7 @@ fn decoded_samples_match_declared_layout() {
         .expect("GH5S DNG must decode");
 
     assert_eq!(
-        frame.samples.len(),
+        frame.samples().len(),
         (frame.layout.row_stride_samples * frame.layout.height) as usize
     );
 }

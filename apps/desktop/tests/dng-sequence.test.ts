@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canLoadNextDngFrame, commitPendingDngFrame, dngFrameForStep, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
+import { canLoadNextDngFrame, commitPendingDngFrame, dngFrameForStep, isCurrentDngPrefetch, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
 
 describe('DNG sequence playback', () => {
   it('advances to the next frame only while playback is active', () => {
@@ -61,5 +61,17 @@ describe('DNG sequence playback', () => {
 
   it('steps the current frame when no prefetch is pending', () => {
     expect(dngFrameForStep(null, 4)).toEqual({ index: 4, descriptor: null });
+  });
+
+  it('accepts only the expected frame from the current sequence generation', () => {
+    expect(isCurrentDngPrefetch({ index: 3, generation: 7 }, 3, 7)).toBe(true);
+    expect(isCurrentDngPrefetch({ index: 2, generation: 7 }, 3, 7)).toBe(false);
+    expect(isCurrentDngPrefetch({ index: 3, generation: 6 }, 3, 7)).toBe(false);
+    expect(isCurrentDngPrefetch(null, 3, 7)).toBe(false);
+  });
+
+  it('matches a prefetch promise to its frame and sequence generation', () => {
+    expect(isCurrentDngPrefetch({ index: 3, generation: 7 }, 3, 7)).toBe(true);
+    expect(isCurrentDngPrefetch({ index: 3, generation: 7 }, 4, 7)).toBe(false);
   });
 });

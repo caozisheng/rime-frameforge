@@ -205,15 +205,14 @@ fn dng_frame_payload(frame: &rime_dng::DecodedRawFrame, path: &Path) -> Result<V
     let descriptor_length = u32::try_from(descriptor.len())
         .map_err(|_| "DNG_DESCRIPTOR_ENCODE_FAILED: descriptor exceeds u32 length".to_owned())?;
     let padding = descriptor.len() & 1;
-    let mut payload = Vec::with_capacity(4 + descriptor.len() + padding + frame.samples.len() * 2);
+    let sample_bytes = frame.sample_bytes_le();
+    let mut payload = Vec::with_capacity(4 + descriptor.len() + padding + sample_bytes.len());
     payload.extend_from_slice(&descriptor_length.to_le_bytes());
     payload.extend_from_slice(&descriptor);
     if padding != 0 {
         payload.push(0);
     }
-    for sample in &frame.samples {
-        payload.extend_from_slice(&sample.to_le_bytes());
-    }
+    payload.extend_from_slice(&sample_bytes);
     Ok(payload)
 }
 
@@ -310,7 +309,7 @@ mod tests {
         let raw_offset = 4 + descriptor_length + (descriptor_length & 1);
         assert_eq!(descriptor.width, 3744);
         assert_eq!(descriptor.height, 2776);
-        assert_eq!(payload.len() - raw_offset, frame.samples.len() * 2);
+        assert_eq!(payload.len() - raw_offset, frame.samples().len() * 2);
         assert!(!descriptor.metadata.raw_extra.is_empty());
     }
 
@@ -329,7 +328,7 @@ mod tests {
             serde_json::from_slice(&payload[4..4 + descriptor_length]).expect("descriptor JSON");
 
         assert_eq!(descriptor["frameIndex"], 9);
-        assert_eq!(payload.len() - raw_offset, frame.samples.len() * 2);
+        assert_eq!(payload.len() - raw_offset, frame.samples().len() * 2);
     }
 
     #[test]

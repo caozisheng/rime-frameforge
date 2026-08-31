@@ -19,6 +19,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("camera_model={}", frame.metadata.camera_model);
     println!("metadata_hash={}", frame.metadata.metadata_hash);
     println!("raw_digest={}", frame.raw_digest);
-    println!("sample_count={}", frame.samples.len());
+    println!("sample_count={}", frame.samples().len());
     Ok(())
 }

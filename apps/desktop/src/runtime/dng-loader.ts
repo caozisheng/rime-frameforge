@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import type { RawFrameDescriptor } from '../../../../web/src/contracts.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './worker-bridge.js';
-import { decodeDngFramePayload } from './dng-frame-payload.js';
+import { decodeDngFramePayload, type DecodedDngFramePayload } from './dng-frame-payload.js';
 
 export interface LoadedDngSelection {
   readonly descriptor: DngFrameDescriptor;
@@ -28,15 +28,7 @@ export async function loadDngIntoWorker(bridge: WorkerBridge): Promise<LoadedDng
   return { descriptor, paths: [selected] };
 }
 
-export async function loadDngSequenceIntoWorker(bridge: WorkerBridge): Promise<LoadedDngSequence> {
-  const selected = await open({
-    multiple: false,
-    directory: false,
-    filters: [{ name: 'DNG RAW', extensions: ['dng'] }],
-  });
-  if (typeof selected !== 'string') {
-    throw new Error('INPUT_CANCELLED: no DNG file selected');
-  }
+export async function loadDngSequencePathIntoWorker(bridge: WorkerBridge, selected: string): Promise<LoadedDngSequence> {
   const sequence = await invoke<DngSequenceDescriptor>('list_dng_sequence', { path: selected });
   const firstPath = sequence.paths[0];
   if (firstPath === undefined || sequence.frameCount !== sequence.paths.length || sequence.frameCount !== sequence.fileNames.length) {
@@ -46,13 +38,24 @@ export async function loadDngSequenceIntoWorker(bridge: WorkerBridge): Promise<L
   return { descriptor, sequence };
 }
 
-export async function loadDngPathIntoWorker(
-  bridge: WorkerBridge,
-  path: string,
-  frameIndex = 0,
-): Promise<DngFrameDescriptor> {
+export async function loadDngSequenceIntoWorker(bridge: WorkerBridge): Promise<LoadedDngSequence> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'DNG RAW', extensions: ['dng'] }],
+  });
+  if (typeof selected !== 'string') {
+    throw new Error('INPUT_CANCELLED: no DNG file selected');
+  }
+  return loadDngSequencePathIntoWorker(bridge, selected);
+}
+
+export async function decodeDngPath(path: string, frameIndex = 0): Promise<DecodedDngFramePayload> {
   const payload = await invoke<ArrayBuffer>('read_dng_frame', { path, frameIndex });
-  const decoded = decodeDngFramePayload(payload);
+  return decodeDngFramePayload(payload);
+}
+
+export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedDngFramePayload): void {
   const descriptor = decoded.descriptor;
   bridge.loadFrame(decoded.payload, decoded.rawByteOffset, {
     width: descriptor.width,
@@ -63,5 +66,14 @@ export async function loadDngPathIntoWorker(
     blackLevel: descriptor.blackLevel,
     whiteLevel: descriptor.whiteLevel,
   });
-  return descriptor;
+}
+
+export async function loadDngPathIntoWorker(
+  bridge: WorkerBridge,
+  path: string,
+  frameIndex = 0,
+): Promise<DngFrameDescriptor> {
+  const decoded = await decodeDngPath(path, frameIndex);
+  loadDecodedDngIntoWorker(bridge, decoded);
+  return decoded.descriptor;
 }
