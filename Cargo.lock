@@ -2688,7 +2688,7 @@ dependencies = [
 
 [[package]]
 name = "rime-core"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "petgraph",
  "rime-quant",
@@ -2700,7 +2700,7 @@ dependencies = [
 
 [[package]]
 name = "rime-desktop"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "rime-dng",
  "serde",
@@ -2712,7 +2712,7 @@ dependencies = [
 
 [[package]]
 name = "rime-dng"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "bytemuck",
  "gamut-dng",
@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "rime-isp"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "rime-core",
  "rime-quant",
@@ -2731,7 +2731,7 @@ dependencies = [
 
 [[package]]
 name = "rime-quant"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -2740,7 +2740,7 @@ dependencies = [
 
 [[package]]
 name = "rime-wasm"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "rime-core",
  "rime-isp",
