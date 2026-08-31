@@ -31,12 +31,12 @@ export class WasmRuntimeAuthority {
     return this.map(this.#runtime.load());
   }
 
-  public run(): RuntimeEnvelope {
-    return this.map(this.#runtime.run());
+  public run(frameIndex = 0): RuntimeEnvelope {
+    return this.map(this.#runtime.run_frame(frameIndex));
   }
 
-  public step(): RuntimeEnvelope {
-    return this.map(this.#runtime.step());
+  public step(frameIndex = 0): RuntimeEnvelope {
+    return this.map(this.#runtime.step_frame(frameIndex));
   }
 
   public completeWarmup(): RuntimeEnvelope {

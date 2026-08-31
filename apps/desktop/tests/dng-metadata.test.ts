@@ -8,7 +8,7 @@ import {
   clampDngFontSize,
   resolveDngTagName,
 } from '../src/components/dng-metadata.js';
-import type { DngFrameDescriptor } from '../src/runtime/worker-bridge.js';
+import type { DngFrameDescriptor, DngSequenceDescriptor } from '../src/runtime/worker-bridge.js';
 
 const descriptor = {
   frameIndex: 0,
@@ -30,6 +30,13 @@ const descriptor = {
   },
 } satisfies DngFrameDescriptor;
 
+const sequence: DngSequenceDescriptor = {
+  directory: 'C:/frames',
+  paths: ['C:/frames/frame1.dng', 'C:/frames/frame2.dng', 'C:/frames/frame10.dng'],
+  fileNames: ['frame1.dng', 'frame2.dng', 'frame10.dng'],
+  frameCount: 3,
+};
+
 describe('DNG metadata tree model', () => {
   it('clamps metadata font size to the supported range', () => {
     expect(clampDngFontSize(0)).toBe(MIN_DNG_FONT_SIZE);
@@ -43,6 +50,13 @@ describe('DNG metadata tree model', () => {
     expect(groups.find((group) => group.id === 'runtime')?.defaultExpanded).toBe(true);
     expect(groups.find((group) => group.id === 'calibration')?.defaultExpanded).toBe(false);
     expect(groups.find((group) => group.id === 'frame')?.children.map((child) => child.label)).toContain('File name');
+  });
+  it('builds a sequence group with ordered filenames and current position', () => {
+    const groups = buildDngMetadataGroups(descriptor, sequence, 1);
+    const sequenceGroup = groups.find((group) => group.id === 'sequence');
+    expect(sequenceGroup?.children.map((child) => child.label)).toEqual(['Directory', 'File count', 'Current frame', 'Current file', 'Files']);
+    expect(sequenceGroup?.children.find((child) => child.label === 'Current frame')?.value).toBe('2 / 3');
+    expect(sequenceGroup?.children.find((child) => child.label === 'Files')?.children?.map((child) => child.value)).toEqual(sequence.fileNames);
   });
   it('resolves standard tags with TIFF-first precedence and unknown fallback', () => {
     expect(resolveDngTagName(256)).toBe('ImageWidth');

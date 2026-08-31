@@ -1,6 +1,7 @@
 import type { FramePhase, PreviewDescriptor } from './contracts.js';
 
 export interface ExecutionIdentity {
+  readonly frameIndex: number;
   readonly runRevision: number;
   readonly methodRevision: number;
   readonly gpuGeneration: number;

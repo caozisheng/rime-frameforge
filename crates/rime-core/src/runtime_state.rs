@@ -96,6 +96,15 @@ impl GraphRuntime {
     ///
     /// Returns `InvalidStateTransition` unless execution can start or resume.
     pub fn run(&mut self) -> Result<(), Diagnostic> {
+        self.run_frame(0)
+    }
+
+    /// Starts or resumes execution for a logical source frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidStateTransition` unless execution can start or resume.
+    pub fn run_frame(&mut self, frame_index: u64) -> Result<(), Diagnostic> {
         self.require_state(&[
             LifecycleState::Stop,
             LifecycleState::Paused,
@@ -108,7 +117,7 @@ impl GraphRuntime {
             self.start_new_run();
         }
         self.lifecycle_state = LifecycleState::Running;
-        self.frame_index = Some(0);
+        self.frame_index = Some(frame_index);
         self.frame_phase = Some(FramePhase::Warmup);
         Ok(())
     }
@@ -119,12 +128,21 @@ impl GraphRuntime {
     ///
     /// Returns `InvalidStateTransition` outside `Stop` or `Paused`.
     pub fn step(&mut self) -> Result<(), Diagnostic> {
+        self.step_frame(0)
+    }
+
+    /// Starts one visible-frame step for a logical source frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidStateTransition` outside `Stop` or `Paused`.
+    pub fn step_frame(&mut self, frame_index: u64) -> Result<(), Diagnostic> {
         self.require_state(&[LifecycleState::Stop, LifecycleState::Paused])?;
         if self.lifecycle_state == LifecycleState::Stop {
             self.start_new_run();
         }
         self.lifecycle_state = LifecycleState::Stepping;
-        self.frame_index = Some(0);
+        self.frame_index = Some(frame_index);
         self.frame_phase = Some(FramePhase::Warmup);
         Ok(())
     }
@@ -140,14 +158,14 @@ impl GraphRuntime {
         Ok(())
     }
 
-    /// Commits frame zero after the output pass.
+    /// Commits the active logical frame after the output pass.
     ///
     /// # Errors
     ///
     /// Returns `InvalidStateTransition` unless output is executing.
     pub fn complete_output(&mut self) -> Result<(), Diagnostic> {
         self.require_executing(FramePhase::Output)?;
-        self.visible_frame = Some(0);
+        self.visible_frame = self.frame_index;
         self.frame_phase = None;
         self.lifecycle_state = LifecycleState::Completed;
         Ok(())

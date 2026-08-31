@@ -3,6 +3,16 @@ export function nextDngSequenceFrame(currentIndex: number, frameCount: number, p
   return currentIndex + 1;
 }
 
+export function nextDngRunFrame(currentIndex: number, frameCount: number, visibleFrameCommitted: boolean, pendingIndex: number | null): number {
+  if (pendingIndex !== null && pendingIndex > currentIndex) return pendingIndex;
+  if (visibleFrameCommitted && currentIndex + 1 < frameCount) return currentIndex + 1;
+  return currentIndex;
+}
+
+export function dngFrameForStep<T>(pending: { readonly index: number; readonly descriptor: T } | null, currentIndex: number): { readonly index: number; readonly descriptor: T | null } {
+  return pending === null ? { index: currentIndex, descriptor: null } : pending;
+}
+
 export function canLoadNextDngFrame(lifecycleState: string): boolean {
   return lifecycleState === 'stop' || lifecycleState === 'completed';
 }

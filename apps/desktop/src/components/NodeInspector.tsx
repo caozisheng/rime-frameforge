@@ -4,7 +4,7 @@ import type { RuntimeEnvelope } from '../../../../web/src/contracts.js';
 import { normalGraphPresentation } from '../../../../web/src/generated/normal_graph.generated.js';
 import { normalManifest } from '../../../../web/src/generated/normal_manifest.generated.js';
 import { normalGraphQuantization } from '../../../../web/src/generated/normal_quantization.generated.js';
-import type { DngFrameDescriptor } from '../runtime/worker-bridge.js';
+import type { DngFrameDescriptor, DngSequenceDescriptor } from '../runtime/worker-bridge.js';
 import { DngMetadataTree } from './DngMetadataTree.js';
 import { InspectorTree, type InspectorTreeGroup, type InspectorTreeNode } from './InspectorTree.js';
 
@@ -25,6 +25,7 @@ interface NodeInspectorProps {
   readonly nodeId: string | null;
   readonly envelope: RuntimeEnvelope;
   readonly dngFrame: DngFrameDescriptor | null;
+  readonly dngSequence?: DngSequenceDescriptor | null;
   readonly frameCount: number;
   readonly activeMethod: string;
   readonly parameterValues: Readonly<Record<string, string | number>>;
@@ -118,7 +119,7 @@ function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }:
   return <InspectorTree ariaLabel="Normal Graph inspector" groups={groups} storageKey="rime:graph-inspector:normal" />;
 }
 
-export function NodeInspector({ nodeId, envelope, dngFrame, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
+export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
   const canConfigure = envelope.lifecycleState === 'stop' || envelope.lifecycleState === 'completed';
   if (nodeId === null) {
     return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Graph inspector</span><h2 id="inspector-heading">Normal Graph</h2></div><span className="tree-mode-badge mode-enabled">graph</span></div><GraphInspector config={quantization} canConfigure={canConfigure} onGraphChange={onGraphQuantizationChange} onModuleChange={onModuleQuantizationChange} /></aside>;
@@ -138,5 +139,5 @@ export function NodeInspector({ nodeId, envelope, dngFrame, frameCount, activeMe
     ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }]),
   ];
 
-  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} /><div className="inspector-note">{treeNode.execution_node_id === null ? 'Architecture group; no executable runtime node.' : 'Mapped to the active Normal Graph runtime operator.'}</div></>}</aside>;
+  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} /></>}</aside>;
 }

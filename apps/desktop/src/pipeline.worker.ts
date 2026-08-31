@@ -88,9 +88,10 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
   if (command.type === 'step' || command.type === 'run') {
     if (controller === null) throw new Error('INVALID_STATE_TRANSITION: GPU executor is unavailable');
-    envelope = command.type === 'step' ? authority.step() : authority.run();
+    envelope = command.type === 'step' ? authority.step(command.frameIndex) : authority.run(command.frameIndex);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     await controller.step({
+      frameIndex: command.frameIndex,
       runRevision: envelope.runRevision,
       methodRevision: envelope.methodRevision,
       gpuGeneration: envelope.gpuGeneration,
@@ -130,7 +131,7 @@ async function createExecutor(generation: number): Promise<void> {
       self.postMessage({
         type: 'log',
         envelope,
-        entry: { level: 'info', message: `frame 0 ${phase} completed`, framePhase: phase },
+        entry: { level: 'info', message: `frame ${envelope.frameIndex ?? 0} ${phase} completed`, framePhase: phase },
       } satisfies RuntimeEvent);
     }
   );

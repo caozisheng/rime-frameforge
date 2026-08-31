@@ -141,7 +141,7 @@ export class NormalGpuExecutor {
       this.#quantizationConfig,
       this.#descriptor.width,
       this.#descriptor.height,
-      0,
+      identity.frameIndex,
     );
 
     for (const node of normalManifest.nodes.slice(1)) {
@@ -221,7 +221,7 @@ export class NormalGpuExecutor {
     return {
       nodeId: preview.node_id,
       portId: preview.port_id,
-      frameIndex: 0,
+      frameIndex: identity.frameIndex,
       runRevision: identity.runRevision,
       methodRevision: identity.methodRevision,
       gpuGeneration: identity.gpuGeneration,

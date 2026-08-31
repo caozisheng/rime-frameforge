@@ -61,6 +61,13 @@ export interface DngFrameDescriptor {
   readonly metadata: DngMetadataDescriptor;
 }
 
+export interface DngSequenceDescriptor {
+  readonly directory: string;
+  readonly paths: readonly string[];
+  readonly fileNames: readonly string[];
+  readonly frameCount: number;
+}
+
 export interface WorkerBridge {
   readonly worker: Worker;
   initialize(canvas: OffscreenCanvas): Promise<void>;
@@ -68,8 +75,8 @@ export interface WorkerBridge {
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
   setQuantizationConfig(config: string): void;
-  run(): void;
-  step(): void;
+  run(frameIndex?: number): void;
+  step(frameIndex?: number): void;
   reset(): void;
   dispose(): void;
 }
@@ -103,8 +110,8 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
     setQuantizationConfig: (config) => send({ type: 'set_quantization_config', config }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),
-    run: () => send({ type: 'run' }),
-    step: () => send({ type: 'step' }),
+    run: (frameIndex = 0) => send({ type: 'run', frameIndex }),
+    step: (frameIndex = 0) => send({ type: 'step', frameIndex }),
     reset: () => send({ type: 'reset' }),
     dispose: () => worker.terminate(),
   };

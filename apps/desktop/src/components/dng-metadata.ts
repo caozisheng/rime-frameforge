@@ -75,13 +75,24 @@ export function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function buildDngMetadataGroups(descriptor: DngFrameDescriptor): readonly DngMetadataGroup[] {
+export function buildDngMetadataGroups(
+  descriptor: DngFrameDescriptor,
+  sequence: { readonly directory: string; readonly fileNames: readonly string[]; readonly frameCount: number } | null = null,
+  sequenceIndex = descriptor.frameIndex,
+): readonly DngMetadataGroup[] {
   const metadata = descriptor.metadata;
   const group = (id: string, label: string, defaultExpanded: boolean, children: readonly DngTreeNode[]): DngMetadataGroup => ({
     id, label, defaultExpanded, children,
   });
 
   return [
+    ...(sequence === null ? [] : [group('sequence', 'Sequence', true, [
+      leaf('sequence.directory', 'Directory', sequence.directory),
+      leaf('sequence.fileCount', 'File count', sequence.frameCount),
+      leaf('sequence.currentFrame', 'Current frame', `${sequenceIndex + 1} / ${sequence.frameCount}`),
+      leaf('sequence.currentFile', 'Current file', descriptor.fileName),
+      { id: 'sequence.files', label: 'Files', summary: `${sequence.fileNames.length} files`, children: sequence.fileNames.map((fileName, index) => leaf(`sequence.files.${index}`, `[${String(index + 1).padStart(3, '0')}]`, fileName)) },
+    ])]),
     group('runtime', 'Runtime', true, [
       leaf('runtime.frameIndex', 'Frame index', descriptor.frameIndex),
     ]),

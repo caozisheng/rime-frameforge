@@ -38,7 +38,6 @@ impl NormalRuntime {
         }
     }
 
-
     /// Returns the validated graph quantization configuration.
     #[wasm_bindgen]
     #[must_use]
@@ -73,6 +72,18 @@ impl NormalRuntime {
         snapshot_json(&self.runtime.snapshot())
     }
 
+    /// Starts the Normal Graph for a logical source frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialized lifecycle diagnostic when running fails.
+    pub fn run_frame(&mut self, frame_index: u32) -> Result<String, JsValue> {
+        self.runtime
+            .run_frame(u64::from(frame_index))
+            .map_err(to_js_error)?;
+        snapshot_json(&self.runtime.snapshot())
+    }
+
     /// Starts one visible-frame step.
     ///
     /// # Errors
@@ -80,6 +91,18 @@ impl NormalRuntime {
     /// Returns a serialized lifecycle diagnostic when stepping fails.
     pub fn step(&mut self) -> Result<String, JsValue> {
         self.runtime.step().map_err(to_js_error)?;
+        snapshot_json(&self.runtime.snapshot())
+    }
+
+    /// Steps the Normal Graph for a logical source frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialized lifecycle diagnostic when stepping fails.
+    pub fn step_frame(&mut self, frame_index: u32) -> Result<String, JsValue> {
+        self.runtime
+            .step_frame(u64::from(frame_index))
+            .map_err(to_js_error)?;
         snapshot_json(&self.runtime.snapshot())
     }
 

@@ -42,7 +42,7 @@ export interface TransferAuditSnapshot {
 export interface PreviewDescriptor {
   readonly nodeId: string;
   readonly portId: string;
-  readonly frameIndex: 0;
+  readonly frameIndex: number;
   readonly runRevision: number;
   readonly methodRevision: number;
   readonly gpuGeneration: number;
@@ -72,8 +72,8 @@ export type RuntimeCommand =
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
   | { readonly type: 'set_quantization_config'; readonly config: string }
-  | { readonly type: 'run' }
-  | { readonly type: 'step' }
+  | { readonly type: 'run'; readonly frameIndex: number }
+  | { readonly type: 'step'; readonly frameIndex: number }
   | { readonly type: 'reset' };
 
 export type RuntimeEvent =

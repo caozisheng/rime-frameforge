@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::path::Path;
 
 use rime_dng::DngReader;
@@ -68,6 +69,125 @@ pub struct DngFrameDescriptor {
     pub metadata_hash: String,
     pub raw_digest: String,
     pub metadata: DngMetadataDescriptor,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DngSequenceDescriptor {
+    pub directory: String,
+    pub paths: Vec<String>,
+    pub file_names: Vec<String>,
+    pub frame_count: usize,
+}
+
+#[tauri::command]
+pub fn list_dng_sequence(path: String) -> Result<DngSequenceDescriptor, String> {
+    let selected = Path::new(&path);
+    let directory = selected
+        .parent()
+        .ok_or_else(|| "DNG_SEQUENCE_INVALID: selected DNG has no parent directory".to_owned())?;
+    let mut entries = std::fs::read_dir(directory)
+        .map_err(|error| format!("DNG_SEQUENCE_READ_FAILED: {error}"))?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("dng"))
+        })
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| natural_path_cmp(left, right));
+    if entries.is_empty() {
+        return Err(format!(
+            "DNG_SEQUENCE_EMPTY: no DNG files found in {}",
+            directory.display()
+        ));
+    }
+    let file_names = entries
+        .iter()
+        .map(|entry| {
+            entry.file_name().map_or_else(
+                || entry.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let paths = entries
+        .iter()
+        .map(|entry| entry.display().to_string())
+        .collect::<Vec<_>>();
+    Ok(DngSequenceDescriptor {
+        directory: directory.display().to_string(),
+        frame_count: paths.len(),
+        paths,
+        file_names,
+    })
+}
+
+fn natural_path_cmp(left: &Path, right: &Path) -> Ordering {
+    let left_name = left.file_name().map_or_else(
+        || left.as_os_str().to_string_lossy(),
+        |name| name.to_string_lossy(),
+    );
+    let right_name = right.file_name().map_or_else(
+        || right.as_os_str().to_string_lossy(),
+        |name| name.to_string_lossy(),
+    );
+    natural_str_cmp(&left_name, &right_name)
+}
+
+fn natural_str_cmp(left: &str, right: &str) -> Ordering {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let (mut left_index, mut right_index) = (0, 0);
+    while left_index < left.len() && right_index < right.len() {
+        if left[left_index].is_ascii_digit() && right[right_index].is_ascii_digit() {
+            let left_end = digit_run_end(left, left_index);
+            let right_end = digit_run_end(right, right_index);
+            let left_significant = significant_digits(left, left_index, left_end);
+            let right_significant = significant_digits(right, right_index, right_end);
+            let numeric_order = left_significant.len().cmp(&right_significant.len());
+            if numeric_order != Ordering::Equal {
+                return numeric_order;
+            }
+            let numeric_order = left_significant.cmp(right_significant);
+            if numeric_order != Ordering::Equal {
+                return numeric_order;
+            }
+            let width_order = (left_end - left_index).cmp(&(right_end - right_index));
+            if width_order != Ordering::Equal {
+                return width_order;
+            }
+            left_index = left_end;
+            right_index = right_end;
+        } else {
+            let order = left[left_index]
+                .to_ascii_lowercase()
+                .cmp(&right[right_index].to_ascii_lowercase());
+            if order != Ordering::Equal {
+                return order;
+            }
+            left_index += 1;
+            right_index += 1;
+        }
+    }
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
+fn digit_run_end(value: &[u8], mut index: usize) -> usize {
+    while index < value.len() && value[index].is_ascii_digit() {
+        index += 1;
+    }
+    index
+}
+
+fn significant_digits(value: &[u8], mut start: usize, end: usize) -> &[u8] {
+    while start < end && value[start] == b'0' {
+        start += 1;
+    }
+    &value[start..end]
 }
 
 #[tauri::command]
@@ -173,7 +293,10 @@ fn raw_tag_descriptor(tag: &rime_dng::DngRawTag) -> DngRawTagDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const GH5S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pipeline/normal/P1020601.dng");
+    const GH5S: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../pipeline/normal/P1020601.dng"
+    );
     #[test]
     fn gh5s_descriptor_and_binary_length_match() {
         let frame = DngReader::new()
@@ -185,5 +308,41 @@ mod tests {
         assert_eq!(descriptor.height, 2776);
         assert_eq!(bytes.len(), frame.samples.len() * 2);
         assert!(!descriptor.metadata.raw_extra.is_empty());
+    }
+
+    #[test]
+    fn dng_sequence_filters_extensions_and_naturally_sorts_names() {
+        let directory =
+            std::env::temp_dir().join(format!("rime-dng-sequence-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir(&directory).expect("temporary directory must be created");
+        for name in ["frame10.dng", "frame2.DNG", "frame1.dng", "notes.txt"] {
+            std::fs::write(directory.join(name), []).expect("fixture file must be created");
+        }
+
+        let sequence = list_dng_sequence(directory.join("frame2.DNG").display().to_string())
+            .expect("directory DNGs must form a sequence");
+
+        assert_eq!(
+            sequence.file_names,
+            ["frame1.dng", "frame2.DNG", "frame10.dng"]
+        );
+        std::fs::remove_dir_all(directory).expect("temporary directory must be removed");
+    }
+
+    #[test]
+    fn dng_sequence_rejects_directory_without_dng_files() {
+        let directory =
+            std::env::temp_dir().join(format!("rime-empty-dng-sequence-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir(&directory).expect("temporary directory must be created");
+        let selected = directory.join("notes.txt");
+        std::fs::write(&selected, []).expect("fixture file must be created");
+
+        let error = list_dng_sequence(selected.display().to_string())
+            .expect_err("empty sequence must fail");
+
+        assert!(error.starts_with("DNG_SEQUENCE_EMPTY:"));
+        std::fs::remove_dir_all(directory).expect("temporary directory must be removed");
     }
 }

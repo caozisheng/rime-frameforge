@@ -47,6 +47,17 @@ fn output_completion_commits_frame_zero_and_completes() {
 }
 
 #[test]
+fn output_completion_commits_requested_frame_index() {
+    let mut runtime = loaded_runtime();
+    runtime.run_frame(7).expect("requested frame may start");
+    runtime.complete_warmup().expect("warmup may complete");
+
+    runtime.complete_output().expect("output may complete");
+
+    assert_eq!(runtime.snapshot().visible_frame, Some(7));
+}
+
+#[test]
 fn replay_increments_run_revision() {
     let mut runtime = completed_runtime();
     let completed_revision = runtime.snapshot().run_revision;

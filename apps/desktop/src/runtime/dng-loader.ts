@@ -2,26 +2,47 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import type { RawFrameDescriptor } from '../../../../web/src/contracts.js';
-import type { DngFrameDescriptor, WorkerBridge } from './worker-bridge.js';
+import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './worker-bridge.js';
 
 export interface LoadedDngSelection {
   readonly descriptor: DngFrameDescriptor;
   readonly paths: readonly string[];
 }
 
+export interface LoadedDngSequence {
+  readonly descriptor: DngFrameDescriptor;
+  readonly sequence: DngSequenceDescriptor;
+}
+
 export async function loadDngIntoWorker(bridge: WorkerBridge): Promise<LoadedDngSelection> {
   const selected = await open({
-    multiple: true,
+    multiple: false,
     directory: false,
     filters: [{ name: 'DNG RAW', extensions: ['dng'] }],
   });
-  const paths = typeof selected === 'string' ? [selected] : selected;
-  if (paths === null || paths.length === 0) {
+  if (typeof selected !== 'string') {
     throw new Error('INPUT_CANCELLED: no DNG file selected');
   }
-  const orderedPaths = [...paths].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
-  const descriptor = await loadDngPathIntoWorker(bridge, orderedPaths[0]!, 0);
-  return { descriptor, paths: orderedPaths };
+  const descriptor = await loadDngPathIntoWorker(bridge, selected, 0);
+  return { descriptor, paths: [selected] };
+}
+
+export async function loadDngSequenceIntoWorker(bridge: WorkerBridge): Promise<LoadedDngSequence> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'DNG RAW', extensions: ['dng'] }],
+  });
+  if (typeof selected !== 'string') {
+    throw new Error('INPUT_CANCELLED: no DNG file selected');
+  }
+  const sequence = await invoke<DngSequenceDescriptor>('list_dng_sequence', { path: selected });
+  const firstPath = sequence.paths[0];
+  if (firstPath === undefined || sequence.frameCount !== sequence.paths.length || sequence.frameCount !== sequence.fileNames.length) {
+    throw new Error('DNG_SEQUENCE_INVALID: native sequence descriptor is inconsistent');
+  }
+  const descriptor = await loadDngPathIntoWorker(bridge, firstPath, 0);
+  return { descriptor, sequence };
 }
 
 export async function loadDngPathIntoWorker(

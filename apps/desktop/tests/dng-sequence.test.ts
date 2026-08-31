@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canLoadNextDngFrame, commitPendingDngFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
+import { canLoadNextDngFrame, commitPendingDngFrame, dngFrameForStep, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
 
 describe('DNG sequence playback', () => {
   it('advances to the next frame only while playback is active', () => {
@@ -36,5 +36,30 @@ describe('DNG sequence playback', () => {
     const descriptor = { frameIndex: 1, fileName: 'frame-001.dng' };
     expect(commitPendingDngFrame({ index: 1, descriptor }, 0)).toEqual({ index: 1, descriptor });
     expect(commitPendingDngFrame({ index: 1, descriptor }, 1)).toBeNull();
+  });
+
+  it('uses the committed frame as the next playback source', () => {
+    expect(nextDngSequenceFrame(7, 10, true)).toBe(8);
+  });
+
+  it('runs the loaded first frame before any preview is visible', () => {
+    expect(nextDngRunFrame(0, 3, false, null)).toBe(0);
+  });
+
+  it('resumes with the frame after the committed preview', () => {
+    expect(nextDngRunFrame(0, 3, true, null)).toBe(1);
+  });
+
+  it('uses an asynchronously loaded pending frame when resuming', () => {
+    expect(nextDngRunFrame(0, 3, true, 1)).toBe(1);
+  });
+
+  it('steps a prefetched frame with its matching descriptor and index', () => {
+    const descriptor = { frameIndex: 1, fileName: 'frame-002.dng' };
+    expect(dngFrameForStep({ index: 1, descriptor }, 0)).toEqual({ index: 1, descriptor });
+  });
+
+  it('steps the current frame when no prefetch is pending', () => {
+    expect(dngFrameForStep(null, 4)).toEqual({ index: 4, descriptor: null });
   });
 });

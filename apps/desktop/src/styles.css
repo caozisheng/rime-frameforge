@@ -319,7 +319,7 @@ button:disabled {
 }
 .preview-stage canvas { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
 .no-frame { position: absolute; color: #b5bdc5; font: 11px 'DM Mono', monospace; letter-spacing: .05em; }
-.preview-meta { gap: 20px; padding: 0 15px 15px; color: var(--text-secondary); font: 10px 'DM Mono', monospace; }
+.preview-meta { flex-wrap: wrap; gap: 8px 20px; padding: 0 15px 15px; color: var(--text-secondary); font: 10px 'DM Mono', monospace; }
 .preview-meta b { color: var(--text-primary); font-weight: 500; }
 
 .inspector-panel { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
