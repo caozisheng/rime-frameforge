@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { RawFrameDescriptor } from '../src/contracts.js';
 import { NormalGpuExecutor } from '../src/gpu/executor.js';
 import type { GpuContext } from '../src/gpu/device.js';
+import { normalGraphQuantization } from '../src/generated/normal_quantization.generated.js';
 
 const descriptor: RawFrameDescriptor = {
   width: 2,
@@ -51,7 +52,7 @@ function fakeGpu() {
 
 beforeEach(() => {
   Object.assign(globalThis, {
-    GPUTextureUsage: { COPY_DST: 2, TEXTURE_BINDING: 4 },
+    GPUTextureUsage: { COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
     GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8 },
   });
 });
@@ -59,26 +60,26 @@ beforeEach(() => {
 describe('NormalGpuExecutor frame reuse', () => {
   it('uploads a same-extent frame without reallocating GPU resources', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, normalGraphQuantization);
 
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
 
-    expect(fake.counts()).toEqual({ textureCreates: 1, textureDestroys: 0, bufferCreates: 2, bufferDestroys: 0, rawUploads: 2 });
+    expect(fake.counts()).toEqual({ textureCreates: 2, textureDestroys: 0, bufferCreates: 1, bufferDestroys: 0, rawUploads: 2 });
   });
 
   it('requires resource rebuild when frame extent changes', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, normalGraphQuantization);
 
     expect(executor.canReplaceFrame({ ...descriptor, width: 4, rowStrideSamples: 4 })).toBe(false);
   });
 
   it('destroys frame-owned GPU resources on disposal', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, normalGraphQuantization);
 
     executor.dispose();
 
-    expect(fake.counts()).toEqual({ textureCreates: 1, textureDestroys: 1, bufferCreates: 2, bufferDestroys: 2, rawUploads: 1 });
+    expect(fake.counts()).toEqual({ textureCreates: 2, textureDestroys: 2, bufferCreates: 1, bufferDestroys: 1, rawUploads: 1 });
   });
 });

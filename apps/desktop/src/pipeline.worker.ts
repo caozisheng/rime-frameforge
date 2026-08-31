@@ -57,6 +57,14 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     return;
   }
   if (authority === null) throw new Error('INVALID_STATE_TRANSITION: Worker is not initialized');
+  if (command.type === 'dispose') {
+    executor?.dispose();
+    executor = null;
+    controller = null;
+    gpu = null;
+    self.close();
+    return;
+  }
   if (command.type === 'load_frame') {
     if (!canLoadNextDngFrame(envelope.lifecycleState)) {
       throw new Error('INVALID_STATE_TRANSITION: DNG frame can only load while stopped or completed');
@@ -134,8 +142,8 @@ function createExecutor(generation: number): void {
   if (gpu === null || rawAsset === null || descriptor === null || authority === null) {
     throw new Error('INVALID_STATE_TRANSITION: GPU inputs are unavailable');
   }
-  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor);
-  executor.setQuantizationConfig(JSON.parse(authority.quantizationConfig()));
+  const quantization = JSON.parse(authority.quantizationConfig()) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0];
+  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, quantization);
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter, value);
   controller = new RuntimeController(

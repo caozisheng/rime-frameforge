@@ -74,7 +74,8 @@ export type RuntimeCommand =
   | { readonly type: 'set_quantization_config'; readonly config: string }
   | { readonly type: 'run'; readonly frameIndex: number }
   | { readonly type: 'step'; readonly frameIndex: number }
-  | { readonly type: 'reset' };
+  | { readonly type: 'reset' }
+  | { readonly type: 'dispose' };
 
 export type RuntimeEvent =
   | { readonly type: 'ready'; readonly envelope: RuntimeEnvelope }

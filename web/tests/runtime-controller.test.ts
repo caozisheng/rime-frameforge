@@ -5,6 +5,11 @@ import type { FramePhase, PreviewDescriptor } from '../src/contracts.js';
 
 class RecordingExecutor {
   readonly phases: FramePhase[] = [];
+  prepareCalls = 0;
+
+  async prepare(_identity: { frameIndex: number; runRevision: number; methodRevision: number; gpuGeneration: number }): Promise<void> {
+    this.prepareCalls += 1;
+  }
 
   async execute(phase: FramePhase, identity: { frameIndex: number; runRevision: number; methodRevision: number; gpuGeneration: number }): Promise<PreviewDescriptor> {
     this.phases.push(phase);
@@ -26,14 +31,16 @@ class RecordingExecutor {
 }
 
 describe('RuntimeController', () => {
-  it('executes warmup before output', async () => {
+  it('prepares once and executes one output frame', async () => {
     const executor = new RecordingExecutor();
     const previews: PreviewDescriptor[] = [];
     const controller = new RuntimeController(executor, (preview) => previews.push(preview));
 
-    await controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 });
+    await controller.step({ frameIndex: 2, runRevision: 1, methodRevision: 1, gpuGeneration: 1 });
 
-    expect(executor.phases).toEqual(['warmup', 'output']);
+    expect(executor.prepareCalls).toBe(1);
+    expect(executor.phases).toEqual(['output']);
+    expect(previews[0]?.frameIndex).toBe(2);
   });
 
   it('publishes only the output preview', async () => {
@@ -56,7 +63,7 @@ describe('RuntimeController', () => {
     expect(previews[0]).toMatchObject({ frameIndex: 7, runRevision: 9, methodRevision: 4, gpuGeneration: 3 });
   });
 
-  it('reports warmup and output as separate phases', async () => {
+  it('reports preparation and output as separate lifecycle phases', async () => {
     const executor = new RecordingExecutor();
     const phases: FramePhase[] = [];
     const controller = new RuntimeController(

@@ -113,6 +113,6 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
     run: (frameIndex = 0) => send({ type: 'run', frameIndex }),
     step: (frameIndex = 0) => send({ type: 'step', frameIndex }),
     reset: () => send({ type: 'reset' }),
-    dispose: () => worker.terminate(),
+    dispose: () => send({ type: 'dispose' }),
   };
 }

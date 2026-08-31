@@ -6,8 +6,8 @@ export interface ExecutionIdentity {
   readonly methodRevision: number;
   readonly gpuGeneration: number;
 }
-
 export interface FrameExecutor {
+  prepare(identity: ExecutionIdentity): Promise<void> | void;
   execute(phase: FramePhase, identity: ExecutionIdentity): Promise<PreviewDescriptor>;
   reset(): void;
 }
@@ -26,9 +26,8 @@ export class RuntimeController {
     this.#publishPreview = publishPreview;
     this.#publishPhase = publishPhase;
   }
-
   public async step(identity: ExecutionIdentity): Promise<void> {
-    await this.#executor.execute('warmup', identity);
+    await this.#executor.prepare(identity);
     this.#publishPhase('warmup');
     const output = await this.#executor.execute('output', identity);
     this.#publishPhase('output');

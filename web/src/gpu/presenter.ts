@@ -19,13 +19,12 @@ export class GpuPreviewPresenter {
     this.#bindGroupLayout = this.#pipeline.getBindGroupLayout(0);
   }
 
-  public async render(texture: GPUTexture): Promise<void> {
+  public encode(encoder: GPUCommandEncoder, texture: GPUTexture): void {
     const output = this.#context.getCurrentTexture().createView();
     const bindGroup = this.#device.createBindGroup({
       layout: this.#bindGroupLayout,
       entries: [{ binding: 0, resource: texture.createView() }],
     });
-    const encoder = this.#device.createCommandEncoder({ label: 'normal-preview' });
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: output,
@@ -38,6 +37,11 @@ export class GpuPreviewPresenter {
     pass.setBindGroup(0, bindGroup);
     pass.draw(3);
     pass.end();
+  }
+
+  public async render(texture: GPUTexture): Promise<void> {
+    const encoder = this.#device.createCommandEncoder({ label: 'normal-preview' });
+    this.encode(encoder, texture);
     this.#device.queue.submit([encoder.finish()]);
     await this.#device.queue.onSubmittedWorkDone();
   }
