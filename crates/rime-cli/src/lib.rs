@@ -386,8 +386,9 @@ fn write_png(path: &Path, width: u32, height: u32, pixels: &[f32]) -> Result<(),
 }
 
 fn yuv_to_rgba8(pixels: &[f32]) -> Vec<u8> {
+    let (pixels, _) = pixels.as_chunks::<4>();
     pixels
-        .chunks_exact(4)
+        .iter()
         .flat_map(|pixel| {
             let u = pixel[1] - 0.5;
             let v = pixel[2] - 0.5;
