@@ -405,8 +405,10 @@ fn yuv_to_rgba8(pixels: &[f32]) -> Vec<u8> {
         .collect()
 }
 fn yuv_to_rgb8(pixels: &[f32]) -> Vec<u8> {
-    yuv_to_rgba8(pixels)
-        .chunks_exact(4)
+    let rgba = yuv_to_rgba8(pixels);
+    let (pixels, _) = rgba.as_chunks::<4>();
+    pixels
+        .iter()
         .flat_map(|pixel| pixel[..3].iter().copied())
         .collect()
 }
