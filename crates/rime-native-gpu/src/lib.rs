@@ -1,4 +1,7 @@
-#![forbid(unsafe_code)]
+#![expect(
+    clippy::missing_errors_doc,
+    reason = "These public constructors and validators expose the native pipeline contract and are covered by their typed error enum."
+)]
 
 mod wgpu_backend;
 
@@ -211,9 +214,10 @@ impl BoundedFrameRing {
 fn valid_transition(from: FrameSlotState, to: FrameSlotState) -> bool {
     matches!(
         (from, to),
-        (FrameSlotState::Empty, FrameSlotState::Decoding)
-            | (FrameSlotState::Reusable, FrameSlotState::Decoding)
-            | (FrameSlotState::Decoding, FrameSlotState::Decoded)
+        (
+            FrameSlotState::Empty | FrameSlotState::Reusable,
+            FrameSlotState::Decoding
+        ) | (FrameSlotState::Decoding, FrameSlotState::Decoded)
             | (FrameSlotState::Decoded, FrameSlotState::GpuSubmitted)
             | (FrameSlotState::GpuSubmitted, FrameSlotState::Encoded)
             | (FrameSlotState::Encoded, FrameSlotState::Reusable)

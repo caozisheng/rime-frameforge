@@ -1,3 +1,12 @@
+#![expect(
+    clippy::missing_errors_doc,
+    clippy::struct_excessive_bools,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::needless_pass_by_value,
+    reason = "The CLI preserves the documented flag-shaped command contract and intentionally converts bounded display samples to u8."
+)]
+
 use std::{
     cmp::Ordering,
     fs,
@@ -162,7 +171,7 @@ pub fn scan_dng_sequence(selected: &Path) -> Result<Vec<PathBuf>, CliError> {
             entry
                 .file_type()
                 .ok()
-                .filter(|kind| kind.is_file())
+                .filter(std::fs::FileType::is_file)
                 .and_then(|_| {
                     path.extension()
                         .is_some_and(|extension| extension.eq_ignore_ascii_case("dng"))

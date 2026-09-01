@@ -1,10 +1,17 @@
+#![expect(
+    clippy::missing_errors_doc,
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    reason = "The backend mirrors the fixed v0.1.3 GPU submission contract and narrows validated DNG metadata to GPU f32 parameters."
+)]
+
 use std::sync::mpsc;
 
 use bytemuck::{Pod, Zeroable};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
 use thiserror::Error;
 
-const WGSL: &str = r#"
+const WGSL: &str = r"
 struct FusedParams { width: u32, height: u32, black_level: f32, white_level: f32, cfa_pattern: vec4<u32>, }
 @group(0) @binding(0) var raw_input: texture_2d<u32>;
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba32float, write>;
@@ -18,7 +25,7 @@ fn sample_dem(p: vec2<i32>) -> vec3<f32> { let extent = vec2<i32>(i32(params.wid
 fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> { let rgb = max(sample_dem(p), vec3<f32>(0.0)); let corrected = vec3<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b); let encoded = pow(max(corrected, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)); return vec4<f32>(dot(encoded, vec3<f32>(0.2126, 0.7152, 0.0722)), dot(encoded, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, dot(encoded, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 1.0); }
 @compute @workgroup_size(8, 8)
 fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) { if (gid.x >= params.width || gid.y >= params.height) { return; } textureStore(output_texture, vec2<i32>(gid.xy), sample_rgb2yuv(vec2<i32>(gid.xy))); }
-"#;
+";
 
 #[derive(Debug, Error)]
 pub enum WgpuReadbackError {
@@ -68,7 +75,7 @@ impl WgpuReadbackExecutor {
             layout: None,
             module: &module,
             entry_point: Some("normal_fused_main"),
-            compilation_options: Default::default(),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
         Ok(Self {
@@ -175,8 +182,8 @@ impl WgpuReadbackExecutor {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let input_view = texture.create_view(&Default::default());
-        let output_view = output.create_view(&Default::default());
+        let input_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("rime-native-fused-bind-group"),
             layout: &self.pipeline.get_bind_group_layout(0),
