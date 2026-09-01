@@ -10,7 +10,10 @@ build = "build.rs"
 tauri-build = { version = "2.4", features = [] }
 
 [dependencies]
+base64.workspace = true
+image.workspace = true
 rime-dng = { path = "../../../crates/rime-dng" }
+rime-native-gpu = { path = "../../../crates/rime-native-gpu" }
 serde = { workspace = true }
 tauri = { version = "2.8", features = [] }
 tauri-plugin-dialog = "2.4"

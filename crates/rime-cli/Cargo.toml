@@ -1,0 +1,28 @@
+[package]
+name = "rime-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+image.workspace = true
+rime-core = { path = "../rime-core" }
+rime-dng = { path = "../rime-dng" }
+rime-isp = { path = "../rime-isp" }
+rime-native-gpu = { path = "../rime-native-gpu" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lib]
+name = "rime_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rime-frameforge"
+path = "src/main.rs"
+
+[lints]
+workspace = true

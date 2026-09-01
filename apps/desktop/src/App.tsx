@@ -9,8 +9,9 @@ import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
 import { NodeInspector, type GraphQuantizationConfig, type ModuleQuantizationPreference } from './components/NodeInspector.js';
 import { PreviewSurface } from './components/PreviewSurface.js';
-import { decodeDngPath, loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker, loadDngSequencePathIntoWorker, loadDecodedDngIntoWorker } from './runtime/dng-loader.js';
-import { isCurrentDngPrefetch, nextDngRunFrame, nextDngSequenceFrame } from './runtime/dng-sequence.js';
+import { loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker, loadDngSequencePathIntoWorker, loadDecodedDngIntoWorker, decodeDngPath } from './runtime/dng-loader.js';
+import { isCurrentDngPrefetch, nextDngRunFrame } from './runtime/dng-sequence.js';
+import { listenNativePipeline, renderDngNative, type NativeRenderDescriptor } from './runtime/native-pipeline.js';
 import type { DecodedDngFramePayload } from './runtime/dng-frame-payload.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './runtime/worker-bridge.js';
 import { createWorkerBridge } from './runtime/worker-bridge.js';
@@ -45,6 +46,7 @@ export function App() {
   const logsPanelRef = usePanelRef();
   const [envelope, setEnvelope] = useState(INITIAL_ENVELOPE);
   const [preview, setPreview] = useState<PreviewDescriptor | null>(null);
+  const [nativePreview, setNativePreview] = useState<NativeRenderDescriptor | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [quantization, setQuantization] = useState<GraphQuantizationConfig>(normalGraphQuantization);
   const [activeMethods, setActiveMethods] = useState<Record<string, string>>({ dem: '00' });
@@ -61,11 +63,12 @@ export function App() {
   const [dngFrameIndex, setDngFrameIndex] = useState(0);
   const [sequencePlaying, setSequencePlaying] = useState(false);
   const sequencePlayingRef = useRef(false);
-  const dngPathsRef = useRef<readonly string[]>([]);
   const dngFrameIndexRef = useRef(0);
   const pendingDngRef = useRef<{ readonly index: number; readonly generation: number; readonly decoded: DecodedDngFramePayload } | null>(null);
   const prefetchSlotRef = useRef<{ readonly index: number; readonly generation: number; readonly promise: Promise<DecodedDngFramePayload> } | null>(null);
   const sequenceGenerationRef = useRef(0);
+  const nativeGenerationRef = useRef(0);
+  const dngPathsRef = useRef<readonly string[]>([]);
   const [commandPending, setCommandPending] = useState(false);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
   const [fitGraphRequest, setFitGraphRequest] = useState(0);
@@ -76,52 +79,70 @@ export function App() {
   const beginDngPrefetch = (index: number): void => {
     const path = dngPathsRef.current[index];
     const generation = sequenceGenerationRef.current;
-    const slot = prefetchSlotRef.current;
-    if (path === undefined || isCurrentDngPrefetch(pendingDngRef.current, index, generation) || (slot !== null && isCurrentDngPrefetch(slot, index, generation))) return;
+    if (path === undefined || prefetchSlotRef.current !== null) return;
     const promise = decodeDngPath(path, index);
     prefetchSlotRef.current = { index, generation, promise };
     void promise.then((decoded) => {
-      if (generation !== sequenceGenerationRef.current || prefetchSlotRef.current?.promise !== promise) return;
-      pendingDngRef.current = { index, generation, decoded };
-    }).catch((error: unknown) => {
-      if (generation !== sequenceGenerationRef.current) return;
-      sequencePlayingRef.current = false;
-      setSequencePlaying(false);
-      setCommandPending(false);
-      setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }]);
-    }).finally(() => {
-      if (prefetchSlotRef.current?.promise === promise) prefetchSlotRef.current = null;
-    });
+      if (generation === sequenceGenerationRef.current) pendingDngRef.current = { index, generation, decoded };
+    }).finally(() => { if (prefetchSlotRef.current?.promise === promise) prefetchSlotRef.current = null; });
   };
+
   const consumeDngFrame = async (index: number, mode: 'run' | 'step'): Promise<void> => {
-    const generation = sequenceGenerationRef.current;
     const path = dngPathsRef.current[index];
     if (path === undefined || bridgeRef.current === null) return;
-    let pending = isCurrentDngPrefetch(pendingDngRef.current, index, generation) ? pendingDngRef.current : null;
-    if (pending === null) {
-      const slot = prefetchSlotRef.current;
-      const decoded = slot !== null && isCurrentDngPrefetch(slot, index, generation) ? await slot.promise : await decodeDngPath(path, index);
-      if (generation !== sequenceGenerationRef.current || decoded.descriptor.frameIndex !== index) return;
-      pending = { index, generation, decoded };
-    }
-    if (!isCurrentDngPrefetch(pending, index, generation)) return;
+    const generation = sequenceGenerationRef.current;
+    const pending = pendingDngRef.current?.index === index && pendingDngRef.current.generation === generation ? pendingDngRef.current : null;
+    const decoded = pending?.decoded ?? await decodeDngPath(path, index);
+    if (generation !== sequenceGenerationRef.current) return;
     pendingDngRef.current = null;
-    prefetchSlotRef.current = null;
-    loadDecodedDngIntoWorker(bridgeRef.current, pending.decoded);
     dngFrameIndexRef.current = index;
     setDngFrameIndex(index);
-    setLoadedDng(pending.decoded.descriptor);
+    setLoadedDng(decoded.descriptor);
+    loadDecodedDngIntoWorker(bridgeRef.current, decoded);
     if (mode === 'run') beginDngPrefetch(index + 1);
     bridgeRef.current[mode](index);
   };
 
+
+  const renderNativeFrame = async (index: number): Promise<void> => {
+    const generation = nativeGenerationRef.current;
+    const path = dngPathsRef.current[index];
+    if (path === undefined) throw new Error('NATIVE_PIPELINE_INPUT_MISSING: DNG path is unavailable');
+    const descriptor = await renderDngNative(path, index);
+    if (generation !== nativeGenerationRef.current) return;
+    dngFrameIndexRef.current = descriptor.frameIndex;
+    setDngFrameIndex(descriptor.frameIndex);
+    setNativePreview(descriptor);
+    setCommandPending(false);
+    setLogs((current) => [...current.slice(-39), { level: 'info', message: `native ${descriptor.nodeId}.${descriptor.portId} completed for frame ${descriptor.frameIndex} (${descriptor.encoderBackend})`, framePhase: 'output' }]);
+  };
+
+  const renderNativeSequence = async (startIndex: number, play: boolean): Promise<void> => {
+    let index = startIndex;
+    while (true) {
+      await renderNativeFrame(index);
+      if (!play || !sequencePlayingRef.current || index + 1 >= dngPathsRef.current.length) break;
+      index += 1;
+    }
+    sequencePlayingRef.current = false;
+    setSequencePlaying(false);
+  };
+
   const invalidateDngPrefetch = (): void => {
+    nativeGenerationRef.current += 1;
     sequenceGenerationRef.current += 1;
     pendingDngRef.current = null;
     prefetchSlotRef.current = null;
+    setNativePreview(null);
   };
 
   useEffect(() => {
+    let unlistenNative: (() => void) | undefined;
+    void listenNativePipeline((event) => {
+      if (event.event === 'frame_started') {
+        appendLog({ level: 'info', message: `native frame ${event.frame_index} started`, framePhase: 'output' });
+      }
+    }).then((unlisten) => { unlistenNative = unlisten; });
     const canvas = canvasRef.current;
     if (canvas === null) return undefined;
     const offscreen = canvas.transferControlToOffscreen();
@@ -136,7 +157,6 @@ export function App() {
           setDngSequence(sequence);
           setDngPaths(sequence.paths);
           dngPathsRef.current = sequence.paths;
-          beginDngPrefetch(1);
           appendLog({ level: 'info', message: `DNG sequence smoke loaded: ${sequence.frameCount} frames` });
         } catch (error) {
           appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_SMOKE_FAILED' });
@@ -155,7 +175,7 @@ export function App() {
         appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SMOKE_FAILED' });
       }
     });
-    return () => bridge.dispose();
+    return () => { unlistenNative?.(); bridge.dispose(); };
 
     function handleEvent(event: RuntimeEvent): void {
       if (!acceptsEnvelope(envelopeRef.current, event.envelope)) return;
@@ -170,11 +190,8 @@ export function App() {
         setPreview(event.preview);
         setCommandPending(false);
         appendLog({ level: 'info', message: `frame ${event.preview.frameIndex} committed to GPU preview`, framePhase: 'output' });
-        const committedIndex = event.preview.frameIndex;
-        dngFrameIndexRef.current = committedIndex;
-        setDngFrameIndex(committedIndex);
-        const nextIndex = nextDngSequenceFrame(committedIndex, dngPathsRef.current.length, sequencePlayingRef.current);
-        if (nextIndex !== null && bridgeRef.current !== null) {
+        const nextIndex = event.preview.frameIndex + 1;
+        if (sequencePlayingRef.current && nextIndex < dngPathsRef.current.length) {
           setCommandPending(true);
           void consumeDngFrame(nextIndex, 'run').catch((error: unknown) => {
             sequencePlayingRef.current = false;
@@ -210,13 +227,14 @@ export function App() {
     invalidateDngPrefetch();
     setCommandPending(true);
     void loadDngIntoWorker(bridgeRef.current).then(({ descriptor, paths }) => {
-      pendingDngRef.current = null;
       setLoadedDng(descriptor);
       setDngSequence(null);
       setDngPaths(paths);
       dngPathsRef.current = paths;
       setDngFrameIndex(0);
       dngFrameIndexRef.current = 0;
+      setNativePreview(null);
+      setCommandPending(false);
     }).catch((error: unknown) => {
       setCommandPending(false);
       setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_LOAD_FAILED' }]);
@@ -231,14 +249,14 @@ export function App() {
     sequencePlayingRef.current = false;
     setSequencePlaying(false);
     void loadDngSequenceIntoWorker(bridgeRef.current).then(({ descriptor, sequence }) => {
-      pendingDngRef.current = null;
       setLoadedDng(descriptor);
       setDngSequence(sequence);
       setDngPaths(sequence.paths);
       dngPathsRef.current = sequence.paths;
       setDngFrameIndex(0);
       dngFrameIndexRef.current = 0;
-      beginDngPrefetch(1);
+      setNativePreview(null);
+      setCommandPending(false);
     }).catch((error: unknown) => {
       setCommandPending(false);
       setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_LOAD_FAILED' }]);
@@ -274,7 +292,7 @@ export function App() {
     changeGraphQuantization(next);
   };
   const runGraph = (): void => {
-    if (bridgeRef.current === null) return;
+    if (bridgeRef.current === null || dngPathsRef.current.length === 0) return;
     const pending = pendingDngRef.current;
     const runIndex = nextDngRunFrame(dngFrameIndexRef.current, dngPathsRef.current.length, envelope.visibleFrameCommitted, pending?.index ?? null);
     sequencePlayingRef.current = dngPathsRef.current.length > 1 && runIndex + 1 < dngPathsRef.current.length;
@@ -289,23 +307,18 @@ export function App() {
       });
       return;
     }
-    beginDngPrefetch(runIndex + 1);
     bridgeRef.current.run(runIndex);
   };
 
   const stepGraph = (): void => {
+    if (bridgeRef.current === null || dngPathsRef.current.length === 0) return;
     sequencePlayingRef.current = false;
     setSequencePlaying(false);
     setCommandPending(true);
-    const pending = pendingDngRef.current;
-    if (pending !== null && pending.generation === sequenceGenerationRef.current) {
-      void consumeDngFrame(pending.index, 'step').catch((error: unknown) => {
-        setCommandPending(false);
-        setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }]);
-      });
-      return;
-    }
-    bridgeRef.current?.step(dngFrameIndexRef.current);
+    void consumeDngFrame(dngFrameIndexRef.current, 'step').catch((error: unknown) => {
+      setCommandPending(false);
+      setLogs((current) => [...current.slice(-39), { level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_FAILED' }]);
+    });
   };
 
   const resetGraph = (): void => {
@@ -387,7 +400,7 @@ export function App() {
           >
             <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
-            <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} preview={preview} fileName={preview === null ? null : dngSequence?.fileNames[preview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} /></div></Panel>
+            <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} preview={preview} nativePreviewDataUrl={nativePreview?.previewDataUrl} fileName={nativePreview === null ? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} /></div></Panel>
           </Group>
         </Panel>
       </Group>

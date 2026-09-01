@@ -101,9 +101,11 @@ fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
             .collect::<Vec<_>>(),
         expected_module_ids
     );
-    assert!(modules
-        .iter()
-        .all(|module| module["module_id"] != "raw_source"));
+    assert!(
+        modules
+            .iter()
+            .all(|module| module["module_id"] != "raw_source")
+    );
 
     for (module_id, profile) in [
         ("blc", "s0.14"),
@@ -130,12 +132,16 @@ fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
             node.mode == rime_core::NodeExecutionMode::Enabled
         );
     }
-    assert!(modules
-        .iter()
-        .all(|module| module.get("dither_enabled").is_none()));
-    assert!(modules
-        .iter()
-        .all(|module| module.get("input_profile").is_none()));
+    assert!(
+        modules
+            .iter()
+            .all(|module| module.get("dither_enabled").is_none())
+    );
+    assert!(
+        modules
+            .iter()
+            .all(|module| module.get("input_profile").is_none())
+    );
     assert_eq!(
         typescript,
         rime_isp::render_normal_graph_quantization_typescript()
@@ -171,14 +177,18 @@ fn pfr_is_separate_from_dem_in_the_manifest() {
     assert_eq!(pfr.inputs[0].domain, rime_core::SignalDomain::LinearRgb);
     assert_eq!(pfr.outputs[0].domain, rime_core::SignalDomain::LinearRgb);
     assert!(manifest.node("demosaic").is_none());
-    assert!(manifest
-        .edges
-        .iter()
-        .any(|edge| edge.from.node_id == "dem" && edge.to.node_id == "pfr"));
-    assert!(manifest
-        .edges
-        .iter()
-        .any(|edge| edge.from.node_id == "pfr" && edge.to.node_id == "color_correction"));
+    assert!(
+        manifest
+            .edges
+            .iter()
+            .any(|edge| edge.from.node_id == "dem" && edge.to.node_id == "pfr")
+    );
+    assert!(
+        manifest
+            .edges
+            .iter()
+            .any(|edge| edge.from.node_id == "pfr" && edge.to.node_id == "color_correction")
+    );
 }
 
 #[test]
@@ -225,18 +235,24 @@ fn presentation_uses_dem_then_pfr_without_compound_node() {
     assert_eq!(presentation.node("dem").expect("DEM node").label, "DEM");
     assert_eq!(presentation.node("pfr").expect("PFR node").label, "PFR");
     assert!(presentation.node("demosaic").is_none());
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "wbc" && edge.to == "dem"));
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "dem" && edge.to == "pfr"));
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "pfr" && edge.to == "color_correction"));
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "wbc" && edge.to == "dem")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "dem" && edge.to == "pfr")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "pfr" && edge.to == "color_correction")
+    );
 }
 
 #[test]
@@ -251,22 +267,30 @@ fn presentation_uses_split_vfe_modules_without_legacy_ids() {
     }
     assert!(presentation.node("sbpc_pdpc").is_none());
     assert!(presentation.node("lsc_tintless").is_none());
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "dbpc" && edge.to == "sbpc"));
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "sbpc" && edge.to == "tintless"));
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "tintless" && edge.to == "lsc"));
-    assert!(presentation
-        .edges
-        .iter()
-        .any(|edge| edge.from == "lsc" && edge.to == "hr"));
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "dbpc" && edge.to == "sbpc")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "sbpc" && edge.to == "tintless")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "tintless" && edge.to == "lsc")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "lsc" && edge.to == "hr")
+    );
 }
 
 #[test]
@@ -353,14 +377,18 @@ fn vpe_uses_ce_between_lce_and_second_mctf() {
             .expect("CE instance");
         assert_eq!(ce.label, "CE");
         assert!(presentation.node(&format!("{prefix}_color")).is_none());
-        assert!(presentation
-            .edges
-            .iter()
-            .any(|edge| edge.from == format!("{prefix}_lce") && edge.to == ce.id));
-        assert!(presentation
-            .edges
-            .iter()
-            .any(|edge| edge.from == ce.id && edge.to == format!("{prefix}_mctf_2")));
+        assert!(
+            presentation
+                .edges
+                .iter()
+                .any(|edge| edge.from == format!("{prefix}_lce") && edge.to == ce.id)
+        );
+        assert!(
+            presentation
+                .edges
+                .iter()
+                .any(|edge| edge.from == ce.id && edge.to == format!("{prefix}_mctf_2"))
+        );
     }
 }
 #[test]

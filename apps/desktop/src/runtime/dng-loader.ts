@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import type { RawFrameDescriptor } from '../../../../web/src/contracts.js';
+import { inspectDngNative } from './native-pipeline.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './worker-bridge.js';
 import { decodeDngFramePayload, type DecodedDngFramePayload } from './dng-frame-payload.js';
 
@@ -73,7 +74,8 @@ export async function loadDngPathIntoWorker(
   path: string,
   frameIndex = 0,
 ): Promise<DngFrameDescriptor> {
-  const decoded = await decodeDngPath(path, frameIndex);
+  const payload = await invoke<ArrayBuffer>('read_dng_frame', { path, frameIndex });
+  const decoded = decodeDngFramePayload(payload);
   loadDecodedDngIntoWorker(bridge, decoded);
   return decoded.descriptor;
 }

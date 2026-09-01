@@ -3,11 +3,12 @@ import type { PreviewDescriptor } from '../../../../web/src/contracts.js';
 interface PreviewSurfaceProps {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   readonly preview: PreviewDescriptor | null;
+  readonly nativePreviewDataUrl: string | undefined;
   readonly fileName: string | null;
   readonly frameCount: number;
 }
 
-export function PreviewSurface({ canvasRef, preview, fileName, frameCount }: PreviewSurfaceProps) {
+export function PreviewSurface({ canvasRef, preview, nativePreviewDataUrl, fileName, frameCount }: PreviewSurfaceProps) {
   return (
     <section className="panel preview-panel" aria-labelledby="preview-heading">
       <div className="panel-heading compact">
@@ -19,8 +20,8 @@ export function PreviewSurface({ canvasRef, preview, fileName, frameCount }: Pre
       </div>
       <div className="preview-stage">
         <div className="preview-viewport">
-          <canvas ref={canvasRef} width={640} height={480} aria-label="Normal Graph GPU preview" />
-          {preview === null && <div className="no-frame">Run or Step to commit the loaded frame</div>}
+          {nativePreviewDataUrl === undefined ? <canvas ref={canvasRef} width={640} height={480} aria-label="Normal Graph GPU preview" /> : <img src={nativePreviewDataUrl} alt="Native Normal Graph preview" />}
+          {preview === null && nativePreviewDataUrl === undefined && <div className="no-frame">Run or Step to commit the loaded frame</div>}
         </div>
       </div>
       <div className="preview-meta">

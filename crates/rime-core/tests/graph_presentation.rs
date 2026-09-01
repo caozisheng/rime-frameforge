@@ -185,9 +185,17 @@ fn graph_quantization_defaults_enable_only_enabled_modules() {
         .filter(|node| node.kind == GraphTreeKind::Operator && node.id != "raw_source")
         .filter(|node| node.execution_node_id.is_some())
     {
-        let module_id = node.execution_node_id.as_deref().expect("operator execution id");
+        let module_id = node
+            .execution_node_id
+            .as_deref()
+            .expect("operator execution id");
         let preference = config.module(module_id).expect("preference");
-        assert_eq!(preference.output_enabled, node.mode == NodeExecutionMode::Enabled, "{}", node.id);
+        assert_eq!(
+            preference.output_enabled,
+            node.mode == NodeExecutionMode::Enabled,
+            "{}",
+            node.id
+        );
     }
 }
 
@@ -259,7 +267,12 @@ fn graph_quantization_derives_dither_from_effective_output_and_clip_type() {
     config.module_mut("blc").unwrap().output_enabled = true;
     config.module_mut("blc").unwrap().clip_type = ClipType::Truncate;
     let state = config.resolve(&graph).expect("resolve");
-    assert!(!state.module("blc").expect("BLC state").effective_dither_enabled);
+    assert!(
+        !state
+            .module("blc")
+            .expect("BLC state")
+            .effective_dither_enabled
+    );
 }
 
 #[test]

@@ -3,8 +3,8 @@
 use std::str::FromStr;
 
 use rime_quant::{
-    dither_u04, lfsr28_next, quantize_f32, quantize_f32_grid, rnd4b, ClipType, DitherKey,
-    DitherProfile, QuantError, QuantProfile, RimeQProfile, RoundingMode, SaturationMode,
+    ClipType, DitherKey, DitherProfile, QuantError, QuantProfile, RimeQProfile, RoundingMode,
+    SaturationMode, dither_u04, lfsr28_next, quantize_f32, quantize_f32_grid, rnd4b,
 };
 
 #[test]
@@ -262,7 +262,6 @@ fn dither_gpu_numeric_transform_matches_reference_dither_for_same_sample() {
         quantize_f32(-0.5, &profile, ClipType::Dither, dither_sample)
     );
 }
-
 
 #[test]
 fn quantization_shader_declares_stateless_gpu_dither_mode() {

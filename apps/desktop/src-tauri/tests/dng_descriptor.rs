@@ -10,7 +10,10 @@ use std::path::Path;
 
 use rime_dng::DngReader;
 
-const GH5S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../pipeline/normal/P1020601.dng");
+const GH5S: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../pipeline/normal/P1020601.dng"
+);
 
 #[test]
 fn descriptor_serializes_complete_metadata_and_filename() {

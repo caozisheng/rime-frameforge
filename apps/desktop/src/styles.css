@@ -317,7 +317,8 @@ button:disabled {
   aspect-ratio: 4 / 3;
   overflow: hidden;
 }
-.preview-stage canvas { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+.preview-stage canvas, .preview-stage img { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+.preview-stage img { display: block; }
 .no-frame { position: absolute; color: #b5bdc5; font: 11px 'DM Mono', monospace; letter-spacing: .05em; }
 .preview-meta { flex-wrap: wrap; gap: 8px 20px; padding: 0 15px 15px; color: var(--text-secondary); font: 10px 'DM Mono', monospace; }
 .preview-meta b { color: var(--text-primary); font-weight: 500; }

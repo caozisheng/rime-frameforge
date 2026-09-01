@@ -94,7 +94,12 @@ impl DecodedRawFrame {
         }
         #[cfg(target_endian = "big")]
         {
-            Cow::Owned(self.samples().iter().flat_map(|sample| sample.to_le_bytes()).collect())
+            Cow::Owned(
+                self.samples()
+                    .iter()
+                    .flat_map(|sample| sample.to_le_bytes())
+                    .collect(),
+            )
         }
     }
 }

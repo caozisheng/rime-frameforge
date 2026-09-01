@@ -1,0 +1,19 @@
+[package]
+name = "rime-native-gpu"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+image.workspace = true
+pollster.workspace = true
+rime-core = { path = "../rime-core" }
+rime-dng = { path = "../rime-dng" }
+rime-isp = { path = "../rime-isp" }
+serde.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+[lints]
+workspace = true
