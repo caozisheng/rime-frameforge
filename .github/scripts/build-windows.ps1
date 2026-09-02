@@ -27,6 +27,7 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
 }
 
 Invoke-Step 'rustup' @('target', 'add', 'wasm32-unknown-unknown')
+Invoke-Step 'cargo' @('metadata', '--locked', '--format-version', '1', '--no-deps')
 Invoke-Step 'npm' @('ci')
 Invoke-Step 'npm' @('run', 'generate:manifest')
 Invoke-Step 'npm' @('run', 'tauri:build')

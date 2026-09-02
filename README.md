@@ -200,15 +200,23 @@ GitHub Actions runs Rust and frontend checks for pushes to `main` and pull reque
 .github/workflows/ci.yml
 ```
 
-After updating all project version fields to the same `X.Y.Z` value, create and push a matching tag. The tag starts the Windows release workflow.
+Run the release helper with the target version. It synchronizes all Cargo, npm, workspace dependency, lockfile, and Tauri version fields, validates them locally, creates the version commit and annotated tag, then optionally pushes both refs.
 
-For the current release:
+Release a new semantic version with:
 
 ```powershell
-pwsh .github/scripts/release.ps1 0.1.5 -Push
+pwsh .github/scripts/release.ps1 X.Y.Z -Push
 ```
 
-This validates the Cargo, npm, and Tauri versions, pushes `main` and `v0.1.5`, builds the Windows Tauri bundles, and publishes the MSI/NSIS/EXE artifacts to a GitHub Release.
+The matching `vX.Y.Z` tag starts the Windows release workflow, which builds and publishes the MSI/NSIS/EXE artifacts to a GitHub Release.
+
+If a tag-triggered release fails before publishing and the corrected release must keep the same version, repair it explicitly:
+
+```powershell
+pwsh .github/scripts/release.ps1 X.Y.Z -ReplaceExistingTag -Push
+```
+
+Normal releases must not use `-ReplaceExistingTag`; release tags are immutable unless recovering a failed, unpublished release.
 
 The local build entry point is:
 
