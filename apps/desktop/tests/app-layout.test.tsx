@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { App } from '../src/App.js';
 
+const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 class MemoryStorage implements Storage {
   readonly #values = new Map<string, string>();
   get length(): number { return this.#values.size; }
@@ -48,5 +50,19 @@ describe('desktop workspace layout', () => {
     expect(html).toContain('class="app-shell"');
     expect(html).toContain('Focus Preview');
     expect(html).toContain('aria-label="Normal Graph GPU preview"');
+  });
+
+  it('uses the full viewport for the application shell in every mode', () => {
+    const shellRule = styles.match(/\.app-shell\s*\{([^}]*)\}/)?.[1] ?? '';
+    const focusedShellRule = styles.match(/\.app-shell\.is-preview-focused\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(shellRule).toContain('width: 100vw');
+    expect(shellRule).toContain('height: 100vh');
+    expect(shellRule).not.toContain('aspect-ratio: 16 / 9');
+    expect(shellRule).not.toContain('margin: 12px auto');
+    expect(focusedShellRule).toContain('width: 100vw');
+    expect(focusedShellRule).toContain('height: 100vh');
+    expect(focusedShellRule).not.toContain('calc(100vw - 24px)');
+    expect(focusedShellRule).not.toContain('calc(100vh - 24px)');
   });
 });
