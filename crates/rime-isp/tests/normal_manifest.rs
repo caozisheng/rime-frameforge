@@ -36,6 +36,19 @@ fn normal_manifest_contains_the_explicit_main_chain() {
         ]
     );
     assert_eq!(manifest.preview_outputs[0].node_id, "rgb2yuv");
+    assert_eq!(manifest.preview_outputs.len(), manifest.nodes.len());
+    assert_eq!(
+        manifest
+            .preview_outputs
+            .iter()
+            .map(|preview| preview.node_id.as_str())
+            .collect::<HashSet<_>>(),
+        manifest
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<HashSet<_>>(),
+    );
 }
 
 #[test]

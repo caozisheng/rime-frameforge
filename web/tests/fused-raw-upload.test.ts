@@ -31,13 +31,14 @@ function fusedGpu() {
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
   } as unknown as GPUDevice;
   const context = {} as GPUCanvasContext;
-  return { gpu: { device, context, canvasFormat: 'bgra8unorm' } satisfies GpuContext, writes };
+  return { gpu: { canvas: { width: 2, height: 2 } as OffscreenCanvas, device, context, canvasFormat: 'bgra8unorm' } satisfies GpuContext, writes };
 }
 
 beforeEach(() => {
   Object.assign(globalThis, {
-    GPUTextureUsage: { COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
-    GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8 },
+    GPUTextureUsage: { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
+    GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8, MAP_READ: 1 },
+    GPUMapMode: { READ: 1 },
   });
 });
 

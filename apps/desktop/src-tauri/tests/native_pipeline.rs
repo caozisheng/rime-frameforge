@@ -14,6 +14,8 @@ fn native_render_descriptor_preserves_preview_and_fallback_contract() {
         frame_index: 7,
         width: 3744,
         height: 2776,
+        preview_width: 624,
+        preview_height: 463,
         node_id: "rgb2yuv",
         port_id: "out",
         encoder_backend: "cpu_readback",
@@ -23,6 +25,8 @@ fn native_render_descriptor_preserves_preview_and_fallback_contract() {
     let json = serde_json::to_value(descriptor).expect("descriptor serializes");
     assert_eq!(json["frameIndex"], 7);
     assert_eq!(json["nodeId"], "rgb2yuv");
+    assert_eq!(json["previewWidth"], 624);
+    assert_eq!(json["previewHeight"], 463);
     assert_eq!(json["portId"], "out");
     assert_eq!(json["encoderBackend"], "cpu_readback");
 }

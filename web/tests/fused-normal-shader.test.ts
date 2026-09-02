@@ -11,9 +11,9 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader('00');
 
     expect(shader.match(/@compute/g)).toHaveLength(1);
-    expect(shader.match(/texture_storage_2d/g)).toHaveLength(1);
-    expect(shader).toContain('fn normal_fused_main');
-    expect(shader).toContain('fn sample_rgb2yuv');
+    expect(shader.match(/texture_storage_2d/g)).toHaveLength(6);
+    expect(shader).toContain('textureStore(blc_output');
+    expect(shader).toContain('textureStore(yuv_output');
   });
 
   it('keeps complex DEM methods behind a bounded materialization boundary', () => {
@@ -25,6 +25,11 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shaders.pre).toContain('pre_demosaic_main');
     expect(shaders.dem).toContain('demosaic_ppg_main');
     expect(shaders.post).toContain('postprocess_main');
+    expect(shaders.pre.match(/texture_storage_2d/g)).toHaveLength(2);
+    expect(shaders.quantize.match(/texture_storage_2d/g)).toHaveLength(1);
+    expect(shaders.quantize).toContain('quantize_rgba(textureLoad(dem_input');
+    expect(shaders.post.match(/texture_storage_2d/g)).toHaveLength(3);
+    expect(shaders.post).toContain('return textureLoad(dem_input, p, 0);');
   });
 
   it('does not expose recursive complex DEM methods as fully fused shaders', () => {

@@ -75,6 +75,8 @@ export interface WorkerBridge {
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
   setQuantizationConfig(config: string): void;
+  setPreview(nodeA: string, nodeB: string | null, curtain: number): void;
+  samplePreview(nodeId: string, x: number, y: number, requestId: number): void;
   run(frameIndex?: number): void;
   step(frameIndex?: number): void;
   reset(): void;
@@ -110,6 +112,8 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
     setQuantizationConfig: (config) => send({ type: 'set_quantization_config', config }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),
+    setPreview: (nodeA, nodeB, curtain) => send({ type: 'set_preview', nodeA, nodeB, curtain }),
+    samplePreview: (nodeId, x, y, requestId) => send({ type: 'sample_preview', nodeId, x, y, requestId }),
     run: (frameIndex = 0) => send({ type: 'run', frameIndex }),
     step: (frameIndex = 0) => send({ type: 'step', frameIndex }),
     reset: () => send({ type: 'reset' }),

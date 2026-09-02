@@ -48,8 +48,11 @@ export interface PreviewDescriptor {
   readonly gpuGeneration: number;
   readonly width: number;
   readonly height: number;
-  readonly format: 'rgba32float';
-  readonly domain: 'yuv';
+  readonly format: 'r16_uint' | 'r32_float' | 'rgba32_float';
+  readonly domain: 'raw_bayer_sensor' | 'raw_bayer_rime_q' | 'linear_rgb' | 'encoded_rgb' | 'yuv';
+  readonly range: string;
+  readonly channelLayout: string;
+  readonly presentation: 'raw_gray' | 'rgb' | 'yuv';
 }
 
 export interface NodeTiming {
@@ -72,6 +75,8 @@ export type RuntimeCommand =
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
   | { readonly type: 'set_quantization_config'; readonly config: string }
+  | { readonly type: 'set_preview'; readonly nodeA: string; readonly nodeB: string | null; readonly curtain: number }
+  | { readonly type: 'sample_preview'; readonly nodeId: string; readonly x: number; readonly y: number; readonly requestId: number }
   | { readonly type: 'run'; readonly frameIndex: number }
   | { readonly type: 'step'; readonly frameIndex: number }
   | { readonly type: 'reset' }
@@ -80,6 +85,7 @@ export type RuntimeCommand =
 export type RuntimeEvent =
   | { readonly type: 'ready'; readonly envelope: RuntimeEnvelope }
   | { readonly type: 'snapshot'; readonly envelope: RuntimeEnvelope }
-  | { readonly type: 'preview'; readonly envelope: RuntimeEnvelope; readonly preview: PreviewDescriptor }
+  | { readonly type: 'preview'; readonly envelope: RuntimeEnvelope; readonly previews: readonly PreviewDescriptor[] }
+  | { readonly type: 'preview_sample'; readonly envelope: RuntimeEnvelope; readonly nodeId: string; readonly x: number; readonly y: number; readonly values: readonly number[]; readonly requestId: number }
   | { readonly type: 'timings'; readonly envelope: RuntimeEnvelope; readonly timings: readonly NodeTiming[] }
   | { readonly type: 'log'; readonly envelope: RuntimeEnvelope; readonly entry: RuntimeLogEntry };

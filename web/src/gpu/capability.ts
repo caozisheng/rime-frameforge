@@ -11,6 +11,18 @@ export class GpuCapabilityError extends Error {
   }
 }
 
+const NORMAL_GRAPH_STORAGE_TEXTURES = 6;
+
+export function normalGraphRequiredLimits(): Record<'maxStorageTexturesPerShaderStage', number> {
+  return { maxStorageTexturesPerShaderStage: NORMAL_GRAPH_STORAGE_TEXTURES };
+}
+
+export function validateNormalGraphAdapterLimits(limits: Pick<GPUSupportedLimits, 'maxStorageTexturesPerShaderStage'>): void {
+  if (limits.maxStorageTexturesPerShaderStage < NORMAL_GRAPH_STORAGE_TEXTURES) {
+    throw new GpuCapabilityError(`GPU_CAPABILITY_UNSUPPORTED: Normal Graph Preview requires ${NORMAL_GRAPH_STORAGE_TEXTURES} storage textures per compute stage; adapter supports ${limits.maxStorageTexturesPerShaderStage}`);
+  }
+}
+
 export function estimateNormalGraphLivePeakBytes(descriptor: RawFrameDescriptor): number {
   const pixels = descriptor.width * descriptor.height;
   let maxAdjacent = 0;

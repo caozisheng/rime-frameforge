@@ -45,6 +45,7 @@ fn quantize_rgba(value: vec4<f32>, index: u32, p: vec2<i32>) -> vec4<f32> {
 export interface SegmentedNormalShaders {
   readonly pre: string;
   readonly dem: string;
+  readonly quantize: string;
   readonly post: string;
 }
 
@@ -59,8 +60,13 @@ export function compileFusedNormalShader(demMethod: keyof typeof DEMOSAIC_SHADER
 // dem-method:00
 ${FUSED_PARAMS}
 @group(0) @binding(0) var raw_input: texture_2d<u32>;
-@group(0) @binding(1) var output_texture: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(2) var<uniform> params: FusedParams;
+@group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(2) var wbc_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(3) var dem_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(4) var color_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(5) var gamma_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(6) var yuv_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(7) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 ${rawBlcWbcFunctions()}
 ${demosaic}
@@ -69,7 +75,12 @@ ${postprocessFunctions('sample_dem(p)')}
 fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
   let p = vec2<i32>(gid.xy);
-  textureStore(output_texture, p, sample_rgb2yuv(p));
+  textureStore(blc_output, p, vec4<f32>(sample_blc(p), 0.0, 0.0, 1.0));
+  textureStore(wbc_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));
+  textureStore(dem_output, p, sample_dem_quantized(p));
+  textureStore(color_output, p, sample_color_correction(p));
+  textureStore(gamma_output, p, sample_gamma(p));
+  textureStore(yuv_output, p, sample_rgb2yuv(p));
 }`;
 }
 
@@ -80,6 +91,7 @@ export function compileSegmentedNormalShaders(demMethod: keyof typeof DEMOSAIC_S
   return {
     pre: compilePreShader(),
     dem: sanitizeDemosaicShader(DEMOSAIC_SHADERS[demMethod]),
+    quantize: compileDemQuantizeShader(demMethod),
     post: compilePostShader(demMethod),
   };
 }
@@ -125,15 +137,33 @@ function compilePreShader(): string {
   return `${QUANTIZE_FUNCTIONS}
 ${FUSED_PARAMS}
 @group(0) @binding(0) var raw_input: texture_2d<u32>;
-@group(0) @binding(1) var pre_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(2) var<uniform> params: FusedParams;
+@group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(2) var pre_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(3) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 ${rawBlcWbcFunctions()}
 @compute @workgroup_size(8, 8)
 fn pre_demosaic_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
   let p = vec2<i32>(gid.xy);
+  textureStore(blc_output, p, vec4<f32>(sample_blc(p), 0.0, 0.0, 1.0));
   textureStore(pre_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));
+}`;
+}
+
+function compileDemQuantizeShader(method: keyof typeof DEMOSAIC_SHADERS): string {
+  return `${QUANTIZE_FUNCTIONS}
+// dem-method:${method}-quantize
+${FUSED_PARAMS}
+@group(0) @binding(0) var dem_input: texture_2d<f32>;
+@group(0) @binding(1) var dem_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(2) var<uniform> params: FusedParams;
+${QUANT_HELPERS}
+@compute @workgroup_size(8, 8)
+fn quantize_dem_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= params.width || gid.y >= params.height) { return; }
+  let p = vec2<i32>(gid.xy);
+  textureStore(dem_output, p, quantize_rgba(textureLoad(dem_input, p, 0), 2u, p));
 }`;
 }
 
@@ -142,10 +172,12 @@ function compilePostShader(method: keyof typeof DEMOSAIC_SHADERS): string {
 // dem-method:${method}
 ${FUSED_PARAMS}
 @group(0) @binding(0) var dem_input: texture_2d<f32>;
-@group(0) @binding(1) var post_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(2) var<uniform> params: FusedParams;
+@group(0) @binding(1) var color_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(2) var gamma_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(3) var yuv_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(4) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
-fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return quantize_rgba(textureLoad(dem_input, p, 0), 2u, p); }
+fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }
 fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_dem_materialized(p).rgb;
   let corrected = vec4<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b, 1.0);
@@ -164,7 +196,9 @@ fn sample_post_yuv(p: vec2<i32>) -> vec4<f32> {
 fn postprocess_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
   let p = vec2<i32>(gid.xy);
-  textureStore(post_output, p, sample_post_yuv(p));
+  textureStore(color_output, p, sample_post_color(p));
+  textureStore(gamma_output, p, sample_post_gamma(p));
+  textureStore(yuv_output, p, sample_post_yuv(p));
 }`;
 }
 

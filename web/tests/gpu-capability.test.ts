@@ -4,7 +4,9 @@ import {
   GpuCapabilityError,
   estimateNormalGraphLivePeakBytes,
   estimateNormalGraphPoolBytes,
+  normalGraphRequiredLimits,
   validateGpuInput,
+  validateNormalGraphAdapterLimits,
 } from '../src/gpu/capability.js';
 import type { RawFrameDescriptor } from '../src/contracts.js';
 
@@ -39,5 +41,14 @@ describe('validateGpuInput', () => {
 
   it('estimates the retained cold-start pool separately', () => {
     expect(estimateNormalGraphPoolBytes(gh5s)).toBe(3744 * 2776 * (2 + 4 + 4 + 16 + 16 + 16 + 16));
+  });
+
+  it('requests the six storage textures used by the fused Preview pipeline', () => {
+    expect(normalGraphRequiredLimits()).toEqual({ maxStorageTexturesPerShaderStage: 6 });
+  });
+
+  it('rejects adapters that cannot bind all Preview stage outputs', () => {
+    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 4 })).toThrow('GPU_CAPABILITY_UNSUPPORTED');
+    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 8 })).not.toThrow();
   });
 });

@@ -7,6 +7,8 @@ export interface NativeRenderDescriptor {
   readonly frameIndex: number;
   readonly width: number;
   readonly height: number;
+  readonly previewWidth: number;
+  readonly previewHeight: number;
   readonly nodeId: 'rgb2yuv';
   readonly portId: 'out';
   readonly encoderBackend: 'cpu_readback';

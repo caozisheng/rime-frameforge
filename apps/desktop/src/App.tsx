@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, usePanelRef, type Layout } from 'react-resizable-panels';
 
 import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry } from '../../../web/src/contracts.js';
 import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js';
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
+import { normalManifest } from '../../../web/src/generated/normal_manifest.generated.js';
 import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
 import { NodeInspector, type GraphQuantizationConfig, type ModuleQuantizationPreference } from './components/NodeInspector.js';
-import { PreviewSurface } from './components/PreviewSurface.js';
+import { PreviewSurface, type PreviewSampleValue } from './components/PreviewSurface.js';
 import { loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker, loadDngSequencePathIntoWorker, loadDecodedDngIntoWorker, decodeDngPath } from './runtime/dng-loader.js';
 import { isCurrentDngPrefetch, nextDngRunFrame } from './runtime/dng-sequence.js';
 import { listenNativePipeline, renderDngNative, type NativeRenderDescriptor } from './runtime/native-pipeline.js';
@@ -35,6 +36,10 @@ const RIGHT_LAYOUT_KEY = 'rime:pane-layout:right:v2';
 const WORKSPACE_LAYOUT = { left: 62, right: 38 };
 const LEFT_LAYOUT = { graph: 78, logs: 22 };
 const RIGHT_LAYOUT = { inspector: 34, preview: 66 };
+const PREVIEW_NODE_OPTIONS = normalManifest.nodes
+  .filter((node) => node.outputs.length > 0)
+  .map((node) => ({ id: node.id, label: node.display_name }));
+const PREVIEW_CAPABILITIES: Readonly<Record<string, true>> = Object.fromEntries(normalManifest.preview_outputs.map((port) => [port.node_id, true])) as Record<string, true>;
 
 function persistedLayout(key: string, fallback: Layout): Layout {
   return readPaneLayout(window.localStorage, key, fallback);
@@ -45,8 +50,10 @@ export function App() {
   const envelopeRef = useRef<RuntimeEnvelope>(INITIAL_ENVELOPE);
   const logsPanelRef = usePanelRef();
   const [envelope, setEnvelope] = useState(INITIAL_ENVELOPE);
-  const [preview, setPreview] = useState<PreviewDescriptor | null>(null);
+  const sampleRequestRef = useRef(0);
+  const [previews, setPreviews] = useState<readonly PreviewDescriptor[]>([]);
   const [nativePreview, setNativePreview] = useState<NativeRenderDescriptor | null>(null);
+  const [previewSample, setPreviewSample] = useState<PreviewSampleValue | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [quantization, setQuantization] = useState<GraphQuantizationConfig>(normalGraphQuantization);
   const [activeMethods, setActiveMethods] = useState<Record<string, string>>({ dem: '00' });
@@ -76,6 +83,23 @@ export function App() {
   const [workspaceLayout] = useState(() => persistedLayout(WORKSPACE_LAYOUT_KEY, WORKSPACE_LAYOUT));
   const [leftLayout] = useState(() => persistedLayout(LEFT_LAYOUT_KEY, LEFT_LAYOUT));
   const [rightLayout] = useState(() => persistedLayout(RIGHT_LAYOUT_KEY, RIGHT_LAYOUT));
+  const [previewMode, setPreviewMode] = useState<'final' | 'selected' | 'compare'>('final');
+  const [compareA, setCompareA] = useState<string | null>(normalManifest.preview_outputs[0]?.node_id ?? null);
+  const [compareB, setCompareB] = useState<string | null>(normalManifest.preview_outputs[1]?.node_id ?? null);
+  const [previewFocused, setPreviewFocused] = useState(false);
+  useEffect(() => {
+    const handlePreviewShortcut = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && previewFocused) {
+        event.preventDefault();
+        setPreviewFocused(false);
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        setPreviewFocused((focused) => !focused);
+      }
+    };
+    window.addEventListener('keydown', handlePreviewShortcut);
+    return () => window.removeEventListener('keydown', handlePreviewShortcut);
+  }, [previewFocused]);
   const beginDngPrefetch = (index: number): void => {
     const path = dngPathsRef.current[index];
     const generation = sequenceGenerationRef.current;
@@ -183,14 +207,16 @@ export function App() {
       if (event.type === 'ready' || event.type === 'snapshot') {
         setEnvelope(event.envelope);
         setCommandPending(false);
-        if (!event.envelope.visibleFrameCommitted && dngPathsRef.current.length <= 1) setPreview(null);
+        if (!event.envelope.visibleFrameCommitted && dngPathsRef.current.length <= 1) setPreviews([]);
       }
       if (event.type === 'preview') {
         setEnvelope(event.envelope);
-        setPreview(event.preview);
+        setPreviews(event.previews);
         setCommandPending(false);
-        appendLog({ level: 'info', message: `frame ${event.preview.frameIndex} committed to GPU preview`, framePhase: 'output' });
-        const nextIndex = event.preview.frameIndex + 1;
+        const finalPreview = event.previews[0];
+        if (finalPreview === undefined) return;
+        appendLog({ level: 'info', message: `frame ${finalPreview.frameIndex} committed to ${event.previews.length} GPU preview outputs`, framePhase: 'output' });
+        const nextIndex = finalPreview.frameIndex + 1;
         if (sequencePlayingRef.current && nextIndex < dngPathsRef.current.length) {
           setCommandPending(true);
           void consumeDngFrame(nextIndex, 'run').catch((error: unknown) => {
@@ -203,6 +229,9 @@ export function App() {
           sequencePlayingRef.current = false;
           setSequencePlaying(false);
         }
+      }
+      if (event.type === 'preview_sample' && event.requestId === sampleRequestRef.current) {
+        setPreviewSample({ nodeId: event.nodeId, x: event.x, y: event.y, values: event.values });
       }
       if (event.type === 'log') {
         setEnvelope(event.envelope);
@@ -327,7 +356,16 @@ export function App() {
     invalidateDngPrefetch();
     setCommandPending(true);
     bridgeRef.current?.reset();
+    setPreviews([]);
   };
+
+  const changePreviewPresentation = useCallback((nodeA: string, nodeB: string | null, curtain: number): void => {
+    bridgeRef.current?.setPreview(nodeA, nodeB, curtain);
+  }, []);
+  const requestPreviewSample = useCallback((nodeId: string, x: number, y: number): void => {
+    sampleRequestRef.current += 1;
+    bridgeRef.current?.samplePreview(nodeId, x, y, sampleRequestRef.current);
+  }, []);
 
 
   const transportControls = (
@@ -340,7 +378,7 @@ export function App() {
   );
 
   return (
-    <main className="app-shell">
+    <main className={previewFocused ? 'app-shell is-preview-focused' : 'app-shell'}>
       <header className="command-bar">
         <div className="brand-lockup"><span className="brand-mark">R</span><h1>Normal Graph</h1></div>
         <nav className="menu-bar" aria-label="Application menu">
@@ -400,7 +438,7 @@ export function App() {
           >
             <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
-            <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} preview={preview} nativePreviewDataUrl={nativePreview?.previewDataUrl} fileName={nativePreview === null ? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} /></div></Panel>
+            <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} previews={previews} nativePreview={nativePreview === null ? null : { dataUrl: nativePreview.previewDataUrl, width: nativePreview.previewWidth, height: nativePreview.previewHeight, outputWidth: nativePreview.width, outputHeight: nativePreview.height, nodeId: nativePreview.nodeId, portId: nativePreview.portId, frameIndex: nativePreview.frameIndex }} fileName={nativePreview === null ? loadedDng?.fileName ?? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} sample={previewSample} mode={previewMode} selectedNode={selectedNode} nodeOptions={PREVIEW_NODE_OPTIONS} previewCapabilities={PREVIEW_CAPABILITIES} compareA={compareA} compareB={compareB} focused={previewFocused} onModeChange={setPreviewMode} onCompareAChange={setCompareA} onCompareBChange={setCompareB} onFocusedChange={setPreviewFocused} onPresentationChange={changePreviewPresentation} onSampleRequest={requestPreviewSample} /></div></Panel>
           </Group>
         </Panel>
       </Group>

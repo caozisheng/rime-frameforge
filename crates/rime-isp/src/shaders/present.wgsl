@@ -13,17 +13,43 @@ fn present_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
   return out;
 }
 
-@group(0) @binding(0) var yuv_tex: texture_2d<f32>;
+@group(0) @binding(0) var float_tex: texture_2d<f32>;
+@group(1) @binding(0) var uint_tex: texture_2d<u32>;
+
+fn coordinate(uv: vec2<f32>, extent: vec2<u32>) -> vec2<i32> {
+  return vec2<i32>(clamp(uv * vec2<f32>(extent), vec2<f32>(0.0), vec2<f32>(extent - vec2<u32>(1u))));
+}
+
+fn display_code(rgb: vec3<f32>) -> vec4<f32> {
+  return vec4<f32>(clamp(trunc(rgb * 256.0), vec3<f32>(0.0), vec3<f32>(255.0)) / 255.0, 1.0);
+}
 
 @fragment
-fn present_fragment(in: VertexOut) -> @location(0) vec4<f32> {
-  let extent = textureDimensions(yuv_tex);
-  let coordinate = vec2<i32>(clamp(in.uv * vec2<f32>(extent), vec2<f32>(0.0), vec2<f32>(extent - vec2<u32>(1u))));
-  let yuv = textureLoad(yuv_tex, coordinate, 0).rgb;
+fn present_raw(in: VertexOut) -> @location(0) vec4<f32> {
+  let extent = textureDimensions(uint_tex);
+  let value = f32(textureLoad(uint_tex, coordinate(in.uv, extent), 0).r) / 65535.0;
+  return vec4<f32>(value, value, value, 1.0);
+}
+
+@fragment
+fn present_gray(in: VertexOut) -> @location(0) vec4<f32> {
+  let extent = textureDimensions(float_tex);
+  let value = textureLoad(float_tex, coordinate(in.uv, extent), 0).r;
+  return display_code(vec3<f32>(value));
+}
+
+@fragment
+fn present_rgb(in: VertexOut) -> @location(0) vec4<f32> {
+  let extent = textureDimensions(float_tex);
+  return display_code(textureLoad(float_tex, coordinate(in.uv, extent), 0).rgb);
+}
+
+@fragment
+fn present_yuv(in: VertexOut) -> @location(0) vec4<f32> {
+  let extent = textureDimensions(float_tex);
+  let yuv = textureLoad(float_tex, coordinate(in.uv, extent), 0).rgb;
   let y = yuv.x;
   let u = yuv.y - 0.5;
   let v = yuv.z - 0.5;
-  let rgb = vec3<f32>(y + 1.5748 * v, y - 0.187324 * u - 0.468124 * v, y + 1.8556 * u);
-  let display_code = clamp(trunc(rgb * 256.0), vec3<f32>(0.0), vec3<f32>(255.0));
-  return vec4<f32>(display_code / 255.0, 1.0);
+  return display_code(vec3<f32>(y + 1.5748 * v, y - 0.187324 * u - 0.468124 * v, y + 1.8556 * u));
 }

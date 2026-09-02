@@ -205,10 +205,10 @@ After updating all project version fields to the same `X.Y.Z` value, create and 
 For the current release:
 
 ```powershell
-pwsh .github/scripts/release.ps1 0.1.4 -Push
+pwsh .github/scripts/release.ps1 0.1.5 -Push
 ```
 
-This validates the Cargo, npm, and Tauri versions, pushes `main` and `v0.1.4`, builds the Windows Tauri bundles, and publishes the MSI/NSIS/EXE artifacts to a GitHub Release.
+This validates the Cargo, npm, and Tauri versions, pushes `main` and `v0.1.5`, builds the Windows Tauri bundles, and publishes the MSI/NSIS/EXE artifacts to a GitHub Release.
 
 The local build entry point is:
 

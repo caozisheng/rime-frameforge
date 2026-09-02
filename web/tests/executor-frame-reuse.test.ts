@@ -43,7 +43,7 @@ function fakeGpu() {
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
   } as unknown as GPUDevice;
   const context = {} as GPUCanvasContext;
-  const gpu = { device, context, canvasFormat: 'bgra8unorm' } satisfies GpuContext;
+  const gpu = { canvas: { width: 2, height: 2 } as OffscreenCanvas, device, context, canvasFormat: 'bgra8unorm' } satisfies GpuContext;
   return {
     gpu,
     counts: () => ({ textureCreates, textureDestroys, bufferCreates, bufferDestroys, rawUploads }),
@@ -52,8 +52,9 @@ function fakeGpu() {
 
 beforeEach(() => {
   Object.assign(globalThis, {
-    GPUTextureUsage: { COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
-    GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8 },
+    GPUTextureUsage: { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
+    GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8, MAP_READ: 1 },
+    GPUMapMode: { READ: 1 },
   });
 });
 
@@ -64,7 +65,7 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
 
-    expect(fake.counts()).toEqual({ textureCreates: 2, textureDestroys: 0, bufferCreates: 1, bufferDestroys: 0, rawUploads: 2 });
+    expect(fake.counts()).toEqual({ textureCreates: 8, textureDestroys: 0, bufferCreates: 1, bufferDestroys: 0, rawUploads: 2 });
   });
 
   it('requires resource rebuild when frame extent changes', () => {
@@ -80,6 +81,6 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     executor.dispose();
 
-    expect(fake.counts()).toEqual({ textureCreates: 2, textureDestroys: 2, bufferCreates: 1, bufferDestroys: 1, rawUploads: 1 });
+    expect(fake.counts()).toEqual({ textureCreates: 8, textureDestroys: 8, bufferCreates: 1, bufferDestroys: 1, rawUploads: 1 });
   });
 });

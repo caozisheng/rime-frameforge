@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "cb74b6eee78950045516df402a9be2086820433d0ab2aed1044dcc321a9161da",
+  "manifest_hash": "103ed3a42c24feafe2723d60f7e4317a583dbf9ac202e2ccc558a9234a60586c",
   "nodes": [
     {
       "id": "raw_source",
@@ -904,7 +904,231 @@ export const normalManifest = {
       "extent": {
         "width": 32,
         "height": 24
-      }
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "yuv"
+    },
+    {
+      "node_id": "three_d_lut",
+      "port_id": "out",
+      "domain": "encoded_rgb",
+      "format": "rgba32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "rgb"
+    },
+    {
+      "node_id": "gamma",
+      "port_id": "out",
+      "domain": "encoded_rgb",
+      "format": "rgba32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "rgb"
+    },
+    {
+      "node_id": "color_correction",
+      "port_id": "out",
+      "domain": "linear_rgb",
+      "format": "rgba32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "rgb"
+    },
+    {
+      "node_id": "pfr",
+      "port_id": "out",
+      "domain": "linear_rgb",
+      "format": "rgba32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "rgb"
+    },
+    {
+      "node_id": "dem",
+      "port_id": "out",
+      "domain": "linear_rgb",
+      "format": "rgba32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "rgba",
+      "presentation": "rgb"
+    },
+    {
+      "node_id": "wbc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "raw_nr",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "cac",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "drc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "hr",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "lsc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "tintless",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "sbpc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "dbpc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "sbpc_horizontal",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "blc",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "raw_source",
+      "port_id": "out",
+      "domain": "raw_bayer_sensor",
+      "format": "r16_uint",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "sensor_code",
+      "channel_layout": "cfa",
+      "presentation": "raw_gray"
     }
   ]
 } as const;

@@ -108,6 +108,17 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
+  if (command.type === 'set_preview') {
+    if (executor === null) throw new Error('INVALID_STATE_TRANSITION: GPU executor is unavailable');
+    await executor.present(command.nodeA, command.nodeB, command.curtain);
+    return;
+  }
+  if (command.type === 'sample_preview') {
+    if (executor === null) throw new Error('INVALID_STATE_TRANSITION: GPU executor is unavailable');
+    const values = await executor.sample(command.nodeId, command.x, command.y);
+    self.postMessage({ type: 'preview_sample', envelope, nodeId: command.nodeId, x: command.x, y: command.y, values, requestId: command.requestId } satisfies RuntimeEvent);
+    return;
+  }
   if (command.type === 'step' || command.type === 'run') {
     if (controller === null) throw new Error('INVALID_STATE_TRANSITION: GPU executor is unavailable');
     envelope = command.type === 'step' ? authority.step(command.frameIndex) : authority.run(command.frameIndex);
@@ -148,7 +159,7 @@ function createExecutor(generation: number): void {
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter, value);
   controller = new RuntimeController(
     executor,
-    (preview) => self.postMessage({ type: 'preview', envelope, preview } satisfies RuntimeEvent),
+    (previews) => self.postMessage({ type: 'preview', envelope, previews } satisfies RuntimeEvent),
     (phase) => {
       if (authority === null) throw new Error('WASM authority is unavailable');
       envelope = phase === 'warmup' ? authority.completeWarmup() : authority.completeOutput();

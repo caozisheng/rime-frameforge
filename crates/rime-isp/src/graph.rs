@@ -2,7 +2,7 @@ use crate::{OperatorDefinition, OperatorMethod, normal_operators};
 use rime_core::{
     Extent2d, GraphIqOverride, GraphPresentation, GraphPresentationEdge, GraphTreeKind,
     GraphTreeNode, MethodSpec, NodeExecutionMode, NodeSpec, PipelineManifest, PortRef, PortSpec,
-    PreviewPortSpec, ResourceFormat, SignalDomain, TemporalEdge,
+    PreviewPortSpec, PreviewPresentation, ResourceFormat, SignalDomain, TemporalEdge,
 };
 
 const WIDTH: u32 = 32;
@@ -66,6 +66,38 @@ pub fn build_normal_manifest() -> PipelineManifest {
                 .collect(),
         });
     }
+    let preview_outputs = nodes
+        .iter()
+        .rev()
+        .filter_map(|node| {
+            node.outputs.first().map(|output| PreviewPortSpec {
+                node_id: node.id.clone(),
+                port_id: output.id.clone(),
+                domain: output.domain,
+                format: output.format,
+                extent: output.extent.clone(),
+                range: if output.domain == SignalDomain::RawBayerSensor {
+                    "sensor_code"
+                } else {
+                    "normalized"
+                }
+                .into(),
+                channel_layout: match output.format {
+                    ResourceFormat::R16Uint => "cfa",
+                    ResourceFormat::R32Float => "scalar",
+                    ResourceFormat::Rgba32Float => "rgba",
+                }
+                .into(),
+                presentation: match output.domain {
+                    SignalDomain::RawBayerSensor | SignalDomain::RawBayerRimeQ => {
+                        PreviewPresentation::RawGray
+                    }
+                    SignalDomain::LinearRgb | SignalDomain::EncodedRgb => PreviewPresentation::Rgb,
+                    SignalDomain::Yuv => PreviewPresentation::Yuv,
+                },
+            })
+        })
+        .collect();
 
     let chain = [
         "raw_source",
@@ -110,13 +142,7 @@ pub fn build_normal_manifest() -> PipelineManifest {
         manifest_hash: String::new(),
         nodes,
         edges,
-        preview_outputs: vec![PreviewPortSpec {
-            node_id: "rgb2yuv".into(),
-            port_id: "out".into(),
-            domain: SignalDomain::Yuv,
-            format: ResourceFormat::Rgba32Float,
-            extent,
-        }],
+        preview_outputs,
     };
     manifest.refresh_hash();
     manifest

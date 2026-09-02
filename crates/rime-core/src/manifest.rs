@@ -23,6 +23,14 @@ pub enum ResourceFormat {
     Rgba32Float,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewPresentation {
+    RawGray,
+    Rgb,
+    Yuv,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Extent2d {
     pub width: u32,
@@ -76,6 +84,9 @@ pub struct PreviewPortSpec {
     pub domain: SignalDomain,
     pub format: ResourceFormat,
     pub extent: Extent2d,
+    pub range: String,
+    pub channel_layout: String,
+    pub presentation: PreviewPresentation,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -308,6 +319,9 @@ impl PipelineManifest {
             update_string(&mut hasher, &preview.node_id);
             update_string(&mut hasher, &preview.port_id);
             update_port_contract(&mut hasher, preview.domain, preview.format, &preview.extent);
+            update_string(&mut hasher, &preview.range);
+            update_string(&mut hasher, &preview.channel_layout);
+            hasher.update([preview.presentation as u8]);
         }
         format!("{:x}", hasher.finalize())
     }

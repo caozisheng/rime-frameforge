@@ -41,4 +41,12 @@ describe('desktop workspace layout', () => {
     expect(trace).toBeLessThan(inspector);
     expect(preview).toBeGreaterThan(inspector);
   });
+
+  it('provides Preview focus entry while keeping the GPU canvas mounted', () => {
+    const html = renderToStaticMarkup(<App />);
+
+    expect(html).toContain('class="app-shell"');
+    expect(html).toContain('Focus Preview');
+    expect(html).toContain('aria-label="Normal Graph GPU preview"');
+  });
 });

@@ -66,7 +66,7 @@ fn resolved_config_reuses_normal_manifest_and_fixed_ring() {
     assert_eq!(resolved.ring_capacity, 2);
     assert_eq!(
         resolved.manifest_hash,
-        "cb74b6eee78950045516df402a9be2086820433d0ab2aed1044dcc321a9161da"
+        "103ed3a42c24feafe2723d60f7e4317a583dbf9ac202e2ccc558a9234a60586c"
     );
 }
 

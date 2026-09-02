@@ -8,18 +8,18 @@ export interface ExecutionIdentity {
 }
 export interface FrameExecutor {
   prepare(identity: ExecutionIdentity): Promise<void> | void;
-  execute(phase: FramePhase, identity: ExecutionIdentity): Promise<PreviewDescriptor>;
+  execute(phase: FramePhase, identity: ExecutionIdentity): Promise<readonly PreviewDescriptor[]>;
   reset(): void;
 }
 
 export class RuntimeController {
   readonly #executor: FrameExecutor;
-  readonly #publishPreview: (preview: PreviewDescriptor) => void;
+  readonly #publishPreview: (previews: readonly PreviewDescriptor[]) => void;
   readonly #publishPhase: (phase: FramePhase) => void;
 
   public constructor(
     executor: FrameExecutor,
-    publishPreview: (preview: PreviewDescriptor) => void,
+    publishPreview: (previews: readonly PreviewDescriptor[]) => void,
     publishPhase: (phase: FramePhase) => void = () => undefined,
   ) {
     this.#executor = executor;
@@ -29,9 +29,9 @@ export class RuntimeController {
   public async step(identity: ExecutionIdentity): Promise<void> {
     await this.#executor.prepare(identity);
     this.#publishPhase('warmup');
-    const output = await this.#executor.execute('output', identity);
+    const outputs = await this.#executor.execute('output', identity);
     this.#publishPhase('output');
-    this.#publishPreview(output);
+    this.#publishPreview(outputs);
   }
 
   public reset(): void {

@@ -23,6 +23,8 @@ pub struct NativeRenderDescriptor {
     pub frame_index: u64,
     pub width: u32,
     pub height: u32,
+    pub preview_width: u32,
+    pub preview_height: u32,
     pub node_id: &'static str,
     pub port_id: &'static str,
     pub encoder_backend: &'static str,
@@ -78,12 +80,15 @@ pub fn render_dng_native(
         .map_err(|error| format!("NATIVE_GPU_RENDER_FAILED: {error}"))?;
     let render_elapsed = render_started.elapsed();
     let preview_started = Instant::now();
-    let preview_data_url = encode_preview(surface.width(), surface.height(), surface.pixels())?;
+    let (preview_data_url, preview_width, preview_height) =
+        encode_preview(surface.width(), surface.height(), surface.pixels())?;
     let preview_elapsed = preview_started.elapsed();
     let descriptor = NativeRenderDescriptor {
         frame_index: surface.identity().frame_index,
         width: surface.width(),
         height: surface.height(),
+        preview_width,
+        preview_height,
         node_id: surface.node_id(),
         port_id: surface.port_id(),
         encoder_backend: "cpu_readback",
@@ -122,7 +127,7 @@ fn emit(app: &tauri::AppHandle, event: NativePipelineEvent<'_>) -> Result<(), St
         .map_err(|error| format!("NATIVE_PIPELINE_EVENT_FAILED: {error}"))
 }
 
-fn encode_preview(width: u32, height: u32, pixels: &[f32]) -> Result<String, String> {
+fn encode_preview(width: u32, height: u32, pixels: &[f32]) -> Result<(String, u32, u32), String> {
     let scale = (width.max(height) as f32 / 640.0).max(1.0).ceil() as u32;
     let preview_width = width.div_ceil(scale);
     let preview_height = height.div_ceil(scale);
@@ -153,9 +158,13 @@ fn encode_preview(width: u32, height: u32, pixels: &[f32]) -> Result<String, Str
             ExtendedColorType::Rgba8,
         )
         .map_err(|error| format!("NATIVE_PREVIEW_ENCODE_FAILED: {error}"))?;
-    Ok(format!(
-        "data:image/png;base64,{}",
-        BASE64.encode(bytes.into_inner())
+    Ok((
+        format!(
+            "data:image/png;base64,{}",
+            BASE64.encode(bytes.into_inner())
+        ),
+        preview_width,
+        preview_height,
     ))
 }
 
@@ -166,9 +175,10 @@ mod tests {
     #[test]
     fn native_preview_is_a_bounded_png_data_url() {
         let pixels = vec![0.5, 0.5, 0.5, 1.0];
-        let preview = encode_preview(1, 1, &pixels).expect("preview encodes");
+        let (preview, width, height) = encode_preview(1, 1, &pixels).expect("preview encodes");
 
         assert!(preview.starts_with("data:image/png;base64,"));
+        assert_eq!((width, height), (1, 1));
         assert!(preview.len() < 256);
     }
 }
