@@ -82,11 +82,12 @@ describe('graph-level NodeInspector', () => {
     expect(html).not.toContain('SBPC-H output profile');
     expect(html).not.toContain('SBPC-H ClipType');
   });
-  it('shows preprocessed DNG RGB gains for WBC', () => {
+  it('uses the current DNG frame gains over stale default values', () => {
     const html = renderToStaticMarkup(
       <NodeInspector
         {...inspectorProps}
         nodeId="wbc"
+        parameterValues={{ red_gain: 2, green_gain: 1, blue_gain: 1.5 }}
         dngFrame={{ cfa: 'rggb', whiteBalanceGains: [2.125, 1, 1.625] } as DngFrameDescriptor}
       />,
     );
@@ -94,8 +95,28 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('red_gain');
     expect(html).toContain('2.125');
     expect(html).toContain('green_gain');
+    expect(html).toContain('1');
     expect(html).toContain('blue_gain');
     expect(html).toContain('1.625');
+    expect(html).not.toContain('>2<');
+    expect(html).not.toContain('>1.5<');
+  });
+
+  it('keeps parameter values as the WBC fallback before a DNG is loaded', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="wbc"
+        parameterValues={{ red_gain: 2, green_gain: 1, blue_gain: 1.5 }}
+      />,
+    );
+
+    expect(html).toContain('red_gain');
+    expect(html).toContain('>2<');
+    expect(html).toContain('green_gain');
+    expect(html).toContain('>1<');
+    expect(html).toContain('blue_gain');
+    expect(html).toContain('>1.5<');
   });
 });
 

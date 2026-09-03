@@ -124,12 +124,14 @@ function parameterValue(
   parameterValues: Readonly<Record<string, string | number>>,
   dngFrame: DngFrameDescriptor | null,
 ): string | number {
+  if (dngFrame !== null) {
+    if (parameter === 'cfa_pattern') return dngFrame.cfa;
+    const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
+    if (gainIndex !== undefined) return dngFrame.whiteBalanceGains[gainIndex] ?? '—';
+  }
   const explicit = parameterValues[parameter];
   if (explicit !== undefined) return explicit;
-  if (dngFrame === null) return '—';
-  if (parameter === 'cfa_pattern') return dngFrame.cfa;
-  const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
-  return gainIndex === undefined ? '—' : (dngFrame.whiteBalanceGains[gainIndex] ?? '—');
+  return '—';
 }
 
 export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
