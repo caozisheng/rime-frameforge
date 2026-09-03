@@ -5,13 +5,13 @@ pub mod sbpc;
 pub mod sbpc_horizontal;
 pub mod tintless;
 
-use crate::operator::OperatorDefinition;
+use crate::operator::Operator;
 
-pub const OPERATORS: &[&OperatorDefinition] = &[
-    &blc::DEFINITION,
-    &sbpc_horizontal::DEFINITION,
-    &dbpc::DEFINITION,
-    &sbpc::DEFINITION,
-    &tintless::DEFINITION,
-    &lsc::DEFINITION,
+pub const OPERATORS: &[&dyn Operator] = &[
+    &blc::OPERATOR,
+    &sbpc_horizontal::OPERATOR,
+    &dbpc::OPERATOR,
+    &sbpc::OPERATOR,
+    &tintless::OPERATOR,
+    &lsc::OPERATOR,
 ];

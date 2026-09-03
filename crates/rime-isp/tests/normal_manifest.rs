@@ -55,8 +55,9 @@ fn normal_manifest_contains_the_explicit_main_chain() {
 fn blc_is_black_level_correction_and_owns_normalization_contract() {
     let operator = rime_isp::normal_operators()
         .iter()
-        .find(|operator| operator.id == "blc")
-        .expect("BLC operator");
+        .find(|operator| operator.definition().id == "blc")
+        .expect("BLC operator")
+        .definition();
 
     assert_eq!(operator.label, "BLC");
     assert_eq!(operator.methods[0].shader_entry, "blc_main");
@@ -78,8 +79,9 @@ fn named_operator_outputs_own_rime_q_defaults_without_input_profiles() {
     for (operator_id, profile) in expected {
         let operator = rime_isp::normal_operators()
             .iter()
-            .find(|operator| operator.id == operator_id)
-            .expect("named operator");
+            .find(|operator| operator.definition().id == operator_id)
+            .expect("named operator")
+            .definition();
         assert_eq!(operator.output_rime_q_profile, Some(profile));
     }
 }

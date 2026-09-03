@@ -42,3 +42,248 @@ pub const fn method(
         parameters,
     }
 }
+
+pub const MAX_UNIFORM_BYTES: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShaderBindings {
+    pub input: u32,
+    pub output: u32,
+    pub uniform: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShaderAsset {
+    pub method: &'static str,
+    pub source: &'static str,
+    pub entry_point: &'static str,
+    pub bindings: ShaderBindings,
+    pub workgroup_size: [u32; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameIdentity {
+    pub frame_index: u64,
+    pub run_revision: u64,
+    pub method_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PreprocessContext {
+    pub identity: FrameIdentity,
+    pub width: u32,
+    pub height: u32,
+    pub black_level: f32,
+    pub white_level: f32,
+    pub cfa_pattern: [u32; 4],
+    pub as_shot_neutral: Option<[f64; 3]>,
+    pub as_shot_white_xy: Option<[f64; 2]>,
+    pub color_matrix1: [f64; 9],
+    pub color_matrix2: Option<[f64; 9]>,
+}
+
+#[derive(Debug)]
+pub struct PostprocessContext {
+    pub identity: FrameIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleParameterPacket {
+    module_id: &'static str,
+    method: &'static str,
+    identity: FrameIdentity,
+    bytes: [u8; MAX_UNIFORM_BYTES],
+    len: usize,
+}
+
+impl ModuleParameterPacket {
+    #[must_use]
+    pub const fn empty(
+        module_id: &'static str,
+        method: &'static str,
+        identity: FrameIdentity,
+    ) -> Self {
+        Self {
+            module_id,
+            method,
+            identity,
+            bytes: [0; MAX_UNIFORM_BYTES],
+            len: 0,
+        }
+    }
+
+    /// Creates a frozen uniform packet for one operator invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UniformTooLarge` when the module parameter block exceeds the
+    /// fixed packet capacity.
+    pub fn new(
+        module_id: &'static str,
+        method: &'static str,
+        identity: FrameIdentity,
+        uniform: &[u8],
+    ) -> Result<Self, OperatorError> {
+        if uniform.len() > MAX_UNIFORM_BYTES {
+            return Err(OperatorError::UniformTooLarge {
+                module_id,
+                actual: uniform.len(),
+                maximum: MAX_UNIFORM_BYTES,
+            });
+        }
+        let mut packet = Self::empty(module_id, method, identity);
+        packet.bytes[..uniform.len()].copy_from_slice(uniform);
+        packet.len = uniform.len();
+        Ok(packet)
+    }
+
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+
+    #[must_use]
+    pub const fn module_id(&self) -> &'static str {
+        self.module_id
+    }
+
+    #[must_use]
+    pub const fn method(&self) -> &'static str {
+        self.method
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> FrameIdentity {
+        self.identity
+    }
+}
+
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum OperatorError {
+    #[error("graph references unregistered operator `{module_id}`")]
+    UnregisteredOperator { module_id: String },
+    #[error("operator `{module_id}` has no method `{method}`")]
+    UnknownMethod {
+        module_id: &'static str,
+        method: String,
+    },
+    #[error("operator `{module_id}` uniform is {actual} bytes; maximum is {maximum}")]
+    UniformTooLarge {
+        module_id: &'static str,
+        actual: usize,
+        maximum: usize,
+    },
+    #[error("operator `{module_id}` preprocessing failed: {reason}")]
+    Preprocess {
+        module_id: &'static str,
+        reason: &'static str,
+    },
+}
+
+pub type PreprocessFn = fn(
+    &PreprocessContext,
+    &'static str,
+    &'static str,
+) -> Result<ModuleParameterPacket, OperatorError>;
+pub type PostprocessFn = fn(&mut PostprocessContext) -> Result<(), OperatorError>;
+
+pub trait Operator: Sync {
+    fn definition(&self) -> &'static OperatorDefinition;
+    /// Freezes this operator's parameters for the current frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an operator-specific validation error when the frame context
+    /// cannot produce a valid parameter packet.
+    fn preprocess(
+        &self,
+        context: &PreprocessContext,
+    ) -> Result<ModuleParameterPacket, OperatorError>;
+
+    /// Resolves one registered method to its immutable GPU shader asset.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnknownMethod` when `method` is not registered by this operator.
+    fn shader(&self, method: &str) -> Result<&'static ShaderAsset, OperatorError>;
+
+    /// Consumes the completed GPU result and updates typed CPU-side state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an operator-specific result-processing error.
+    fn postprocess(&self, context: &mut PostprocessContext) -> Result<(), OperatorError>;
+}
+
+pub struct StaticOperator {
+    pub definition: &'static OperatorDefinition,
+    pub shaders: &'static [ShaderAsset],
+    pub preprocess: PreprocessFn,
+    pub postprocess: PostprocessFn,
+}
+
+impl Operator for StaticOperator {
+    fn definition(&self) -> &'static OperatorDefinition {
+        self.definition
+    }
+
+    fn preprocess(
+        &self,
+        context: &PreprocessContext,
+    ) -> Result<ModuleParameterPacket, OperatorError> {
+        (self.preprocess)(context, self.definition.id, self.definition.default_method)
+    }
+
+    fn shader(&self, method: &str) -> Result<&'static ShaderAsset, OperatorError> {
+        self.shaders
+            .iter()
+            .find(|shader| shader.method == method)
+            .ok_or_else(|| OperatorError::UnknownMethod {
+                module_id: self.definition.id,
+                method: method.to_owned(),
+            })
+    }
+
+    fn postprocess(&self, context: &mut PostprocessContext) -> Result<(), OperatorError> {
+        (self.postprocess)(context)
+    }
+}
+
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "no-op hooks share the fallible Operator preprocess function pointer contract"
+)]
+pub fn empty_preprocess(
+    context: &PreprocessContext,
+    module_id: &'static str,
+    method: &'static str,
+) -> Result<ModuleParameterPacket, OperatorError> {
+    Ok(ModuleParameterPacket::empty(
+        module_id,
+        method,
+        context.identity,
+    ))
+}
+
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "no-op hooks share the fallible Operator postprocess function pointer contract"
+)]
+pub const fn empty_postprocess(_context: &mut PostprocessContext) -> Result<(), OperatorError> {
+    Ok(())
+}
+
+pub const fn shader(
+    method: &'static str,
+    source: &'static str,
+    entry_point: &'static str,
+    bindings: ShaderBindings,
+) -> ShaderAsset {
+    ShaderAsset {
+        method,
+        source,
+        entry_point,
+        bindings,
+        workgroup_size: [8, 8, 1],
+    }
+}

@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::operator::{ModuleParameterPacket, OperatorError, PreprocessContext};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WhiteBalanceMetadata {
     pub as_shot_neutral: Option<[f64; 3]>,
@@ -69,6 +71,45 @@ pub fn white_balance_gains(
         return Err(WhiteBalanceError::InvalidGains);
     }
     Ok(gains)
+}
+
+pub(crate) fn preprocess(
+    context: &PreprocessContext,
+    module_id: &'static str,
+    method: &'static str,
+) -> Result<ModuleParameterPacket, OperatorError> {
+    let gains = white_balance_gains(&WhiteBalanceMetadata {
+        as_shot_neutral: context.as_shot_neutral,
+        as_shot_white_xy: context.as_shot_white_xy,
+        color_matrix1: context.color_matrix1,
+        color_matrix2: context.color_matrix2,
+    })
+    .map_err(|error| OperatorError::Preprocess {
+        module_id,
+        reason: error.reason(),
+    })?;
+    let mut uniform = [0_u8; 32];
+    uniform[0..4].copy_from_slice(&gains.red.to_ne_bytes());
+    uniform[4..8].copy_from_slice(&gains.green.to_ne_bytes());
+    uniform[8..12].copy_from_slice(&gains.blue.to_ne_bytes());
+    for (index, value) in context.cfa_pattern.into_iter().enumerate() {
+        let start = 16 + index * 4;
+        uniform[start..start + 4].copy_from_slice(&value.to_ne_bytes());
+    }
+    ModuleParameterPacket::new(module_id, method, context.identity, &uniform)
+}
+
+impl WhiteBalanceError {
+    const fn reason(self) -> &'static str {
+        match self {
+            Self::MissingSource => "missing AsShotNeutral and AsShotWhiteXY",
+            Self::InvalidNeutral => "invalid AsShotNeutral components",
+            Self::InvalidWhiteXy => "invalid AsShotWhiteXY chromaticity",
+            Self::InvalidColorMatrix => "invalid color matrix",
+            Self::InvalidCameraWhite => "white point maps to invalid camera values",
+            Self::InvalidGains => "white balance gains are not finite and positive",
+        }
+    }
 }
 
 #[expect(

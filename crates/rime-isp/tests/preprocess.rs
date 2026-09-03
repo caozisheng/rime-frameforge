@@ -1,4 +1,4 @@
-use rime_isp::preprocess::{WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 
 fn matrix(values: [f64; 9]) -> [f64; 9] {
     values

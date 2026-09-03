@@ -1,3 +1,5 @@
+mod postprocess;
+mod preprocess;
 mod three_d_lut_00;
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
@@ -17,4 +19,20 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     output_rime_q_profile: None,
     default_method: "00",
     methods: &[METHOD_00],
+};
+
+pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
+    definition: &DEFINITION,
+    shaders: &[crate::operator::shader(
+        "00",
+        include_str!("three_d_lut_00.wgsl"),
+        "identity_rgba32_main",
+        crate::operator::ShaderBindings {
+            input: 0,
+            output: 1,
+            uniform: None,
+        },
+    )],
+    preprocess: preprocess::run,
+    postprocess: postprocess::run,
 };

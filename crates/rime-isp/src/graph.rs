@@ -33,25 +33,26 @@ pub fn build_normal_manifest() -> PipelineManifest {
         methods: Vec::new(),
     }];
     for operator in normal_operators() {
-        let method = default_method(operator);
+        let definition = operator.definition();
+        let method = default_method(definition);
         nodes.push(NodeSpec {
-            id: operator.id.into(),
-            display_name: operator.label.into(),
+            id: definition.id.into(),
+            display_name: definition.label.into(),
             shader_entry: Some(method.shader_entry.into()),
             inputs: vec![port(
                 "in",
-                operator.input.domain,
-                operator.input.format,
+                definition.input.domain,
+                definition.input.format,
                 &extent,
             )],
             outputs: vec![port(
                 "out",
-                operator.output.domain,
-                operator.output.format,
+                definition.output.domain,
+                definition.output.format,
                 &extent,
             )],
             default_method: method.method.into(),
-            methods: operator
+            methods: definition
                 .methods
                 .iter()
                 .map(|method| MethodSpec {

@@ -1,32 +1,18 @@
 #![expect(
     clippy::missing_errors_doc,
-    clippy::too_many_lines,
     clippy::cast_possible_truncation,
-    reason = "The backend mirrors the fixed v0.1.3 GPU submission contract and narrows validated DNG metadata to GPU f32 parameters."
+    reason = "The backend mirrors the explicit graph submission contract and narrows validated DNG metadata to GPU f32 parameters."
 )]
 
-use std::sync::mpsc;
+use std::sync::{Mutex, mpsc};
 
-use bytemuck::{Pod, Zeroable};
+use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
-use rime_isp::preprocess::{WhiteBalanceError, WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::{
+    FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
+};
 use thiserror::Error;
-
-const WGSL: &str = r"
-struct FusedParams { width: u32, height: u32, black_level: f32, white_level: f32, cfa_pattern: vec4<u32>, white_balance_gains: vec4<f32>, }
-@group(0) @binding(0) var raw_input: texture_2d<u32>;
-@group(0) @binding(1) var output_texture: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(2) var<uniform> params: FusedParams;
-fn clamp_source(p: vec2<i32>) -> vec2<i32> { return clamp(p, vec2<i32>(0), vec2<i32>(i32(params.width), i32(params.height)) - vec2<i32>(1)); }
-fn sample_raw(p: vec2<i32>) -> f32 { return f32(textureLoad(raw_input, clamp_source(p), 0).r); }
-fn sample_blc(p: vec2<i32>) -> f32 { return (sample_raw(p) - params.black_level) / (params.white_level - params.black_level); }
-fn sample_wbc(p: vec2<i32>) -> f32 { let q = clamp_source(p); let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u); let channel = params.cfa_pattern[phase.y * 2u + phase.x]; return sample_blc(q) * params.white_balance_gains[channel]; }
-fn cfa(p: vec2<i32>) -> u32 { let q = clamp_source(p); let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u); return params.cfa_pattern[phase.y * 2u + phase.x]; }
-fn sample_dem(p: vec2<i32>) -> vec3<f32> { let extent = vec2<i32>(i32(params.width), i32(params.height)); let low = max(p - vec2<i32>(1), vec2<i32>(0)); let high = min(p + vec2<i32>(1), extent - vec2<i32>(1)); var sums = vec3<f32>(0.0); var counts = vec3<f32>(0.0); for (var y = low.y; y <= high.y; y++) { for (var x = low.x; x <= high.x; x++) { let q = vec2<i32>(x, y); let channel = cfa(q); sums[channel] += sample_wbc(q); counts[channel] += 1.0; } } return sums / max(counts, vec3<f32>(1.0)); }
-fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> { let rgb = max(sample_dem(p), vec3<f32>(0.0)); let corrected = vec3<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b); let encoded = pow(max(corrected, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)); return vec4<f32>(dot(encoded, vec3<f32>(0.2126, 0.7152, 0.0722)), dot(encoded, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, dot(encoded, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 1.0); }
-@compute @workgroup_size(8, 8)
-fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) { if (gid.x >= params.width || gid.y >= params.height) { return; } textureStore(output_texture, vec2<i32>(gid.xy), sample_rgb2yuv(vec2<i32>(gid.xy))); }
-";
+use wgpu::util::DeviceExt as _;
 
 #[derive(Debug, Error)]
 pub enum WgpuReadbackError {
@@ -36,29 +22,35 @@ pub enum WgpuReadbackError {
     Device(String),
     #[error("GPU readback failed: {0}")]
     Readback(String),
+    #[error("GPU graph resource failed: {0}")]
+    Resource(String),
     #[error("GPU input is invalid: {0}")]
     Input(#[from] DngReaderError),
-    #[error("DNG white balance is invalid: {0}")]
-    WhiteBalance(#[from] WhiteBalanceError),
+    #[error("ISP operator failed: {0}")]
+    Operator(#[from] OperatorError),
     #[error("native graph error: {0}")]
     Graph(#[from] super::NativePipelineError),
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct FusedParams {
+struct CompiledOperator {
+    operator: &'static dyn Operator,
+    shader: &'static ShaderAsset,
+    pipeline: wgpu::ComputePipeline,
+}
+
+struct PooledTexture {
+    domain: SignalDomain,
+    format: ResourceFormat,
     width: u32,
     height: u32,
-    black_level: f32,
-    white_level: f32,
-    cfa_pattern: [u32; 4],
-    white_balance_gains: [f32; 4],
+    texture: wgpu::Texture,
 }
 
 pub struct WgpuReadbackExecutor {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::ComputePipeline,
+    operators: Vec<CompiledOperator>,
+    texture_pool: Mutex<Vec<PooledTexture>>,
 }
 
 impl WgpuReadbackExecutor {
@@ -70,22 +62,36 @@ impl WgpuReadbackExecutor {
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .map_err(|error| WgpuReadbackError::Device(error.to_string()))?;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("rime-native-normal-fused"),
-            source: wgpu::ShaderSource::Wgsl(WGSL.into()),
-        });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("rime-native-normal-fused"),
-            layout: None,
-            module: &module,
-            entry_point: Some("normal_fused_main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        let operators = rime_isp::normal_operators()
+            .iter()
+            .copied()
+            .map(|operator| {
+                let definition = operator.definition();
+                let shader = operator.shader(definition.default_method)?;
+                let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(definition.id),
+                    source: wgpu::ShaderSource::Wgsl(shader.source.into()),
+                });
+                let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(definition.id),
+                    layout: None,
+                    module: &module,
+                    entry_point: Some(shader.entry_point),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                });
+                Ok(CompiledOperator {
+                    operator,
+                    shader,
+                    pipeline,
+                })
+            })
+            .collect::<Result<Vec<_>, OperatorError>>()?;
         Ok(Self {
             device,
             queue,
-            pipeline,
+            operators,
+            texture_pool: Mutex::new(Vec::new()),
         })
     }
 
@@ -118,9 +124,87 @@ impl WgpuReadbackExecutor {
         Self::validate_input(&frame.layout, frame.samples().len())?;
         let width = frame.layout.width;
         let height = frame.layout.height;
-        let extent = wgpu::Extent3d {
+        let cfa_pattern =
+            Self::cfa_pattern(frame.layout.cfa).ok_or(DngReaderError::UnsupportedCfa)?;
+        let preprocess_context = PreprocessContext {
+            identity: FrameIdentity {
+                frame_index: identity.frame_index,
+                run_revision: identity.run_revision,
+                method_revision: identity.method_revision,
+            },
             width,
             height,
+            black_level: frame.metadata.black_levels.first().copied().unwrap_or(0.0) as f32,
+            white_level: frame
+                .metadata
+                .white_levels
+                .first()
+                .copied()
+                .unwrap_or(4095.0) as f32,
+            cfa_pattern,
+            as_shot_neutral: frame.metadata.as_shot_neutral,
+            as_shot_white_xy: frame.metadata.as_shot_white_xy,
+            color_matrix1: frame.metadata.color_matrix1,
+            color_matrix2: frame.metadata.color_matrix2,
+        };
+        let plan = super::build_normal_graph_plan()?;
+        let order = plan
+            .execution_order()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let raw_texture = self.upload_raw(frame);
+        let mut current: Option<PooledTexture> = None;
+        super::execute_operator_phases(&order, &preprocess_context, |operator, packet| {
+            let compiled = self
+                .operators
+                .iter()
+                .find(|compiled| std::ptr::eq(compiled.operator, operator))
+                .ok_or(OperatorError::Preprocess {
+                    module_id: operator.definition().id,
+                    reason: "operator has no compiled GPU pipeline",
+                })?;
+            let input = current
+                .as_ref()
+                .map_or(&raw_texture, |resource| &resource.texture);
+            let output = self
+                .acquire_texture(
+                    compiled.operator.definition().output.domain,
+                    compiled.operator.definition().output.format,
+                    width,
+                    height,
+                )
+                .map_err(|_| OperatorError::Preprocess {
+                    module_id: operator.definition().id,
+                    reason: "texture pool is unavailable",
+                })?;
+            self.dispatch(compiled, packet, input, &output.texture)
+                .map_err(|_| OperatorError::Preprocess {
+                    module_id: operator.definition().id,
+                    reason: "GPU dispatch failed",
+                })?;
+            if let Some(previous) = current.replace(output) {
+                self.release_texture(previous)
+                    .map_err(|_| OperatorError::Preprocess {
+                        module_id: operator.definition().id,
+                        reason: "texture pool is unavailable",
+                    })?;
+            }
+            Ok(())
+        })?;
+        let final_output = current.ok_or_else(|| {
+            WgpuReadbackError::Resource("normal graph produced no output texture".to_owned())
+        })?;
+        let pixels = self.readback_rgba(&final_output.texture, width, height)?;
+        self.release_texture(final_output)?;
+        super::PreviewSurface::new(identity, width, height, pixels)
+            .map_err(WgpuReadbackError::Graph)
+    }
+
+    fn upload_raw(&self, frame: &DecodedRawFrame) -> wgpu::Texture {
+        let extent = wgpu::Extent3d {
+            width: frame.layout.width,
+            height: frame.layout.height,
             depth_or_array_layers: 1,
         };
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -133,44 +217,6 @@ impl WgpuReadbackExecutor {
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let output = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("rime-native-output"),
-            size: extent,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let params = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("rime-native-fused-params"),
-            size: std::mem::size_of::<FusedParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let cfa = Self::cfa_pattern(frame.layout.cfa).ok_or(DngReaderError::UnsupportedCfa)?;
-        let gains = white_balance_gains(&WhiteBalanceMetadata {
-            as_shot_neutral: frame.metadata.as_shot_neutral,
-            as_shot_white_xy: frame.metadata.as_shot_white_xy,
-            color_matrix1: frame.metadata.color_matrix1,
-            color_matrix2: frame.metadata.color_matrix2,
-        })?;
-        let data = FusedParams {
-            width,
-            height,
-            black_level: frame.metadata.black_levels.first().copied().unwrap_or(0.0) as f32,
-            white_level: frame
-                .metadata
-                .white_levels
-                .first()
-                .copied()
-                .unwrap_or(4095.0) as f32,
-            cfa_pattern: cfa,
-            white_balance_gains: [gains.red, gains.green, gains.blue, 0.0],
-        };
-        self.queue
-            .write_buffer(&params, 0, bytemuck::bytes_of(&data));
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -182,10 +228,147 @@ impl WgpuReadbackExecutor {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(frame.layout.row_stride_samples * 2),
-                rows_per_image: Some(height),
+                rows_per_image: Some(frame.layout.height),
             },
             extent,
         );
+        texture
+    }
+
+    fn dispatch(
+        &self,
+        compiled: &CompiledOperator,
+        packet: &ModuleParameterPacket,
+        input: &wgpu::Texture,
+        output: &wgpu::Texture,
+    ) -> Result<(), WgpuReadbackError> {
+        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        let uniform = match (compiled.shader.bindings.uniform, packet.bytes().is_empty()) {
+            (Some(_), false) => Some(self.device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some(packet.module_id()),
+                    contents: packet.bytes(),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                },
+            )),
+            (Some(_), true) => {
+                return Err(WgpuReadbackError::Resource(format!(
+                    "operator `{}` requires a uniform packet",
+                    packet.module_id()
+                )));
+            }
+            (None, false) => {
+                return Err(WgpuReadbackError::Resource(format!(
+                    "operator `{}` emitted an undeclared uniform packet",
+                    packet.module_id()
+                )));
+            }
+            (None, true) => None,
+        };
+        let mut entries = vec![
+            wgpu::BindGroupEntry {
+                binding: compiled.shader.bindings.input,
+                resource: wgpu::BindingResource::TextureView(&input_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: compiled.shader.bindings.output,
+                resource: wgpu::BindingResource::TextureView(&output_view),
+            },
+        ];
+        if let (Some(binding), Some(buffer)) = (compiled.shader.bindings.uniform, uniform.as_ref())
+        {
+            entries.push(wgpu::BindGroupEntry {
+                binding,
+                resource: buffer.as_entire_binding(),
+            });
+        }
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(packet.module_id()),
+            layout: &compiled.pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some(packet.module_id()),
+            });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some(packet.module_id()),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&compiled.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            let [x, y, z] = compiled.shader.workgroup_size;
+            pass.dispatch_workgroups(output.width().div_ceil(x), output.height().div_ceil(y), z);
+        }
+        self.queue.submit([encoder.finish()]);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
+        Ok(())
+    }
+
+    fn acquire_texture(
+        &self,
+        domain: SignalDomain,
+        format: ResourceFormat,
+        width: u32,
+        height: u32,
+    ) -> Result<PooledTexture, WgpuReadbackError> {
+        let mut pool = self
+            .texture_pool
+            .lock()
+            .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
+        if let Some(index) = pool.iter().position(|resource| {
+            resource.domain == domain
+                && resource.format == format
+                && resource.width == width
+                && resource.height == height
+        }) {
+            return Ok(pool.swap_remove(index));
+        }
+        drop(pool);
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("rime-native-operator-output"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: texture_format(format),
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        Ok(PooledTexture {
+            domain,
+            format,
+            width,
+            height,
+            texture,
+        })
+    }
+
+    fn release_texture(&self, texture: PooledTexture) -> Result<(), WgpuReadbackError> {
+        self.texture_pool
+            .lock()
+            .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?
+            .push(texture);
+        Ok(())
+    }
+
+    fn readback_rgba(
+        &self,
+        output: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<f32>, WgpuReadbackError> {
         let row_bytes = super::aligned_readback_bytes_per_row(width);
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rime-native-readback"),
@@ -193,43 +376,14 @@ impl WgpuReadbackExecutor {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let input_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rime-native-fused-bind-group"),
-            layout: &self.pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&input_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&output_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: params.as_entire_binding(),
-                },
-            ],
-        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("rime-native-frame"),
+                label: Some("rime-native-preview-readback"),
             });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("rime-native-fused-compute"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
-        }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &output,
+                texture: output,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -242,7 +396,11 @@ impl WgpuReadbackExecutor {
                     rows_per_image: Some(height),
                 },
             },
-            extent,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit([encoder.finish()]);
         let slice = readback.slice(..);
@@ -269,8 +427,7 @@ impl WgpuReadbackExecutor {
             .collect();
         drop(mapped);
         readback.unmap();
-        super::PreviewSurface::new(identity, width, height, pixels)
-            .map_err(WgpuReadbackError::Graph)
+        Ok(pixels)
     }
 
     pub fn validate_input(
@@ -295,7 +452,7 @@ impl WgpuReadbackExecutor {
     }
 
     #[must_use]
-    pub fn cfa_pattern(cfa: BayerCfa) -> Option<[u32; 4]> {
+    pub const fn cfa_pattern(cfa: BayerCfa) -> Option<[u32; 4]> {
         match cfa {
             BayerCfa::Rggb => Some([0, 1, 1, 2]),
             BayerCfa::Grbg => Some([1, 0, 2, 1]),
@@ -303,5 +460,13 @@ impl WgpuReadbackExecutor {
             BayerCfa::Bggr => Some([2, 1, 1, 0]),
             BayerCfa::Unsupported => None,
         }
+    }
+}
+
+fn texture_format(format: ResourceFormat) -> wgpu::TextureFormat {
+    match format {
+        ResourceFormat::R16Uint => wgpu::TextureFormat::R16Uint,
+        ResourceFormat::R32Float => wgpu::TextureFormat::R32Float,
+        ResourceFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
     }
 }

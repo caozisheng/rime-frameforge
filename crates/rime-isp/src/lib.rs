@@ -3,13 +3,16 @@
 mod generated;
 mod graph;
 mod operator;
-pub mod preprocess;
 pub mod vbe;
 pub mod vfe;
 pub mod vpe;
 
 pub use graph::{build_normal_graph_presentation, build_normal_manifest};
-pub use operator::{OperatorDefinition, OperatorMethod, OperatorPort};
+pub use operator::{
+    FrameIdentity, ModuleParameterPacket, Operator, OperatorDefinition, OperatorError,
+    OperatorMethod, OperatorPort, PostprocessContext, PreprocessContext, ShaderAsset,
+    ShaderBindings,
+};
 
 pub use generated::{
     render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
@@ -18,27 +21,35 @@ pub use generated::{
 /// Shared fixed-grid quantization and deterministic dither utilities.
 pub use rime_quant;
 
-static NORMAL_OPERATORS: &[&OperatorDefinition] = &[
-    &vfe::blc::DEFINITION,
-    &vfe::sbpc_horizontal::DEFINITION,
-    &vfe::dbpc::DEFINITION,
-    &vfe::sbpc::DEFINITION,
-    &vfe::tintless::DEFINITION,
-    &vfe::lsc::DEFINITION,
-    &vbe::hr::DEFINITION,
-    &vbe::drc::DEFINITION,
-    &vbe::cac::DEFINITION,
-    &vbe::raw_nr::DEFINITION,
-    &vbe::white_balance::DEFINITION,
-    &vbe::dem::DEFINITION,
-    &vbe::pfr::DEFINITION,
-    &vbe::color_correction::DEFINITION,
-    &vbe::gamma::DEFINITION,
-    &vbe::three_d_lut::DEFINITION,
-    &vbe::rgb_to_yuv::DEFINITION,
+static NORMAL_OPERATORS: &[&dyn Operator] = &[
+    &vfe::blc::OPERATOR,
+    &vfe::sbpc_horizontal::OPERATOR,
+    &vfe::dbpc::OPERATOR,
+    &vfe::sbpc::OPERATOR,
+    &vfe::tintless::OPERATOR,
+    &vfe::lsc::OPERATOR,
+    &vbe::hr::OPERATOR,
+    &vbe::drc::OPERATOR,
+    &vbe::cac::OPERATOR,
+    &vbe::raw_nr::OPERATOR,
+    &vbe::white_balance::OPERATOR,
+    &vbe::dem::OPERATOR,
+    &vbe::pfr::OPERATOR,
+    &vbe::color_correction::OPERATOR,
+    &vbe::gamma::OPERATOR,
+    &vbe::three_d_lut::OPERATOR,
+    &vbe::rgb_to_yuv::OPERATOR,
 ];
 
 #[must_use]
-pub fn normal_operators() -> &'static [&'static OperatorDefinition] {
+pub fn normal_operators() -> &'static [&'static dyn Operator] {
     NORMAL_OPERATORS
+}
+
+#[must_use]
+pub fn operator_by_id(id: &str) -> Option<&'static dyn Operator> {
+    NORMAL_OPERATORS
+        .iter()
+        .copied()
+        .find(|operator| operator.definition().id == id)
 }

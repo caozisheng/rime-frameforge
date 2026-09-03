@@ -3,8 +3,10 @@
     reason = "These public constructors and validators expose the native pipeline contract and are covered by their typed error enum."
 )]
 
+mod operator_scheduler;
 mod wgpu_backend;
 
+pub use operator_scheduler::{OperatorPhase, OperatorPhaseEvent, execute_operator_phases};
 pub use wgpu_backend::{WgpuReadbackError, WgpuReadbackExecutor};
 
 use std::collections::VecDeque;

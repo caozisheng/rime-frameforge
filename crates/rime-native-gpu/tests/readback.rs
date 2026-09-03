@@ -9,7 +9,7 @@ const GH5S_SAMPLE: &str = concat!(
 );
 
 #[test]
-fn gh5s_frame_runs_through_native_fused_readback() {
+fn gh5s_frame_runs_through_native_operator_graph() {
     let frame = DngReader::new()
         .decode_file(Path::new(GH5S_SAMPLE), 7)
         .expect("GH5S DNG must decode");
@@ -21,7 +21,7 @@ fn gh5s_frame_runs_through_native_fused_readback() {
 
     let surface = executor
         .render(&frame)
-        .expect("native fused graph must read back");
+        .expect("native operator graph must read back");
 
     assert_eq!(surface.width(), frame.layout.width);
     assert_eq!(surface.height(), frame.layout.height);

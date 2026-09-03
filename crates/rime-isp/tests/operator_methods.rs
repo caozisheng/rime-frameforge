@@ -5,7 +5,7 @@ use rime_isp::{OperatorDefinition, normal_operators};
 #[test]
 fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
     for operator in normal_operators() {
-        assert_operator_methods_are_valid(operator);
+        assert_operator_methods_are_valid(operator.definition());
     }
 }
 
@@ -13,7 +13,7 @@ fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
 fn normal_graph_registers_every_explicit_main_chain_operator() {
     let ids: HashSet<&str> = normal_operators()
         .iter()
-        .map(|operator| operator.id)
+        .map(|operator| operator.definition().id)
         .collect();
 
     assert_eq!(
@@ -44,7 +44,7 @@ fn normal_graph_registers_every_explicit_main_chain_operator() {
 fn hr_and_cac_use_industry_names_and_same_extent_bayer_contracts() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
-        .map(|operator| (operator.id, *operator))
+        .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
     let hr = operators.get("hr").expect("HR operator");
     let cac = operators.get("cac").expect("CAC operator");
@@ -60,7 +60,7 @@ fn hr_and_cac_use_industry_names_and_same_extent_bayer_contracts() {
 fn vfe_shading_operators_have_separate_same_extent_contracts() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
-        .map(|operator| (operator.id, *operator))
+        .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
 
     for (id, label) in [("sbpc", "SBPC"), ("tintless", "TINTLESS"), ("lsc", "LSC")] {
@@ -84,7 +84,7 @@ fn ce_replaces_color_as_the_vpe_operator_name() {
     assert!(
         !normal_operators()
             .iter()
-            .any(|operator| operator.id == "color")
+            .any(|operator| operator.definition().id == "color")
     );
     assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
@@ -92,7 +92,7 @@ fn ce_replaces_color_as_the_vpe_operator_name() {
 fn dem_and_pfr_have_separate_operator_contracts() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
-        .map(|operator| (operator.id, *operator))
+        .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
     let dem = operators.get("dem").expect("DEM operator");
     let pfr = operators.get("pfr").expect("PFR operator");
@@ -106,12 +106,12 @@ fn dem_and_pfr_have_separate_operator_contracts() {
 }
 
 #[test]
-fn wbc_shader_consumes_only_rgb_gain_parameters() {
+fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
     let shader = include_str!("../src/vbe/white_balance/white_balance_00.wgsl");
 
-    assert!(shader.contains("params.red_gain"));
-    assert!(shader.contains("params.green_gain"));
-    assert!(shader.contains("params.blue_gain"));
+    assert!(shader.contains("gains: vec4<f32>"));
+    assert!(shader.contains("params.cfa_pattern"));
+    assert!(shader.contains("params.gains[channel]"));
     assert!(!shader.contains("gain = 2.0"));
     assert!(!shader.contains("gain = 1.5"));
 }
@@ -120,8 +120,9 @@ fn wbc_shader_consumes_only_rgb_gain_parameters() {
 fn dem_registers_reference_methods_and_cfa_parameters() {
     let dem = normal_operators()
         .iter()
-        .find(|operator| operator.id == "dem")
-        .expect("DEM operator");
+        .find(|operator| operator.definition().id == "dem")
+        .expect("DEM operator")
+        .definition();
     assert_eq!(
         dem.methods
             .iter()
