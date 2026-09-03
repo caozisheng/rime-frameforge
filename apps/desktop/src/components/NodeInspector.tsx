@@ -119,6 +119,19 @@ function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }:
   return <InspectorTree ariaLabel="Normal Graph inspector" groups={groups} storageKey="rime:graph-inspector:normal" />;
 }
 
+function parameterValue(
+  parameter: string,
+  parameterValues: Readonly<Record<string, string | number>>,
+  dngFrame: DngFrameDescriptor | null,
+): string | number {
+  const explicit = parameterValues[parameter];
+  if (explicit !== undefined) return explicit;
+  if (dngFrame === null) return '—';
+  if (parameter === 'cfa_pattern') return dngFrame.cfa;
+  const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
+  return gainIndex === undefined ? '—' : (dngFrame.whiteBalanceGains[gainIndex] ?? '—');
+}
+
 export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
   const canConfigure = envelope.lifecycleState === 'stop' || envelope.lifecycleState === 'completed';
   if (nodeId === null) {
@@ -135,7 +148,22 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
   const preference = executionNode === undefined ? undefined : quantization.modules.find((module) => module.module_id === executionNode.id);
   const groups: readonly InspectorTreeGroup[] = [
     { id: 'general', label: 'General', defaultExpanded: true, children: [{ id: 'general.mode', label: 'Mode', value: treeNode.mode }, { id: 'general.backend', label: 'Backend', value: backend }, { id: 'general.input', label: 'Input', value: input?.domain ?? 'unavailable' }, { id: 'general.output', label: 'Output', value: output?.domain ?? 'unavailable' }, { id: 'general.method', label: 'Method', value: selectedMethod?.method ?? '—', control: methodControl }, { id: 'general.shader', label: 'Shader', value: selectedMethod?.shader_entry ?? executionNode?.shader_entry ?? '—' }, { id: 'general.frame', label: 'Frame', value: `${envelope.frameIndex ?? '—'} / ${envelope.framePhase ?? 'idle'}` }, { id: 'general.runRevision', label: 'Run revision', value: String(envelope.runRevision) }, { id: 'general.methodRevision', label: 'Method revision', value: String(envelope.methodRevision) }, { id: 'general.configRevision', label: 'Config revision', value: String(envelope.configRevision) }, { id: 'general.gpuGeneration', label: 'GPU generation', value: String(envelope.gpuGeneration) }, ...(treeNode.reason === null ? [] : [{ id: 'general.reason', label: 'Reason', value: treeNode.reason }])] },
-    { id: 'parameters', label: 'Parameters', defaultExpanded: true, children: selectedMethod === undefined ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }] : selectedMethod.parameters.map((parameter) => ({ id: `parameters.${parameter}`, label: parameter, value: String(parameterValues[parameter] ?? dngFrame?.cfa ?? '—'), control: parameter === 'cfa_pattern' || executionNode?.id !== 'dem' ? <output>{parameterValues[parameter] ?? dngFrame?.cfa ?? '—'}</output> : <input aria-label={parameter} disabled={!canConfigure} type="number" step="0.1" value={parameterValues[parameter] ?? ''} onChange={(event) => onParameterChange(executionNode.id, parameter, Number(event.target.value))} /> })) },
+    {
+      id: 'parameters', label: 'Parameters', defaultExpanded: true,
+      children: selectedMethod === undefined
+        ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }]
+        : selectedMethod.parameters.map((parameter) => {
+          const value = parameterValue(parameter, parameterValues, dngFrame);
+          return {
+            id: `parameters.${parameter}`,
+            label: parameter,
+            value: String(value),
+            control: parameter === 'cfa_pattern' || executionNode?.id !== 'dem'
+              ? <output>{value}</output>
+              : <input aria-label={parameter} disabled={!canConfigure} type="number" step="0.1" value={value === '—' ? '' : value} onChange={(event) => onParameterChange(executionNode.id, parameter, Number(event.target.value))} />,
+          };
+        }),
+    },
     ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }]),
   ];
 

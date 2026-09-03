@@ -18,6 +18,7 @@ const gh5s: RawFrameDescriptor = {
   cfa: 'rggb',
   blackLevel: 64,
   whiteLevel: 65535,
+  whiteBalanceGains: [2, 1, 1.5],
 };
 
 describe('validateGpuInput', () => {

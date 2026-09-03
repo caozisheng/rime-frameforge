@@ -9,17 +9,18 @@ use std::sync::mpsc;
 
 use bytemuck::{Pod, Zeroable};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
+use rime_isp::preprocess::{WhiteBalanceError, WhiteBalanceMetadata, white_balance_gains};
 use thiserror::Error;
 
 const WGSL: &str = r"
-struct FusedParams { width: u32, height: u32, black_level: f32, white_level: f32, cfa_pattern: vec4<u32>, }
+struct FusedParams { width: u32, height: u32, black_level: f32, white_level: f32, cfa_pattern: vec4<u32>, white_balance_gains: vec4<f32>, }
 @group(0) @binding(0) var raw_input: texture_2d<u32>;
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: FusedParams;
 fn clamp_source(p: vec2<i32>) -> vec2<i32> { return clamp(p, vec2<i32>(0), vec2<i32>(i32(params.width), i32(params.height)) - vec2<i32>(1)); }
 fn sample_raw(p: vec2<i32>) -> f32 { return f32(textureLoad(raw_input, clamp_source(p), 0).r); }
 fn sample_blc(p: vec2<i32>) -> f32 { return (sample_raw(p) - params.black_level) / (params.white_level - params.black_level); }
-fn sample_wbc(p: vec2<i32>) -> f32 { let q = clamp_source(p); let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u); let channel = params.cfa_pattern[phase.y * 2u + phase.x]; var gain = 1.0; if (channel == 0u) { gain = 2.0; } if (channel == 2u) { gain = 1.5; } return sample_blc(q) * gain; }
+fn sample_wbc(p: vec2<i32>) -> f32 { let q = clamp_source(p); let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u); let channel = params.cfa_pattern[phase.y * 2u + phase.x]; return sample_blc(q) * params.white_balance_gains[channel]; }
 fn cfa(p: vec2<i32>) -> u32 { let q = clamp_source(p); let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u); return params.cfa_pattern[phase.y * 2u + phase.x]; }
 fn sample_dem(p: vec2<i32>) -> vec3<f32> { let extent = vec2<i32>(i32(params.width), i32(params.height)); let low = max(p - vec2<i32>(1), vec2<i32>(0)); let high = min(p + vec2<i32>(1), extent - vec2<i32>(1)); var sums = vec3<f32>(0.0); var counts = vec3<f32>(0.0); for (var y = low.y; y <= high.y; y++) { for (var x = low.x; x <= high.x; x++) { let q = vec2<i32>(x, y); let channel = cfa(q); sums[channel] += sample_wbc(q); counts[channel] += 1.0; } } return sums / max(counts, vec3<f32>(1.0)); }
 fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> { let rgb = max(sample_dem(p), vec3<f32>(0.0)); let corrected = vec3<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b); let encoded = pow(max(corrected, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)); return vec4<f32>(dot(encoded, vec3<f32>(0.2126, 0.7152, 0.0722)), dot(encoded, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, dot(encoded, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 1.0); }
@@ -37,6 +38,8 @@ pub enum WgpuReadbackError {
     Readback(String),
     #[error("GPU input is invalid: {0}")]
     Input(#[from] DngReaderError),
+    #[error("DNG white balance is invalid: {0}")]
+    WhiteBalance(#[from] WhiteBalanceError),
     #[error("native graph error: {0}")]
     Graph(#[from] super::NativePipelineError),
 }
@@ -49,6 +52,7 @@ struct FusedParams {
     black_level: f32,
     white_level: f32,
     cfa_pattern: [u32; 4],
+    white_balance_gains: [f32; 4],
 }
 
 pub struct WgpuReadbackExecutor {
@@ -146,6 +150,12 @@ impl WgpuReadbackExecutor {
             mapped_at_creation: false,
         });
         let cfa = Self::cfa_pattern(frame.layout.cfa).ok_or(DngReaderError::UnsupportedCfa)?;
+        let gains = white_balance_gains(&WhiteBalanceMetadata {
+            as_shot_neutral: frame.metadata.as_shot_neutral,
+            as_shot_white_xy: frame.metadata.as_shot_white_xy,
+            color_matrix1: frame.metadata.color_matrix1,
+            color_matrix2: frame.metadata.color_matrix2,
+        })?;
         let data = FusedParams {
             width,
             height,
@@ -157,6 +167,7 @@ impl WgpuReadbackExecutor {
                 .copied()
                 .unwrap_or(4095.0) as f32,
             cfa_pattern: cfa,
+            white_balance_gains: [gains.red, gains.green, gains.blue, 0.0],
         };
         self.queue
             .write_buffer(&params, 0, bytemuck::bytes_of(&data));

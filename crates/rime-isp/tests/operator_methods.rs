@@ -106,6 +106,17 @@ fn dem_and_pfr_have_separate_operator_contracts() {
 }
 
 #[test]
+fn wbc_shader_consumes_only_rgb_gain_parameters() {
+    let shader = include_str!("../src/vbe/white_balance/white_balance_00.wgsl");
+
+    assert!(shader.contains("params.red_gain"));
+    assert!(shader.contains("params.green_gain"));
+    assert!(shader.contains("params.blue_gain"));
+    assert!(!shader.contains("gain = 2.0"));
+    assert!(!shader.contains("gain = 1.5"));
+}
+
+#[test]
 fn dem_registers_reference_methods_and_cfa_parameters() {
     let dem = normal_operators()
         .iter()

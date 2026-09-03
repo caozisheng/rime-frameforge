@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { NodeInspector } from '../src/components/NodeInspector.js';
 import type { RuntimeEnvelope } from '../../web/src/contracts.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
+import type { DngFrameDescriptor } from '../src/runtime/worker-bridge.js';
 
 const envelope: RuntimeEnvelope = {
   graphInstanceId: 1,
@@ -81,7 +82,23 @@ describe('graph-level NodeInspector', () => {
     expect(html).not.toContain('SBPC-H output profile');
     expect(html).not.toContain('SBPC-H ClipType');
   });
+  it('shows preprocessed DNG RGB gains for WBC', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="wbc"
+        dngFrame={{ cfa: 'rggb', whiteBalanceGains: [2.125, 1, 1.625] } as DngFrameDescriptor}
+      />,
+    );
+
+    expect(html).toContain('red_gain');
+    expect(html).toContain('2.125');
+    expect(html).toContain('green_gain');
+    expect(html).toContain('blue_gain');
+    expect(html).toContain('1.625');
+  });
 });
+
 
 describe('NodeInspector DEM controls', () => {
   it('renders the method selector and active method parameters', () => {

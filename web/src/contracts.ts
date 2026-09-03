@@ -32,6 +32,7 @@ export interface RawFrameDescriptor {
   readonly cfa: BayerCfa;
   readonly blackLevel: number;
   readonly whiteLevel: number;
+  readonly whiteBalanceGains: readonly [number, number, number];
 }
 export interface TransferAuditSnapshot {
   readonly hostReadBytes: number;

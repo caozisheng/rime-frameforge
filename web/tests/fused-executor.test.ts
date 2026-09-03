@@ -7,7 +7,7 @@ import { NormalGpuExecutor } from '../src/gpu/executor.js';
 
 const descriptor: RawFrameDescriptor = {
   width: 2, height: 2, rowStrideSamples: 2, storageBits: 16,
-  cfa: 'rggb', blackLevel: 64, whiteLevel: 4095,
+  cfa: 'rggb', blackLevel: 64, whiteLevel: 4095, whiteBalanceGains: [2, 1, 1.5],
 };
 
 function fusedGpu() {

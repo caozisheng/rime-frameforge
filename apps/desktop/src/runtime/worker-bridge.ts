@@ -20,7 +20,8 @@ export interface DngMetadataDescriptor {
   readonly cameraModel: string;
   readonly colorMatrix1: readonly number[];
   readonly calibrationIlluminant1: string;
-  readonly asShotNeutral: readonly number[];
+  readonly asShotNeutral: readonly number[] | null;
+  readonly asShotWhiteXY: readonly number[] | null;
   readonly colorMatrix2: readonly number[] | null;
   readonly cameraCalibration1: readonly number[] | null;
   readonly cameraCalibration2: readonly number[] | null;
@@ -58,6 +59,7 @@ export interface DngFrameDescriptor {
   readonly cameraModel: string;
   readonly metadataHash: string;
   readonly rawDigest: string;
+  readonly whiteBalanceGains: readonly [number, number, number];
   readonly metadata: DngMetadataDescriptor;
 }
 
@@ -105,6 +107,7 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
         cfa: 'rggb',
         blackLevel: 64,
         whiteLevel: 4095,
+        whiteBalanceGains: [2, 1, 1.5],
       };
       send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor }, [canvas, raw]);
     },

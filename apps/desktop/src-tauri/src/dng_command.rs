@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::path::Path;
 
 use rime_dng::DngReader;
+use rime_isp::preprocess::{WhiteBalanceMetadata, white_balance_gains};
 use serde::Serialize;
 use tauri::ipc::Response;
 
@@ -28,7 +29,8 @@ pub struct DngMetadataDescriptor {
     pub camera_model: String,
     pub color_matrix1: [f64; 9],
     pub calibration_illuminant1: String,
-    pub as_shot_neutral: [f64; 3],
+    pub as_shot_neutral: Option<[f64; 3]>,
+    pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix2: Option<[f64; 9]>,
     pub camera_calibration1: Option<[f64; 9]>,
     pub camera_calibration2: Option<[f64; 9]>,
@@ -68,6 +70,7 @@ pub struct DngFrameDescriptor {
     pub camera_model: String,
     pub metadata_hash: String,
     pub raw_digest: String,
+    pub white_balance_gains: [f32; 3],
     pub metadata: DngMetadataDescriptor,
 }
 
@@ -200,7 +203,7 @@ pub fn read_dng_frame(path: String, frame_index: Option<u64>) -> Result<Response
 }
 
 fn dng_frame_payload(frame: &rime_dng::DecodedRawFrame, path: &Path) -> Result<Vec<u8>, String> {
-    let descriptor = serde_json::to_vec(&descriptor_from_frame(frame, path))
+    let descriptor = serde_json::to_vec(&descriptor_from_frame(frame, path)?)
         .map_err(|error| format!("DNG_DESCRIPTOR_ENCODE_FAILED: {error}"))?;
     let descriptor_length = u32::try_from(descriptor.len())
         .map_err(|_| "DNG_DESCRIPTOR_ENCODE_FAILED: descriptor exceeds u32 length".to_owned())?;
@@ -216,9 +219,19 @@ fn dng_frame_payload(frame: &rime_dng::DecodedRawFrame, path: &Path) -> Result<V
     Ok(payload)
 }
 
-pub fn descriptor_from_frame(frame: &rime_dng::DecodedRawFrame, path: &Path) -> DngFrameDescriptor {
+pub fn descriptor_from_frame(
+    frame: &rime_dng::DecodedRawFrame,
+    path: &Path,
+) -> Result<DngFrameDescriptor, String> {
     let metadata = &frame.metadata;
-    DngFrameDescriptor {
+    let gains = white_balance_gains(&WhiteBalanceMetadata {
+        as_shot_neutral: metadata.as_shot_neutral,
+        as_shot_white_xy: metadata.as_shot_white_xy,
+        color_matrix1: metadata.color_matrix1,
+        color_matrix2: metadata.color_matrix2,
+    })
+    .map_err(|error| format!("DNG_WHITE_BALANCE_INVALID: {error}"))?;
+    Ok(DngFrameDescriptor {
         frame_index: frame.frame_index,
         file_name: path.file_name().map_or_else(
             || path.display().to_string(),
@@ -236,8 +249,9 @@ pub fn descriptor_from_frame(frame: &rime_dng::DecodedRawFrame, path: &Path) -> 
         camera_model: metadata.camera_model.clone(),
         metadata_hash: metadata.metadata_hash.clone(),
         raw_digest: frame.raw_digest.clone(),
+        white_balance_gains: [gains.red, gains.green, gains.blue],
         metadata: metadata_descriptor(metadata),
-    }
+    })
 }
 
 fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescriptor {
@@ -254,6 +268,7 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
         color_matrix1: metadata.color_matrix1,
         calibration_illuminant1: metadata.calibration_illuminant1.clone(),
         as_shot_neutral: metadata.as_shot_neutral,
+        as_shot_white_xy: metadata.as_shot_white_xy,
         color_matrix2: metadata.color_matrix2,
         camera_calibration1: metadata.camera_calibration1,
         camera_calibration2: metadata.camera_calibration2,
@@ -301,7 +316,8 @@ mod tests {
         let frame = DngReader::new()
             .decode_file(Path::new(GH5S), 0)
             .expect("GH5S frame must decode");
-        let descriptor = descriptor_from_frame(&frame, Path::new(GH5S));
+        let descriptor = descriptor_from_frame(&frame, Path::new(GH5S))
+            .expect("descriptor must preprocess white balance");
         let payload =
             dng_frame_payload(&frame, Path::new(GH5S)).expect("frame payload must encode");
         let descriptor_length =

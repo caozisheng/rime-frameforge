@@ -40,7 +40,7 @@ pub fn inspect_dng_native(
     let frame = rime_dng::DngReader::new()
         .decode_file(path, frame_index.unwrap_or(0))
         .map_err(|error| format!("NATIVE_DNG_DECODE_FAILED: {error}"))?;
-    Ok(crate::dng_command::descriptor_from_frame(&frame, path))
+    crate::dng_command::descriptor_from_frame(&frame, path)
 }
 
 #[tauri::command]

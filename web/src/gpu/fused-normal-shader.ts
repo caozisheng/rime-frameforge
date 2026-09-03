@@ -14,6 +14,7 @@ const FUSED_PARAMS = `struct FusedParams {
   black_level: f32,
   white_level: f32,
   cfa_pattern: vec4<u32>,
+  white_balance_gains: vec4<f32>,
   vng_threshold: f32,
   ahd_l_threshold: f32,
   ahd_c_threshold_sq: f32,
@@ -108,9 +109,7 @@ fn sample_wbc(p: vec2<i32>) -> f32 {
   let q = clamp_source(p);
   let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u);
   let channel = params.cfa_pattern[phase.y * 2u + phase.x];
-  var gain = 1.0;
-  if (channel == 0u) { gain = 2.0; }
-  if (channel == 2u) { gain = 1.5; }
+  let gain = params.white_balance_gains[channel];
   return quantize_scalar(sample_blc(q) * gain, 1u, q);
 }`;
 }

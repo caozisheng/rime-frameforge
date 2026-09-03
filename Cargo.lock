@@ -3111,6 +3111,7 @@ dependencies = [
  "base64 0.22.1",
  "image",
  "rime-dng",
+ "rime-isp",
  "rime-native-gpu",
  "serde",
  "serde_json",
@@ -3125,6 +3126,7 @@ version = "0.1.6"
 dependencies = [
  "bytemuck",
  "gamut-dng",
+ "gamut-ifd",
  "sha2",
  "thiserror 2.0.20",
 ]
@@ -3136,6 +3138,7 @@ dependencies = [
  "rime-core",
  "rime-quant",
  "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

@@ -25,8 +25,9 @@ const descriptor = {
   cameraModel: 'Test Camera',
   metadataHash: 'metadata',
   rawDigest: 'raw',
+  whiteBalanceGains: [2, 1, 4],
   metadata: {
-    dngVersion: [1, 6, 0, 0], backwardVersion: [1, 4, 0, 0], blackRepeat: [2, 2], blackLevels: [64, 64, 64, 64], blackDeltaH: null, blackDeltaV: null, whiteLevels: [16383], linearizationTable: null, cameraModel: 'Test Camera', colorMatrix1: [1, 2, 3, 4, 5, 6, 7, 8, 9], calibrationIlluminant1: 'D65', asShotNeutral: [0.5, 1, 0.75], colorMatrix2: null, cameraCalibration1: null, cameraCalibration2: null, forwardMatrix1: null, forwardMatrix2: null, analogBalance: null, baselineExposure: null, profileName: null, exifExposureTime: null, exifFNumber: null, exifIsoSpeed: null, exifDateTimeOriginal: null, exifFocalLength: null, xmpByteLength: null, iptcByteLength: null, iccByteLength: null, newRawImageDigest: null, ifd0Extra: [], rawExtra: [], exifExtra: [],
+    dngVersion: [1, 6, 0, 0], backwardVersion: [1, 4, 0, 0], blackRepeat: [2, 2], blackLevels: [64, 64, 64, 64], blackDeltaH: null, blackDeltaV: null, whiteLevels: [16383], linearizationTable: null, cameraModel: 'Test Camera', colorMatrix1: [1, 2, 3, 4, 5, 6, 7, 8, 9], calibrationIlluminant1: 'D65', asShotNeutral: [0.5, 1, 0.75], asShotWhiteXY: null, colorMatrix2: null, cameraCalibration1: null, cameraCalibration2: null, forwardMatrix1: null, forwardMatrix2: null, analogBalance: null, baselineExposure: null, profileName: null, exifExposureTime: null, exifFNumber: null, exifIsoSpeed: null, exifDateTimeOriginal: null, exifFocalLength: null, xmpByteLength: null, iptcByteLength: null, iccByteLength: null, newRawImageDigest: null, ifd0Extra: [], rawExtra: [], exifExtra: [],
   },
 } satisfies DngFrameDescriptor;
 
@@ -50,6 +51,7 @@ describe('DNG metadata tree model', () => {
     expect(groups.find((group) => group.id === 'runtime')?.defaultExpanded).toBe(true);
     expect(groups.find((group) => group.id === 'calibration')?.defaultExpanded).toBe(false);
     expect(groups.find((group) => group.id === 'frame')?.children.map((child) => child.label)).toContain('File name');
+    expect(groups.find((group) => group.id === 'calibration')?.children.map((child) => child.label)).toContain('As shot white xy');
   });
   it('builds a sequence group with ordered filenames and current position', () => {
     const groups = buildDngMetadataGroups(descriptor, sequence, 1);

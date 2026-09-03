@@ -20,7 +20,8 @@ fn descriptor_serializes_complete_metadata_and_filename() {
     let frame = DngReader::new()
         .decode_file(Path::new(GH5S), 0)
         .expect("GH5S frame must decode");
-    let descriptor = dng_command::descriptor_from_frame(&frame, Path::new(GH5S));
+    let descriptor = dng_command::descriptor_from_frame(&frame, Path::new(GH5S))
+        .expect("descriptor must preprocess white balance");
     let json = serde_json::to_value(descriptor).expect("descriptor serializes");
 
     assert_eq!(json["fileName"], "P1020601.dng");
@@ -32,6 +33,8 @@ fn descriptor_serializes_complete_metadata_and_filename() {
         json["metadata"]["asShotNeutral"].as_array().map(Vec::len),
         Some(3)
     );
+    assert!(json["metadata"]["asShotWhiteXY"].is_null());
+    assert_eq!(json["whiteBalanceGains"].as_array().map(Vec::len), Some(3));
     assert!(
         json["metadata"]["ifd0Extra"]
             .as_array()

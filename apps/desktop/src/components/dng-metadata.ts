@@ -120,6 +120,7 @@ export function buildDngMetadataGroups(
       leaf('calibration.illuminant1', 'Illuminant 1', metadata.calibrationIlluminant1),
       arrayNode('calibration.colorMatrix1', 'Color matrix 1', metadata.colorMatrix1, '3 × 3'),
       arrayNode('calibration.asShotNeutral', 'As shot neutral', metadata.asShotNeutral),
+      arrayNode('calibration.asShotWhiteXY', 'As shot white xy', metadata.asShotWhiteXY),
       arrayNode('calibration.colorMatrix2', 'Color matrix 2', metadata.colorMatrix2, metadata.colorMatrix2 === null ? undefined : '3 × 3'),
       arrayNode('calibration.cameraCalibration1', 'Camera calibration 1', metadata.cameraCalibration1, metadata.cameraCalibration1 === null ? undefined : '3 × 3'),
       arrayNode('calibration.cameraCalibration2', 'Camera calibration 2', metadata.cameraCalibration2, metadata.cameraCalibration2 === null ? undefined : '3 × 3'),

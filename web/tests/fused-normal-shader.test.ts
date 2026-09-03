@@ -58,8 +58,9 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader('00');
 
     expect(shader).toContain('let channel = params.cfa_pattern');
-    expect(shader).toContain('if (channel == 0u)');
-    expect(shader).toContain('if (channel == 2u)');
+    expect(shader).toContain('let gain = params.white_balance_gains[channel]');
+    expect(shader).not.toContain('gain = 2.0');
+    expect(shader).not.toContain('gain = 1.5');
     expect(shader).toContain('let q = clamp_source(p)');
     expect(shader).toContain('quantize_scalar(sample_blc(q) * gain, 1u, q)');
   });

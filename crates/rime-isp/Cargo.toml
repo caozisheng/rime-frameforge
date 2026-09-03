@@ -9,6 +9,7 @@ license.workspace = true
 rime-core = { path = "../rime-core" }
 rime-quant = { path = "../rime-quant" }
 serde_json.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

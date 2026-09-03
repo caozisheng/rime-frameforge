@@ -59,6 +59,9 @@ export function App() {
   const [activeMethods, setActiveMethods] = useState<Record<string, string>>({ dem: '00' });
   const [parameterValues, setParameterValues] = useState<Record<string, string | number>>({
     cfa_pattern: 'rggb',
+    red_gain: 2.0,
+    green_gain: 1.0,
+    blue_gain: 1.5,
     vng_threshold: 1.5,
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,

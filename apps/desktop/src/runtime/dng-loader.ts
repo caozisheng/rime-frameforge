@@ -66,6 +66,7 @@ export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedD
     cfa: descriptor.cfa,
     blackLevel: descriptor.blackLevel,
     whiteLevel: descriptor.whiteLevel,
+    whiteBalanceGains: descriptor.whiteBalanceGains,
   });
 }
 

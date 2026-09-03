@@ -4,7 +4,8 @@ use std::borrow::Cow;
 
 use std::path::{Path, PathBuf};
 
-use gamut_dng::{DngDecoder, RawPhotometry, cfa_color};
+use gamut_dng::{DngDecoder, RawPhotometry, Value, cfa_color, tags};
+use gamut_ifd::{IfdReader, RawIfd, ReadAt, Variant};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -47,7 +48,8 @@ pub struct DngMetadata {
     pub camera_model: String,
     pub color_matrix1: [f64; 9],
     pub calibration_illuminant1: String,
-    pub as_shot_neutral: [f64; 3],
+    pub as_shot_neutral: Option<[f64; 3]>,
+    pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix2: Option<[f64; 9]>,
     pub camera_calibration1: Option<[f64; 9]>,
     pub camera_calibration2: Option<[f64; 9]>,
@@ -166,12 +168,24 @@ impl DngReader {
         data: &[u8],
         frame_index: u64,
     ) -> Result<DecodedRawFrame, DngReaderError> {
-        let decoded = DngDecoder::new()
-            .decode(data)
-            .map_err(|error| DngReaderError::Decode {
+        let source_white_balance =
+            source_white_balance(data).map_err(|error| DngReaderError::Decode {
                 path: path.to_owned(),
                 message: error.to_string(),
             })?;
+        let decode_data = decoder_compatible_data(data, source_white_balance).map_err(|error| {
+            DngReaderError::Decode {
+                path: path.to_owned(),
+                message: error.to_string(),
+            }
+        })?;
+        let decoded =
+            DngDecoder::new()
+                .decode(&decode_data)
+                .map_err(|error| DngReaderError::Decode {
+                    path: path.to_owned(),
+                    message: error.to_string(),
+                })?;
         Self::validate_version(decoded.dng_version)?;
         let raw = &decoded.raw;
         let width = raw.dimensions().width;
@@ -195,16 +209,11 @@ impl DngReader {
             .color_matrix1()
             .iter()
             .any(|value| !value.is_finite())
-            || decoded
-                .profile
-                .as_shot_neutral()
-                .iter()
-                .any(|value| !value.is_finite() || *value <= 0.0)
         {
             return Err(DngReaderError::MissingCalibration);
         }
         let raw_digest = digest_u16(raw.samples());
-        let metadata = metadata_from_decoded(&decoded, raw);
+        let metadata = metadata_from_decoded(&decoded, raw, source_white_balance);
         let storage_bits = u8::try_from(storage_bits)
             .map_err(|_| DngReaderError::UnsupportedBitDepth(storage_bits))?;
         Ok(DecodedRawFrame {
@@ -307,6 +316,7 @@ fn bayer_cfa(photometry: &RawPhotometry) -> Result<BayerCfa, DngReaderError> {
 fn metadata_from_decoded(
     decoded: &gamut_dng::DecodedDng,
     raw: &gamut_dng::RawImage,
+    source_white_balance: SourceWhiteBalance,
 ) -> DngMetadata {
     let levels = raw.levels();
     let exif = &decoded.metadata.exif;
@@ -324,11 +334,9 @@ fn metadata_from_decoded(
         camera_model: decoded.profile.unique_camera_model().to_owned(),
         color_matrix1: *decoded.profile.color_matrix1(),
         calibration_illuminant1: format!("{:?}", decoded.profile.calibration_illuminant1()),
-        as_shot_neutral: *decoded.profile.as_shot_neutral(),
-        color_matrix2: decoded
-            .profile
-            .second_illuminant()
-            .map(|(matrix, _)| *matrix),
+        as_shot_neutral: source_white_balance.as_shot_neutral,
+        as_shot_white_xy: source_white_balance.as_shot_white_xy,
+        color_matrix2: source_white_balance.color_matrix2,
         camera_calibration1: camera_calibration1.copied(),
         camera_calibration2: camera_calibration2.copied(),
         forward_matrix1: forward_matrix1.copied(),
@@ -345,10 +353,15 @@ fn metadata_from_decoded(
         iptc_byte_length: decoded.metadata.iptc.as_ref().map(Vec::len),
         icc_byte_length: decoded.metadata.icc.as_ref().map(Vec::len),
         new_raw_image_digest: decoded.new_raw_image_digest.map(hex_bytes),
-        ifd0_extra: decoded.ifd0_extra.iter().map(raw_tag).collect(),
+        ifd0_extra: decoded
+            .ifd0_extra
+            .iter()
+            .filter(|tag| tag.tag != tags::AS_SHOT_WHITE_XY)
+            .map(raw_tag)
+            .collect(),
         raw_extra: decoded.raw_extra.iter().map(raw_tag).collect(),
         exif_extra: decoded.exif_extra.iter().map(raw_tag).collect(),
-        metadata_hash: digest_bytes(&metadata_bytes(decoded)),
+        metadata_hash: digest_bytes(&metadata_bytes(decoded, source_white_balance)),
     }
 }
 
@@ -375,15 +388,164 @@ fn hex_bytes(bytes: [u8; 16]) -> String {
         })
 }
 
-fn metadata_bytes(decoded: &gamut_dng::DecodedDng) -> Vec<u8> {
+#[derive(Clone, Copy, Debug)]
+struct SourceWhiteBalance {
+    as_shot_neutral: Option<[f64; 3]>,
+    as_shot_white_xy: Option<[f64; 2]>,
+    color_matrix2: Option<[f64; 9]>,
+}
+
+fn source_white_balance(data: &[u8]) -> gamut_dng::Result<SourceWhiteBalance> {
+    let mut reader = IfdReader::open(data)?;
+    let ifd0 = reader.read_ifd(reader.first_ifd_offset())?;
+    Ok(SourceWhiteBalance {
+        as_shot_neutral: read_rational_array(
+            &mut reader,
+            &ifd0,
+            tags::AS_SHOT_NEUTRAL,
+            "DNG: malformed AsShotNeutral",
+        )?,
+        as_shot_white_xy: read_rational_array(
+            &mut reader,
+            &ifd0,
+            tags::AS_SHOT_WHITE_XY,
+            "DNG: malformed AsShotWhiteXY",
+        )?,
+        color_matrix2: read_rational_array(
+            &mut reader,
+            &ifd0,
+            tags::COLOR_MATRIX2,
+            "DNG: malformed ColorMatrix2",
+        )?,
+    })
+}
+
+fn read_rational_array<const N: usize, S: ReadAt>(
+    reader: &mut IfdReader<S>,
+    ifd: &RawIfd,
+    tag: u16,
+    malformed: &'static str,
+) -> gamut_dng::Result<Option<[f64; N]>> {
+    let Some(entry) = ifd.entry(tag) else {
+        return Ok(None);
+    };
+    let value = reader.value(entry)?;
+    rational_array(Some(&value))
+        .map(Some)
+        .ok_or(gamut_dng::Error::InvalidInput(malformed))
+}
+
+fn decoder_compatible_data(
+    data: &[u8],
+    source: SourceWhiteBalance,
+) -> gamut_dng::Result<Cow<'_, [u8]>> {
+    if source.as_shot_neutral.is_some() || source.as_shot_white_xy.is_none() {
+        return Ok(Cow::Borrowed(data));
+    }
+
+    let mut reader = IfdReader::open(data)?;
+    let order = reader.order();
+    let variant = reader.variant();
+    let ifd0 = reader.read_ifd(reader.first_ifd_offset())?;
+    let entry = ifd0
+        .entry(tags::AS_SHOT_WHITE_XY)
+        .ok_or(gamut_dng::Error::InvalidInput("DNG: missing AsShotWhiteXY"))?;
+    let entry_offset = usize::try_from(entry.offset)
+        .map_err(|_| gamut_dng::Error::InvalidInput("DNG: IFD entry offset overflow"))?;
+
+    let mut compatible = data.to_vec();
+    if compatible.len() & 1 != 0 {
+        compatible.push(0);
+    }
+    let neutral_offset = compatible.len() as u64;
+    for _ in 0..3 {
+        compatible.extend_from_slice(&order.pack_u32(1));
+        compatible.extend_from_slice(&order.pack_u32(1));
+    }
+
+    write_at(
+        &mut compatible,
+        entry_offset,
+        &order.pack_u16(tags::AS_SHOT_NEUTRAL),
+    )?;
+    match variant {
+        Variant::Classic => {
+            write_at(&mut compatible, entry_offset + 4, &order.pack_u32(3))?;
+            let offset = u32::try_from(neutral_offset).map_err(|_| {
+                gamut_dng::Error::InvalidInput("DNG: synthetic neutral offset exceeds classic TIFF")
+            })?;
+            write_at(&mut compatible, entry_offset + 8, &order.pack_u32(offset))?;
+        }
+        Variant::Big => {
+            write_at(&mut compatible, entry_offset + 4, &order.pack_u64(3))?;
+            write_at(
+                &mut compatible,
+                entry_offset + 12,
+                &order.pack_u64(neutral_offset),
+            )?;
+        }
+    }
+    Ok(Cow::Owned(compatible))
+}
+
+fn write_at(data: &mut [u8], offset: usize, value: &[u8]) -> gamut_dng::Result<()> {
+    let end = offset
+        .checked_add(value.len())
+        .ok_or(gamut_dng::Error::InvalidInput(
+            "DNG: IFD entry offset overflow",
+        ))?;
+    let target = data
+        .get_mut(offset..end)
+        .ok_or(gamut_dng::Error::InvalidInput(
+            "DNG: IFD entry out of bounds",
+        ))?;
+    target.copy_from_slice(value);
+    Ok(())
+}
+
+fn rational_array<const N: usize>(value: Option<&Value>) -> Option<[f64; N]> {
+    let values: Vec<f64> = if let Some(rationals) = value?.as_rationals() {
+        rationals
+            .iter()
+            .map(|&(numerator, denominator)| ratio(f64::from(numerator), f64::from(denominator)))
+            .collect()
+    } else {
+        value?
+            .as_srationals()?
+            .iter()
+            .map(|&(numerator, denominator)| ratio(f64::from(numerator), f64::from(denominator)))
+            .collect()
+    };
+    values.try_into().ok()
+}
+
+fn ratio(numerator: f64, denominator: f64) -> f64 {
+    if denominator == 0.0 {
+        0.0
+    } else {
+        numerator / denominator
+    }
+}
+
+fn metadata_bytes(
+    decoded: &gamut_dng::DecodedDng,
+    source_white_balance: SourceWhiteBalance,
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&decoded.dng_version);
     bytes.extend_from_slice(decoded.profile.unique_camera_model().as_bytes());
     for value in decoded.profile.color_matrix1() {
         bytes.extend_from_slice(&value.to_le_bytes());
     }
-    for value in decoded.profile.as_shot_neutral() {
-        bytes.extend_from_slice(&value.to_le_bytes());
+    if let Some(neutral) = source_white_balance.as_shot_neutral {
+        for value in neutral {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    if let Some(white_xy) = source_white_balance.as_shot_white_xy {
+        for value in white_xy {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
     }
     bytes
 }

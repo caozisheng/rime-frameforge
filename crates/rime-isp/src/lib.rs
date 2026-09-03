@@ -3,6 +3,7 @@
 mod generated;
 mod graph;
 mod operator;
+pub mod preprocess;
 pub mod vbe;
 pub mod vfe;
 pub mod vpe;

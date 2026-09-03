@@ -13,6 +13,7 @@ const descriptor: RawFrameDescriptor = {
   cfa: 'rggb',
   blackLevel: 64,
   whiteLevel: 4095,
+  whiteBalanceGains: [2, 1, 1.5],
 };
 
 function fusedGpu() {
