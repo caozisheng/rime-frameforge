@@ -43,12 +43,16 @@ describe('validateGpuInput', () => {
     expect(estimateNormalGraphPoolBytes(gh5s)).toBe(3744 * 2776 * (2 + 4 + 4 + 16 + 16 + 16 + 16));
   });
 
-  it('requests the six storage textures used by the fused Preview pipeline', () => {
-    expect(normalGraphRequiredLimits()).toEqual({ maxStorageTexturesPerShaderStage: 6 });
+  it('requests the limits used by the fused Preview pipeline', () => {
+    expect(normalGraphRequiredLimits(gh5s)).toEqual({
+      maxStorageTexturesPerShaderStage: 6,
+      maxBufferSize: 256 * 1024 * 1024,
+    });
   });
 
-  it('rejects adapters that cannot bind all Preview stage outputs', () => {
-    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 4 })).toThrow('GPU_CAPABILITY_UNSUPPORTED');
-    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 8 })).not.toThrow();
+  it('rejects adapters that cannot satisfy fused Preview limits', () => {
+    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 4, maxBufferSize: 256 * 1024 * 1024 }, gh5s)).toThrow('GPU_CAPABILITY_UNSUPPORTED');
+    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 8, maxBufferSize: 256 * 1024 * 1024 }, gh5s)).not.toThrow();
+    expect(() => validateNormalGraphAdapterLimits({ maxStorageTexturesPerShaderStage: 8, maxBufferSize: 128 * 1024 * 1024 }, gh5s)).toThrow('GPU_CAPABILITY_UNSUPPORTED');
   });
 });
