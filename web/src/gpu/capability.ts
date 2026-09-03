@@ -10,30 +10,16 @@ export class GpuCapabilityError extends Error {
     this.name = 'GpuCapabilityError';
   }
 }
-const NORMAL_GRAPH_STORAGE_TEXTURES = 6;
-const DEFAULT_MAX_BUFFER_SIZE = 256 * 1024 * 1024;
-const GPU_COPY_ALIGNMENT = 256;
-const RGBA32_BYTES_PER_PIXEL = 16;
 
-export function normalGraphRequiredLimits(descriptor: RawFrameDescriptor): Record<'maxStorageTexturesPerShaderStage' | 'maxBufferSize', number> {
-  const textureBytesPerRow = Math.ceil((descriptor.width * RGBA32_BYTES_PER_PIXEL) / GPU_COPY_ALIGNMENT) * GPU_COPY_ALIGNMENT;
-  const textureBytes = textureBytesPerRow * descriptor.height;
-  return {
-    maxStorageTexturesPerShaderStage: NORMAL_GRAPH_STORAGE_TEXTURES,
-    maxBufferSize: Math.max(DEFAULT_MAX_BUFFER_SIZE, textureBytes),
-  };
+const NORMAL_GRAPH_STORAGE_TEXTURES = 6;
+
+export function normalGraphRequiredLimits(): Record<'maxStorageTexturesPerShaderStage', number> {
+  return { maxStorageTexturesPerShaderStage: NORMAL_GRAPH_STORAGE_TEXTURES };
 }
 
-export function validateNormalGraphAdapterLimits(
-  limits: Pick<GPUSupportedLimits, 'maxStorageTexturesPerShaderStage' | 'maxBufferSize'>,
-  descriptor: RawFrameDescriptor,
-): void {
+export function validateNormalGraphAdapterLimits(limits: Pick<GPUSupportedLimits, 'maxStorageTexturesPerShaderStage'>): void {
   if (limits.maxStorageTexturesPerShaderStage < NORMAL_GRAPH_STORAGE_TEXTURES) {
     throw new GpuCapabilityError(`GPU_CAPABILITY_UNSUPPORTED: Normal Graph Preview requires ${NORMAL_GRAPH_STORAGE_TEXTURES} storage textures per compute stage; adapter supports ${limits.maxStorageTexturesPerShaderStage}`);
-  }
-  const requiredBufferSize = normalGraphRequiredLimits(descriptor).maxBufferSize;
-  if (limits.maxBufferSize < requiredBufferSize) {
-    throw new GpuCapabilityError(`GPU_CAPABILITY_UNSUPPORTED: Normal Graph Preview requires ${requiredBufferSize} bytes of buffer capacity; adapter supports ${limits.maxBufferSize}`);
   }
 }
 

@@ -21,9 +21,9 @@ export async function createGpuContext(
     throw new Error('GPU_CAPABILITY_UNSUPPORTED: no WebGPU adapter');
   }
   validateGpuInput(descriptor, 4096, adapter.limits.maxTextureDimension2D);
-  validateNormalGraphAdapterLimits(adapter.limits, descriptor);
+  validateNormalGraphAdapterLimits(adapter.limits);
   resizePreviewCanvas(canvas, descriptor);
-  const device = await adapter.requestDevice({ requiredLimits: normalGraphRequiredLimits(descriptor) });
+  const device = await adapter.requestDevice({ requiredLimits: normalGraphRequiredLimits() });
   const context = canvas.getContext('webgpu');
   if (context === null) {
     throw new Error('GPU_CAPABILITY_UNSUPPORTED: canvas has no WebGPU context');
