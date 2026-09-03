@@ -62,10 +62,10 @@ ${FUSED_PARAMS}
 @group(0) @binding(0) var raw_input: texture_2d<u32>;
 @group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
 @group(0) @binding(2) var wbc_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(3) var dem_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(4) var color_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(5) var gamma_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(6) var yuv_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(3) var dem_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var color_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(5) var gamma_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(7) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 ${rawBlcWbcFunctions()}
@@ -156,7 +156,7 @@ function compileDemQuantizeShader(method: keyof typeof DEMOSAIC_SHADERS): string
 // dem-method:${method}-quantize
 ${FUSED_PARAMS}
 @group(0) @binding(0) var dem_input: texture_2d<f32>;
-@group(0) @binding(1) var dem_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(1) var dem_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 @compute @workgroup_size(8, 8)
@@ -172,9 +172,9 @@ function compilePostShader(method: keyof typeof DEMOSAIC_SHADERS): string {
 // dem-method:${method}
 ${FUSED_PARAMS}
 @group(0) @binding(0) var dem_input: texture_2d<f32>;
-@group(0) @binding(1) var color_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(2) var gamma_output: texture_storage_2d<rgba32float, write>;
-@group(0) @binding(3) var yuv_output: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(1) var color_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(2) var gamma_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(3) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(4) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }

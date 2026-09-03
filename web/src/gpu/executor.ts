@@ -17,7 +17,7 @@ const DEM_ENTRY_POINTS: Record<Exclude<DemMethod, '00'>, string> = {
   '03': 'demosaic_vng_main',
   '04': 'demosaic_ahd_main',
 };
-
+const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_correction', 'gamma', 'rgb2yuv']);
 export class NormalGpuExecutor {
   readonly #gpu: GpuContext;
   readonly #presenter: GpuPreviewPresenter;
@@ -59,11 +59,11 @@ export class NormalGpuExecutor {
     this.#rawTexture = this.createTexture('normal-raw-source', 'r16uint', GPUTextureUsage.COPY_DST | previewUsage);
     this.#blcTexture = this.createTexture('normal-blc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#wbcTexture = this.createTexture('normal-wbc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#demTexture = this.createTexture('normal-dem', 'rgba32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#demIntermediateTexture = this.createTexture('normal-dem-intermediate', 'rgba32float', GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING);
-    this.#colorTexture = this.createTexture('normal-color', 'rgba32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#gammaTexture = this.createTexture('normal-gamma', 'rgba32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#outputTexture = this.createTexture('normal-yuv', 'rgba32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#demTexture = this.createTexture('normal-dem', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#demIntermediateTexture = this.createTexture('normal-dem-intermediate', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING);
+    this.#colorTexture = this.createTexture('normal-color', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#gammaTexture = this.createTexture('normal-gamma', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#outputTexture = this.createTexture('normal-yuv', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#previewTextures = {
       raw_source: this.#rawTexture,
       blc: this.#blcTexture,
@@ -188,10 +188,12 @@ export class NormalGpuExecutor {
     await this.#sampleBuffer.mapAsync(GPUMapMode.READ);
     const mapped = this.#sampleBuffer.getMappedRange();
     const values = view.descriptor.format === 'r16_uint' ? [new Uint16Array(mapped, 0, 1)[0] ?? 0]
-      : Array.from(new Float32Array(mapped, 0, view.descriptor.format === 'r32_float' ? 1 : 4));
+      : HALF_FLOAT_PREVIEW_NODES.has(view.descriptor.nodeId) ? Array.from(new Uint16Array(mapped, 0, 4), decodeFloat16)
+        : Array.from(new Float32Array(mapped, 0, view.descriptor.format === 'r32_float' ? 1 : 4));
     this.#sampleBuffer.unmap();
     return values;
   }
+
 
   public transferAudit(): TransferAuditSnapshot { return this.#audit.snapshot(); }
 
@@ -305,4 +307,12 @@ export class NormalGpuExecutor {
     this.#demBindGroup = null;
     this.#postBindGroup = null;
   }
+}
+function decodeFloat16(bits: number): number {
+  const sign = (bits & 0x8000) === 0 ? 1 : -1;
+  const exponent = (bits >>> 10) & 0x1f;
+  const fraction = bits & 0x3ff;
+  if (exponent === 0) return sign * 2 ** -14 * (fraction / 1024);
+  if (exponent === 0x1f) return fraction === 0 ? sign * Infinity : Number.NaN;
+  return sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
 }

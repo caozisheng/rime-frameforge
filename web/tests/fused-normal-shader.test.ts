@@ -12,6 +12,8 @@ describe('fused Normal Graph WGSL compiler', () => {
 
     expect(shader.match(/@compute/g)).toHaveLength(1);
     expect(shader.match(/texture_storage_2d/g)).toHaveLength(6);
+    expect(shader).toContain('texture_storage_2d<rgba16float');
+    expect(shader).not.toContain('texture_storage_2d<rgba32float');
     expect(shader).toContain('textureStore(blc_output');
     expect(shader).toContain('textureStore(yuv_output');
   });

@@ -34,7 +34,7 @@ function fusedGpu() {
       onSubmittedWorkDone: async () => { counts.waits += 1; },
     },
     createTexture: () => texture,
-    createBuffer: () => ({ destroy: () => undefined, mapAsync: async () => undefined, getMappedRange: () => new Float32Array([0.1, 0.2, 0.3, 0.4]).buffer, unmap: () => undefined }),
+    createBuffer: () => ({ destroy: () => undefined, mapAsync: async () => undefined, getMappedRange: () => new Uint16Array([0x2e66, 0x3266, 0x34cd, 0x3666]).buffer, unmap: () => undefined }),
     createShaderModule: () => ({}),
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
