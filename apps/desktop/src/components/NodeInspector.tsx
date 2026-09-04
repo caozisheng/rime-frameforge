@@ -7,6 +7,7 @@ import { normalGraphQuantization } from '../../../../web/src/generated/normal_qu
 import type { DngFrameDescriptor, DngSequenceDescriptor } from '../runtime/worker-bridge.js';
 import { DngMetadataTree } from './DngMetadataTree.js';
 import { InspectorTree, type InspectorTreeGroup, type InspectorTreeNode } from './InspectorTree.js';
+import { TuningProfilePanel } from './iq/TuningProfilePanel.js';
 
 export interface ModuleQuantizationPreference {
   readonly module_id: string;
@@ -169,5 +170,5 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
     ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }]),
   ];
 
-  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} /></>}</aside>;
+  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} />{treeNode.id === 'dem' && selectedMethod?.method === '04' && <TuningProfilePanel canConfigure={canConfigure} baseValues={parameterValues} onApply={(parameter, value) => onParameterChange(executionNode?.id ?? 'dem', parameter, value)} />}</>}</aside>;
 }

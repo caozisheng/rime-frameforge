@@ -142,6 +142,27 @@ describe('NodeInspector DEM controls', () => {
     expect(html).toContain('value="1.5"');
   });
 
+  it('renders the AHD tuning profile and curve editor', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        nodeId="dem"
+        envelope={envelope}
+        dngFrame={null}
+        frameCount={0}
+        activeMethod="04"
+        parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }}
+        onMethodChange={() => undefined}
+        onParameterChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('IQ Tuning');
+    expect(html).toContain('factory-default');
+    expect(html).toContain('ahd_l_threshold curve');
+    expect(html).toContain('ahd_c_threshold_sq curve');
+    expect(html).toContain('<svg');
+  });
+
   it('renders every operator inspector as a tree with compact groups', () => {
     const html = renderToStaticMarkup(
       <NodeInspector
