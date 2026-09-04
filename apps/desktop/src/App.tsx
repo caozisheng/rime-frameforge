@@ -66,6 +66,10 @@ export function App() {
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
   });
+  const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
+    ahd_l_threshold: 2.0,
+    ahd_c_threshold_sq: 4.0,
+  });
   const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
   const [loadedDng, setLoadedDng] = useState<DngFrameDescriptor | null>(null);
   const [dngSequence, setDngSequence] = useState<DngSequenceDescriptor | null>(null);
@@ -305,12 +309,22 @@ export function App() {
     setActiveMethods((current) => ({ ...current, [nodeId]: method }));
     bridgeRef.current.setMethod(nodeId, method);
   };
-
-  const changeParameter = (nodeId: string, parameter: string, value: number): void => {
-    if (bridgeRef.current === null || !Number.isFinite(value)) return;
-    setCommandPending(true);
+  const changeParameter = (_nodeId: string, parameter: string, value: number): void => {
+    if (!Number.isFinite(value)) return;
     setParameterValues((current) => ({ ...current, [parameter]: value }));
+  };
+  const applyParameterAndRerun = (nodeId: string, parameter: string, value: number): void => {
+    if (bridgeRef.current === null || !Number.isFinite(value)) return;
+    const frameIndex = dngFrameIndexRef.current;
+    setParameterValues((current) => ({ ...current, [parameter]: value }));
+    setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
+    setCommandPending(true);
     bridgeRef.current.setParameter(nodeId, parameter, value);
+    bridgeRef.current.run(frameIndex);
+  };
+  const resetParameterToFactory = (_nodeId: string, parameter: string): void => {
+    const value = parameter === 'ahd_l_threshold' ? 2.0 : 4.0;
+    setParameterValues((current) => ({ ...current, [parameter]: value }));
   };
   const changeGraphQuantization = (next: GraphQuantizationConfig): void => {
     if (bridgeRef.current === null) return;
@@ -323,8 +337,21 @@ export function App() {
     const next = { ...quantization, modules: quantization.modules.map((module) => module.module_id === moduleId ? preference : module) };
     changeGraphQuantization(next);
   };
+  const flushParameterDrafts = (): void => {
+    if (bridgeRef.current === null) return;
+    for (const [parameter, value] of Object.entries(parameterValues)) {
+      if (parameter === 'ahd_l_threshold' || parameter === 'ahd_c_threshold_sq') {
+        const applied = appliedParameterValues[parameter];
+        if (typeof value === 'number' && value !== applied) {
+          bridgeRef.current.setParameter('dem', parameter, value);
+          setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
+        }
+      }
+    }
+  };
   const runGraph = (): void => {
     if (bridgeRef.current === null || dngPathsRef.current.length === 0) return;
+    flushParameterDrafts();
     const pending = pendingDngRef.current;
     const runIndex = nextDngRunFrame(dngFrameIndexRef.current, dngPathsRef.current.length, envelope.visibleFrameCommitted, pending?.index ?? null);
     sequencePlayingRef.current = dngPathsRef.current.length > 1 && runIndex + 1 < dngPathsRef.current.length;
@@ -439,7 +466,7 @@ export function App() {
             defaultLayout={rightLayout}
             onLayoutChanged={(layout) => writePaneLayout(window.localStorage, RIGHT_LAYOUT_KEY, layout)}
           >
-            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} /></div></Panel>
+            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onParameterReset={resetParameterToFactory} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
             <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} previews={previews} nativePreview={nativePreview === null ? null : { dataUrl: nativePreview.previewDataUrl, width: nativePreview.previewWidth, height: nativePreview.previewHeight, outputWidth: nativePreview.width, outputHeight: nativePreview.height, nodeId: nativePreview.nodeId, portId: nativePreview.portId, frameIndex: nativePreview.frameIndex }} fileName={nativePreview === null ? loadedDng?.fileName ?? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} sample={previewSample} mode={previewMode} selectedNode={selectedNode} nodeOptions={PREVIEW_NODE_OPTIONS} previewCapabilities={PREVIEW_CAPABILITIES} compareA={compareA} compareB={compareB} focused={previewFocused} onModeChange={setPreviewMode} onCompareAChange={setCompareA} onCompareBChange={setCompareB} onFocusedChange={setPreviewFocused} onPresentationChange={changePreviewPresentation} onSampleRequest={requestPreviewSample} /></div></Panel>
           </Group>

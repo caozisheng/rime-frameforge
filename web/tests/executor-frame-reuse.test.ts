@@ -31,19 +31,28 @@ function fakeGpu() {
     queue: {
       writeBuffer: () => undefined,
       writeTexture: () => { rawUploads += 1; },
+      submit: () => undefined,
+      onSubmittedWorkDone: async () => undefined,
     },
     createTexture: () => {
       textureCreates += 1;
-      return { destroy: () => { textureDestroys += 1; } };
+      return { createView: () => ({}), destroy: () => { textureDestroys += 1; } };
     },
     createBuffer: () => {
       bufferCreates += 1;
       return { destroy: () => { bufferDestroys += 1; } };
     },
+    createBindGroup: () => ({}),
+    createCommandEncoder: () => ({
+      beginComputePass: () => ({ setPipeline: () => undefined, setBindGroup: () => undefined, dispatchWorkgroups: () => undefined, end: () => undefined }),
+      beginRenderPass: () => ({ setPipeline: () => undefined, setBindGroup: () => undefined, draw: () => undefined, end: () => undefined }),
+      finish: () => ({}),
+    }),
     createShaderModule: () => ({}),
+    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
   } as unknown as GPUDevice;
-  const context = {} as GPUCanvasContext;
+  const context = { getCurrentTexture: () => ({ width: 2, height: 2, createView: () => ({}) }) } as unknown as GPUCanvasContext;
   const gpu = { canvas: { width: 2, height: 2 } as OffscreenCanvas, device, context, canvasFormat: 'bgra8unorm' } satisfies GpuContext;
   return {
     gpu,
@@ -67,6 +76,21 @@ describe('NormalGpuExecutor frame reuse', () => {
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
 
     expect(fake.counts()).toEqual({ textureCreates: 8, textureDestroys: 0, bufferCreates: 1, bufferDestroys: 0, rawUploads: 2 });
+  });
+  it('reuses the uploaded raw source across reset and repeated graph execution', async () => {
+    const fake = fakeGpu();
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, normalGraphQuantization);
+    const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
+
+    executor.prepare(identity);
+    await executor.execute('output', identity);
+    executor.reset();
+    executor.setParameter('ahd_l_threshold', 3.0);
+    const secondIdentity = { ...identity, runRevision: 2, methodRevision: 2 };
+    executor.prepare(secondIdentity);
+    await executor.execute('output', secondIdentity);
+
+    expect(fake.counts().rawUploads).toBe(1);
   });
 
   it('requires resource rebuild when frame extent changes', () => {

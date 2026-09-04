@@ -53,6 +53,11 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shaders.pre).not.toContain('input_tex');
     expect(shaders.post).not.toContain('texture_storage_2d<r32float');
   });
+  it('uses the materialized half-float output format for complex DEM methods', () => {
+    const shaders = compileSegmentedNormalShaders('04');
+    expect(shaders.dem).toContain('texture_storage_2d<rgba16float');
+    expect(shaders.dem).not.toContain('texture_storage_2d<rgba32float');
+  });
 
   it('derives WBC gains from the CFA channel instead of fixed pixel phase', () => {
     const shader = compileFusedNormalShader('00');

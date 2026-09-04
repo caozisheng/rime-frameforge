@@ -1,6 +1,6 @@
 {
   "name": "rime-frameforge",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "workspaces": [
     "apps/desktop",

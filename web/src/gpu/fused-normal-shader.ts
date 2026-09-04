@@ -216,6 +216,7 @@ fn sample_dem(p: vec2<i32>) -> vec4<f32> {
 
 function sanitizeDemosaicShader(source: string): string {
   return source
+    .replace(/texture_storage_2d<rgba32float/g, 'texture_storage_2d<rgba16float')
     .replace(/if \(dx == -2 && dy == 0 \|\| dx == 2 && dy == 0\)/g, 'if ((dx == -2 && dy == 0) || (dx == 2 && dy == 0))')
     .replace(/if \(dx == -1 && dy == 0 \|\| dx == 1 && dy == 0\)/g, 'if ((dx == -1 && dy == 0) || (dx == 1 && dy == 0))')
     .replace(/if \(dx == 0 && abs\(dy\) == 2 \|\| abs\(dx\) == 2 && dy == 0\)/g, 'if ((dx == 0 && abs(dy) == 2) || (abs(dx) == 2 && dy == 0))')

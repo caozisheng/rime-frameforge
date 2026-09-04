@@ -28,8 +28,8 @@ function leaf(id: string, label: string, value: unknown): DngTreeNode {
   return { id, label, value: formatValue(value) };
 }
 
-function arrayNode(id: string, label: string, values: readonly unknown[] | null, summary?: string): DngTreeNode {
-  if (values === null) return leaf(id, label, null);
+function arrayNode(id: string, label: string, values: readonly unknown[] | null | undefined, summary?: string): DngTreeNode {
+  if (values === null || values === undefined) return leaf(id, label, null);
   return {
     id,
     label,
@@ -46,8 +46,8 @@ function rationalNode(id: string, label: string, value: readonly number[] | null
   return arrayNode(id, label, value, `${decimal}${unit}`);
 }
 
-function tagNodes(prefix: string, tags: readonly DngRawTagDescriptor[]): readonly DngTreeNode[] {
-  return tags.map((tag, index) => {
+function tagNodes(prefix: string, tags: readonly DngRawTagDescriptor[] | null | undefined): readonly DngTreeNode[] {
+  return (tags ?? []).map((tag, index) => {
     const name = resolveDngTagName(tag.tag);
     const label = name === undefined ? `Tag ${tag.tag}` : `${name} (${tag.tag})`;
     return {
@@ -91,7 +91,7 @@ export function buildDngMetadataGroups(
       leaf('sequence.fileCount', 'File count', sequence.frameCount),
       leaf('sequence.currentFrame', 'Current frame', `${sequenceIndex + 1} / ${sequence.frameCount}`),
       leaf('sequence.currentFile', 'Current file', descriptor.fileName),
-      { id: 'sequence.files', label: 'Files', summary: `${sequence.fileNames.length} files`, children: sequence.fileNames.map((fileName, index) => leaf(`sequence.files.${index}`, `[${String(index + 1).padStart(3, '0')}]`, fileName)) },
+      { id: 'sequence.files', label: 'Files', summary: `${sequence.fileNames.length} files`, children: (sequence.fileNames ?? []).map((fileName, index) => leaf(`sequence.files.${index}`, `[${String(index + 1).padStart(3, '0')}]`, fileName)) },
     ])]),
     group('runtime', 'Runtime', true, [
       leaf('runtime.frameIndex', 'Frame index', descriptor.frameIndex),
@@ -114,7 +114,7 @@ export function buildDngMetadataGroups(
       arrayNode('sensor.blackDeltaH', 'Black delta H', metadata.blackDeltaH),
       arrayNode('sensor.blackDeltaV', 'Black delta V', metadata.blackDeltaV),
       arrayNode('sensor.whiteLevels', 'White levels', metadata.whiteLevels),
-      arrayNode('sensor.linearizationTable', 'Linearization table', metadata.linearizationTable, metadata.linearizationTable === null ? undefined : `${metadata.linearizationTable.length} entries`),
+      arrayNode('sensor.linearizationTable', 'Linearization table', metadata.linearizationTable, metadata.linearizationTable === null || metadata.linearizationTable === undefined ? undefined : `${metadata.linearizationTable.length} entries`),
     ]),
     group('calibration', 'Calibration', false, [
       leaf('calibration.illuminant1', 'Illuminant 1', metadata.calibrationIlluminant1),

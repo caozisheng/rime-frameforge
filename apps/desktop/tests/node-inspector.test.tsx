@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-
 import { NodeInspector } from '../src/components/NodeInspector.js';
-import { TuningProfilePanel } from '../src/components/iq/TuningProfilePanel.js';
+import { TuningProfilePanel, resolveTuningParameterValue } from '../src/components/iq/TuningProfilePanel.js';
+import type { CurvePoint } from '../src/components/iq/curve-model.js';
 import type { RuntimeEnvelope } from '../../web/src/contracts.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import type { DngFrameDescriptor } from '../src/runtime/worker-bridge.js';
@@ -169,7 +169,50 @@ describe('NodeInspector DEM controls', () => {
     expect(html).not.toContain('ahd_c_threshold_sq curve');
     expect(html.match(/<svg/g)?.length).toBe(1);
   });
+  it('separates IQ title, parameter, curve kind, and profile metadata', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} onApply={() => undefined} />);
+    expect(html).toContain('class="iq-tuning-heading"');
+    expect(html).toContain('<span class="section-label">IQ Tuning</span>');
+    expect(html).toContain('<strong>ahd_l_threshold</strong>');
+    expect(html).toContain('<small>curve · factory-default</small>');
+  });
+  it('exposes Apply as a real parameter submission control', () => {
+    const applied: Array<[string, number]> = [];
+    const html = renderToStaticMarkup(
+      <TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} onApply={(parameter, value) => applied.push([parameter, value])} />,
+    );
+    expect(html).toContain('Apply');
+    expect(applied).toHaveLength(0);
+  });
 
+  it('renders a per-parameter factory reset action beside tuning controls', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector {...inspectorProps} nodeId="dem" activeMethod="04" parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }} />,
+    );
+    expect(html).toContain('Reset ahd_l_threshold to factory');
+    expect(html).toContain('Reset ahd_c_threshold_sq to factory');
+  });
+  it('resolves the displayed parameter value from the factory base and current curve', () => {
+    const curve: readonly CurvePoint[] = [{ x: -4, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 1 }];
+    expect(resolveTuningParameterValue(2, curve, 4)).toBe(4);
+  });
+  it('renders base, modulation, and current parameter values', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} onApply={() => undefined} />);
+    expect(html).toContain('Base');
+    expect(html).toContain('Modulated');
+    expect(html).toContain('Current value');
+    expect(html).toContain('2.0000');
+  });
+  it('shows the applied AHD value when returning to the parameter page', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="dem" activeMethod="04" parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 3.25, ahd_c_threshold_sq: 4 }} />);
+    expect(html).toContain('value="3.25"');
+    expect(html).toContain('data-current-parameter-value="ahd_l_threshold:3.25"');
+  });
+  it('marks parameters as unapplied when draft differs from applied value', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="dem" activeMethod="04" parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 3.25, ahd_c_threshold_sq: 4 }} appliedParameterValues={{ ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }} />);
+    expect(html).toContain('data-parameter-dirty="ahd_l_threshold"');
+    expect(html).toContain('class="inspector-parameter-editor is-dirty"');
+  });
   it('renders every operator inspector as a tree with compact groups', () => {
     const html = renderToStaticMarkup(
       <NodeInspector

@@ -38,6 +38,9 @@ export class WasmRuntimeAuthority {
   public step(frameIndex = 0): RuntimeEnvelope {
     return this.map(this.#runtime.step_frame(frameIndex));
   }
+  public runFrame(frameIndex: number): RuntimeEnvelope {
+    return this.map(this.#runtime.run_frame(frameIndex));
+  }
 
   public completeWarmup(): RuntimeEnvelope {
     return this.map(this.#runtime.complete_warmup());
