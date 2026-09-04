@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/rime-core", "crates/rime-wasm", "crates/rime-dng", "crates/rime-isp", "crates/rime-quant", "crates/rime-native-gpu", "crates/rime-cli", "apps/desktop/src-tauri"]
+members = ["crates/rime-core", "crates/rime-wasm", "crates/rime-dng", "crates/rime-isp", "crates/rime-quant", "crates/rime-native-gpu", "crates/rime-cli", "crates/rime-scene", "apps/desktop/src-tauri"]
 resolver = "3"
 
 [workspace.package]
