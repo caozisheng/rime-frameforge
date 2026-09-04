@@ -3079,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "rime-cli"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "clap",
  "image",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "rime-core"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "petgraph",
  "rime-quant",
@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "rime-desktop"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -3122,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "rime-dng"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bytemuck",
  "gamut-dng",
@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "rime-isp"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "rime-core",
  "rime-quant",
@@ -3143,7 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "rime-native-gpu"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bytemuck",
  "image",
@@ -3158,7 +3158,7 @@ dependencies = [
 
 [[package]]
 name = "rime-quant"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -3167,7 +3167,7 @@ dependencies = [
 
 [[package]]
 name = "rime-wasm"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "rime-core",
  "rime-isp",
