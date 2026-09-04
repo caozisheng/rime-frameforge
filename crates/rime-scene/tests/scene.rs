@@ -92,3 +92,22 @@ fn classifies_scene_by_configured_brightness_ranges() {
         Some("daylight")
     );
 }
+
+#[test]
+fn does_not_infer_physical_scene_brightness_from_camera_exposure() {
+    let error = derive_scene_meta(
+        &SceneInput {
+            aperture_f_number: Some(2.0),
+            exposure_time_seconds: Some(0.25),
+            iso: Some(400.0),
+            ..SceneInput::default()
+        },
+        &SceneProfile::default(),
+    )
+    .expect_err("capture settings alone are not a physical scene measurement");
+
+    assert_eq!(
+        error.to_string(),
+        "scene brightness cannot be derived from the supplied metadata"
+    );
+}

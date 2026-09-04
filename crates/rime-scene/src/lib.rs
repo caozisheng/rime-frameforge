@@ -249,17 +249,9 @@ pub fn classify_scene<'a>(meta: &SceneMeta, labels: &'a SceneLabelSet) -> Option
 fn derive_scene_brightness(
     input: &SceneInput,
     profile: &SceneProfile,
-    capture_ev100: Option<f64>,
+    _capture_ev100: Option<f64>,
 ) -> Result<SceneBrightness, SceneError> {
-    let ev_apex = if let Some(value) = input.brightness_value {
-        Some(value)
-    } else if let Some(value) = input.scene_brightness_ev {
-        Some(value)
-    } else if let (Some(capture_ev), Some(iso)) = (capture_ev100, input.iso) {
-        Some(capture_ev - (iso / 100.0).log2() + input.exposure_bias_ev.unwrap_or(0.0))
-    } else {
-        None
-    };
+    let ev_apex = input.brightness_value.or(input.scene_brightness_ev);
 
     let source = if input.brightness_value.is_some() {
         SceneBrightnessSource::Measured
@@ -268,8 +260,6 @@ fn derive_scene_brightness(
         || input.scene_illuminance_lux.is_some()
     {
         SceneBrightnessSource::Calibrated
-    } else if ev_apex.is_some() {
-        SceneBrightnessSource::Estimated
     } else {
         SceneBrightnessSource::Unavailable
     };
