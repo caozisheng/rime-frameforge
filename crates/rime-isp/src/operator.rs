@@ -93,6 +93,11 @@ pub struct PreprocessContext {
     pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix1: [f64; 9],
     pub color_matrix2: Option<[f64; 9]>,
+    pub scene_brightness_ev: Option<f64>,
+    pub exposure_deviation_ev: Option<f64>,
+    pub iso: Option<f64>,
+    pub analog_gain: Option<f64>,
+    pub digital_gain: Option<f64>,
 }
 
 #[derive(Debug)]

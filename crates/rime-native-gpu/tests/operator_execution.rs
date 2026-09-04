@@ -18,6 +18,11 @@ fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        scene_brightness_ev: None,
+        exposure_deviation_ev: None,
+        iso: None,
+        analog_gain: None,
+        digital_gain: None,
     };
     let events = execute_operator_phases(&["blc", "wbc"], &context, |_operator, _packet| Ok(()))
         .expect("operator phases must succeed");
@@ -55,6 +60,11 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        scene_brightness_ev: Some(8.0),
+        exposure_deviation_ev: None,
+        iso: Some(100.0),
+        analog_gain: None,
+        digital_gain: None,
     };
     let events = rime_native_gpu::execute_operator_methods(
         &[("dem", "04")],

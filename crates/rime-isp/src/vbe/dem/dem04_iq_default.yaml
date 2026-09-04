@@ -1,0 +1,24 @@
+schema_version: 1
+module: vbe.dem
+module_address: vbe.dem
+method: "04"
+style: default
+parameter_schema_revision: dem04-v1
+axes:
+  - id: scene_brightness_ev
+    source: scene_meta.scene_brightness.ev_apex
+    unit: EV
+    knots: [-4.0, 0.0, 4.0, 8.0, 12.0, 16.0]
+    out_of_range: clamp
+  - id: iso
+    source: scene_meta.gain.iso
+    unit: ISO
+    coordinate_transform: log2
+    knots: [100.0, 400.0, 1600.0, 6400.0]
+    out_of_range: clamp
+effects:
+  ahd_l_threshold:
+    unit: lab_delta_l
+  ahd_c_threshold_sq:
+    unit: lab_delta_ab_squared
+modulation_curves: []

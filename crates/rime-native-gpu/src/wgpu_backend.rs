@@ -145,6 +145,11 @@ impl WgpuReadbackExecutor {
             as_shot_white_xy: frame.metadata.as_shot_white_xy,
             color_matrix1: frame.metadata.color_matrix1,
             color_matrix2: frame.metadata.color_matrix2,
+            scene_brightness_ev: frame.metadata.exif_brightness_value,
+            exposure_deviation_ev: frame.metadata.exif_exposure_bias_value,
+            iso: frame.metadata.exif_iso_speed.map(f64::from),
+            analog_gain: None,
+            digital_gain: None,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan
