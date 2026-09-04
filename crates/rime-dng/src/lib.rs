@@ -17,7 +17,11 @@ fn exif_scalar(tags: &[gamut_dng::RawTag], tag: u16) -> Option<f64> {
     if let Some(rationals) = value {
         return rational_scalar(rationals.first().copied());
     }
-    let signed = tags.iter().find(|raw| raw.tag == tag)?.value.as_srationals()?;
+    let signed = tags
+        .iter()
+        .find(|raw| raw.tag == tag)?
+        .value
+        .as_srationals()?;
     signed_scalar(signed.first().copied())
 }
 

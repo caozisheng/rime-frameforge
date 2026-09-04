@@ -155,22 +155,30 @@ impl TuningProfile {
 
     pub fn resolve(self, catalog: &[ModuleCatalogEntry]) -> Result<ResolvedProfile, ProfileError> {
         if self.kind != "rime.tuning_profile" || self.schema_version != 1 {
-            return Err(ProfileError::Parse("unsupported profile kind or schema version".into()));
+            return Err(ProfileError::Parse(
+                "unsupported profile kind or schema version".into(),
+            ));
         }
         for address in self.modules.keys() {
             if !catalog.iter().any(|entry| entry.address == *address) {
-                return Err(ProfileError::UnknownModule { address: address.clone() });
+                return Err(ProfileError::UnknownModule {
+                    address: address.clone(),
+                });
             }
         }
         for entry in catalog {
             let Some(module) = self.modules.get(&entry.address) else {
-                return Err(ProfileError::MissingModule { address: entry.address.clone() });
+                return Err(ProfileError::MissingModule {
+                    address: entry.address.clone(),
+                });
             };
             if module.module_id != entry.module_id
                 || module.method != entry.method
                 || module.binding_group != entry.binding_group
             {
-                return Err(ProfileError::ModuleMismatch { address: entry.address.clone() });
+                return Err(ProfileError::ModuleMismatch {
+                    address: entry.address.clone(),
+                });
             }
             validate_entry(&entry.address, module)?;
         }
@@ -220,7 +228,9 @@ impl ModuleTuningEntry {
 fn validate_entry(address: &str, entry: &ModuleTuningEntry) -> Result<(), ProfileError> {
     if matches!(entry.tuning, TuningMode::Override) {
         let Some(table) = entry.table.as_ref() else {
-            return Err(ProfileError::MissingTable { address: address.into() });
+            return Err(ProfileError::MissingTable {
+                address: address.into(),
+            });
         };
         for axis in &table.axes {
             if axis.id.is_empty()
@@ -230,14 +240,23 @@ fn validate_entry(address: &str, entry: &ModuleTuningEntry) -> Result<(), Profil
                 || axis.knots.iter().any(|value| !value.is_finite())
                 || axis.knots.windows(2).any(|pair| pair[0] >= pair[1])
             {
-                return Err(ProfileError::InvalidAxis { address: address.into(), axis: axis.id.clone() });
+                return Err(ProfileError::InvalidAxis {
+                    address: address.into(),
+                    axis: axis.id.clone(),
+                });
             }
         }
         for (effect, value) in &table.effects {
             if value.values.len() != table.axes.first().map_or(0, |axis| axis.knots.len())
-                || value.values.iter().any(|item| !item.is_finite() || *item < 0.0)
+                || value
+                    .values
+                    .iter()
+                    .any(|item| !item.is_finite() || *item < 0.0)
             {
-                return Err(ProfileError::InvalidTableShape { address: address.into(), effect: effect.clone() });
+                return Err(ProfileError::InvalidTableShape {
+                    address: address.into(),
+                    effect: effect.clone(),
+                });
             }
         }
     }

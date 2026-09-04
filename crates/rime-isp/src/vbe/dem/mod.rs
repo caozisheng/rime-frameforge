@@ -1,4 +1,3 @@
-mod dem04_iq;
 mod dem00;
 mod dem00_postprocess;
 mod dem00_preprocess;
@@ -12,6 +11,7 @@ mod dem03;
 mod dem03_postprocess;
 mod dem03_preprocess;
 mod dem04;
+mod dem04_iq;
 mod dem04_postprocess;
 mod dem04_preprocess;
 mod dem_common;

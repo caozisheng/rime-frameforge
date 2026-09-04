@@ -191,12 +191,35 @@ pub fn derive_scene_meta(
     validate_optional_positive(input.iso, SceneError::InvalidIso)?;
     validate_optional_finite(input.brightness_value, "brightness value")?;
     validate_optional_finite(input.scene_brightness_ev, "scene brightness EV")?;
-    validate_optional_positive(input.scene_luminance_cd_m2, SceneError::NonPositiveValue { name: "scene luminance" })?;
-    validate_optional_positive(input.scene_illuminance_lux, SceneError::NonPositiveValue { name: "scene illuminance" })?;
+    validate_optional_positive(
+        input.scene_luminance_cd_m2,
+        SceneError::NonPositiveValue {
+            name: "scene luminance",
+        },
+    )?;
+    validate_optional_positive(
+        input.scene_illuminance_lux,
+        SceneError::NonPositiveValue {
+            name: "scene illuminance",
+        },
+    )?;
     validate_optional_finite(input.exposure_bias_ev, "exposure bias")?;
-    validate_optional_positive(input.analog_gain, SceneError::NonPositiveValue { name: "analog gain" })?;
-    validate_optional_positive(input.digital_gain, SceneError::NonPositiveValue { name: "digital gain" })?;
-    validate_optional_positive(input.cct_kelvin, SceneError::NonPositiveValue { name: "CCT" })?;
+    validate_optional_positive(
+        input.analog_gain,
+        SceneError::NonPositiveValue {
+            name: "analog gain",
+        },
+    )?;
+    validate_optional_positive(
+        input.digital_gain,
+        SceneError::NonPositiveValue {
+            name: "digital gain",
+        },
+    )?;
+    validate_optional_positive(
+        input.cct_kelvin,
+        SceneError::NonPositiveValue { name: "CCT" },
+    )?;
 
     let capture_ev100 = match (input.aperture_f_number, input.exposure_time_seconds) {
         (None, None) => None,

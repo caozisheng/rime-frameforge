@@ -284,6 +284,7 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
         exif_iso_speed: metadata.exif_iso_speed,
         exif_brightness_value: metadata.exif_brightness_value,
         exif_exposure_bias_value: metadata.exif_exposure_bias_value,
+        exif_date_time_original: metadata.exif_date_time_original.clone(),
         exif_focal_length: metadata.exif_focal_length.map(tuple_to_array),
         xmp_byte_length: metadata.xmp_byte_length,
         iptc_byte_length: metadata.iptc_byte_length,

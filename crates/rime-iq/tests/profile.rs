@@ -56,8 +56,16 @@ fn parses_and_resolves_full_profile_entries() {
     let resolved = profile.resolve(&catalog()).expect("profile resolves");
 
     assert_eq!(resolved.profile_id(), "test-profile");
-    assert!(resolved.module("vbe.dem").is_some_and(|entry| entry.is_override()));
-    assert!(resolved.module("vpe.mctf[1]").is_some_and(|entry| entry.is_inherit()));
+    assert!(
+        resolved
+            .module("vbe.dem")
+            .is_some_and(|entry| entry.is_override())
+    );
+    assert!(
+        resolved
+            .module("vpe.mctf[1]")
+            .is_some_and(|entry| entry.is_inherit())
+    );
 }
 
 #[test]

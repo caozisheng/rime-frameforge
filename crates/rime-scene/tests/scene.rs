@@ -1,6 +1,6 @@
 use rime_scene::{
-    classify_scene, derive_scene_meta, ev100_capture, SceneBrightnessSource, SceneInput,
-    SceneLabel, SceneLabelSet, SceneProfile,
+    SceneBrightnessSource, SceneInput, SceneLabel, SceneLabelSet, SceneProfile, classify_scene,
+    derive_scene_meta, ev100_capture,
 };
 
 #[test]
@@ -24,7 +24,10 @@ fn rejects_non_positive_exposure_inputs() {
         ..SceneInput::default()
     })
     .expect_err("zero aperture must be rejected");
-    assert_eq!(aperture_error.to_string(), "aperture f-number must be finite and positive");
+    assert_eq!(
+        aperture_error.to_string(),
+        "aperture f-number must be finite and positive"
+    );
 
     let time_error = ev100_capture(&SceneInput {
         aperture_f_number: Some(2.0),
@@ -32,7 +35,10 @@ fn rejects_non_positive_exposure_inputs() {
         ..SceneInput::default()
     })
     .expect_err("negative exposure time must be rejected");
-    assert_eq!(time_error.to_string(), "exposure time must be finite and positive");
+    assert_eq!(
+        time_error.to_string(),
+        "exposure time must be finite and positive"
+    );
 }
 
 #[test]
@@ -55,7 +61,10 @@ fn keeps_scene_brightness_exposure_bias_and_iso_as_separate_values() {
 
     assert_eq!(meta.frame_index, 7);
     assert_eq!(meta.scene_brightness.ev_apex, Some(6.0));
-    assert_eq!(meta.scene_brightness.source, SceneBrightnessSource::Measured);
+    assert_eq!(
+        meta.scene_brightness.source,
+        SceneBrightnessSource::Measured
+    );
     assert_eq!(meta.exposure_deviation_ev, Some(1.0));
     assert_eq!(meta.iso, Some(400.0));
     assert_eq!(meta.analog_gain, Some(4.0));
@@ -78,5 +87,8 @@ fn classifies_scene_by_configured_brightness_ranges() {
     ])
     .expect("non-overlapping labels");
 
-    assert_eq!(classify_scene(&meta, &labels).map(|label| label.id()), Some("daylight"));
+    assert_eq!(
+        classify_scene(&meta, &labels).map(|label| label.id()),
+        Some("daylight")
+    );
 }
