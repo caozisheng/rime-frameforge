@@ -60,7 +60,8 @@ fn hr_and_cac_use_industry_names_and_same_extent_bayer_contracts() {
 
     assert_eq!(hr.label, "HR");
     assert_eq!(cac.label, "CAC");
-    assert_eq!(cac.input, cac.output);
+    let cac_method = cac.methods.first().expect("CAC method");
+    assert_eq!(cac_method.input, cac_method.output);
     assert!(!operators.contains_key("hlr"));
     assert!(!operators.contains_key("raw_ds_cac"));
 }
@@ -75,7 +76,8 @@ fn vfe_shading_operators_have_separate_same_extent_contracts() {
     for (id, label) in [("sbpc", "SBPC"), ("tintless", "TINTLESS"), ("lsc", "LSC")] {
         let operator = operators.get(id).expect("VFE operator");
         assert_eq!(operator.label, label);
-        assert_eq!(operator.input, operator.output);
+        let method = operator.methods.first().expect("VFE method");
+        assert_eq!(method.input, method.output);
     }
     assert!(!operators.contains_key("sbpc_pdpc"));
     assert!(!operators.contains_key("lsc_tintless"));
@@ -105,12 +107,12 @@ fn dem_and_pfr_have_separate_operator_contracts() {
         .collect();
     let dem = operators.get("dem").expect("DEM operator");
     let pfr = operators.get("pfr").expect("PFR operator");
-
     assert_eq!(dem.label, "DEM");
     assert_eq!(dem.methods.len(), 5);
     assert_eq!(pfr.label, "PFR");
-    assert_eq!(pfr.input.domain, rime_core::SignalDomain::LinearRgb);
-    assert_eq!(pfr.output, pfr.input);
+    let pfr_method = pfr.methods.first().expect("PFR method");
+    assert_eq!(pfr_method.input.domain, rime_core::SignalDomain::LinearRgb);
+    assert_eq!(pfr_method.output, pfr_method.input);
     assert!(!operators.contains_key("demosaic"));
 }
 
@@ -165,12 +167,14 @@ fn assert_operator_methods_are_valid(operator: &OperatorDefinition) {
             method.method
         );
         assert_eq!(
-            method.input, operator.input,
+            method.input,
+            operator.methods.first().expect("default method").input,
             "{} input differs",
             operator.id
         );
         assert_eq!(
-            method.output, operator.output,
+            method.output,
+            operator.methods.first().expect("default method").output,
             "{} output differs",
             operator.id
         );

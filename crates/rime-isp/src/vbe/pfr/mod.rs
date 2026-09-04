@@ -2,8 +2,8 @@ mod pfr00;
 mod pfr00_postprocess;
 mod pfr00_preprocess;
 
-use crate::operator::{OperatorDefinition, OperatorPort};
-use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
+use crate::operator::OperatorDefinition;
+use rime_core::NodeExecutionMode;
 
 pub use pfr00::METHOD_00;
 
@@ -11,15 +11,6 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "pfr",
     label: "PFR",
     mode: NodeExecutionMode::Bypass,
-    input: OperatorPort {
-        domain: SignalDomain::LinearRgb,
-        format: ResourceFormat::Rgba32Float,
-    },
-    output: OperatorPort {
-        domain: SignalDomain::LinearRgb,
-        format: ResourceFormat::Rgba32Float,
-    },
-    output_rime_q_profile: None,
     default_method: "00",
     methods: &[METHOD_00],
 };

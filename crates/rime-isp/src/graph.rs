@@ -41,14 +41,14 @@ pub fn build_normal_manifest() -> PipelineManifest {
             shader_entry: Some(method.shader_entry.into()),
             inputs: vec![port(
                 "in",
-                definition.input.domain,
-                definition.input.format,
+                method.input.domain,
+                method.input.format,
                 &extent,
             )],
             outputs: vec![port(
                 "out",
-                definition.output.domain,
-                definition.output.format,
+                method.output.domain,
+                method.output.format,
                 &extent,
             )],
             default_method: method.method.into(),

@@ -13,6 +13,7 @@ pub const METHOD_04: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     "cfa_pattern ahd_l_threshold ahd_c_threshold_sq",
+    Some("s0.12"),
     shader(
         "04",
         include_str!("dem04.wgsl"),

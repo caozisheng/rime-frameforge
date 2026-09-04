@@ -13,6 +13,7 @@ pub const METHOD_01: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     "cfa_pattern",
+    Some("s0.12"),
     shader(
         "01",
         include_str!("dem01.wgsl"),

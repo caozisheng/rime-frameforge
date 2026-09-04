@@ -14,6 +14,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     "gamma",
+    None,
     shader(
         "00",
         include_str!("gamma00.wgsl"),

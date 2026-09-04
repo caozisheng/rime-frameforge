@@ -14,6 +14,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::R32Float,
     },
     "black_level white_level width height",
+    Some("s0.14"),
     shader(
         "00",
         include_str!("blc00.wgsl"),

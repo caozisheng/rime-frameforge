@@ -15,27 +15,18 @@ mod dem04_postprocess;
 mod dem04_preprocess;
 mod dem_common;
 
-use crate::operator::{OperatorDefinition, OperatorPort};
+use crate::operator::OperatorDefinition;
 pub use dem00::METHOD_00;
 pub use dem01::METHOD_01;
 pub use dem02::METHOD_02;
 pub use dem03::METHOD_03;
 pub use dem04::METHOD_04;
-use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
+use rime_core::NodeExecutionMode;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "dem",
     label: "DEM",
     mode: NodeExecutionMode::Enabled,
-    input: OperatorPort {
-        domain: SignalDomain::RawBayerRimeQ,
-        format: ResourceFormat::R32Float,
-    },
-    output: OperatorPort {
-        domain: SignalDomain::LinearRgb,
-        format: ResourceFormat::Rgba32Float,
-    },
-    output_rime_q_profile: Some("s0.12"),
     default_method: "00",
     methods: &[METHOD_00, METHOD_01, METHOD_02, METHOD_03, METHOD_04],
 };

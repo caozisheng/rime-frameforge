@@ -169,13 +169,15 @@ impl WgpuReadbackExecutor {
             let input = current
                 .as_ref()
                 .map_or(&raw_texture, |resource| &resource.texture);
+            let method =
+                operator
+                    .method(packet.method())
+                    .map_err(|_| OperatorError::Preprocess {
+                        module_id: operator.definition().id,
+                        reason: "operator method manifest is unavailable",
+                    })?;
             let output = self
-                .acquire_texture(
-                    compiled.operator.definition().output.domain,
-                    compiled.operator.definition().output.format,
-                    width,
-                    height,
-                )
+                .acquire_texture(method.output.domain, method.output.format, width, height)
                 .map_err(|_| OperatorError::Preprocess {
                     module_id: operator.definition().id,
                     reason: "texture pool is unavailable",

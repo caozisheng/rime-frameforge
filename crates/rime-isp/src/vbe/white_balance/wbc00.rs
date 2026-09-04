@@ -27,6 +27,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::R32Float,
     },
     "red_gain green_gain blue_gain",
+    Some("s0.12"),
     shader(
         "00",
         include_str!("wbc00.wgsl"),

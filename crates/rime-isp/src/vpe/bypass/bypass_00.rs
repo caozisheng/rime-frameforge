@@ -16,6 +16,7 @@ pub const METHOD: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     "identity",
+    None,
     shader(
         "00",
         "",

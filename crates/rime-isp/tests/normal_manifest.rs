@@ -80,9 +80,11 @@ fn named_operator_outputs_own_rime_q_defaults_without_input_profiles() {
         let operator = rime_isp::normal_operators()
             .iter()
             .find(|operator| operator.definition().id == operator_id)
-            .expect("named operator")
-            .definition();
-        assert_eq!(operator.output_rime_q_profile, Some(profile));
+            .expect("named operator");
+        let method = operator
+            .method(operator.definition().default_method)
+            .expect("default method");
+        assert_eq!(method.output_rime_q_profile, Some(profile));
     }
 }
 

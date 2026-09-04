@@ -14,6 +14,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::R32Float,
     },
     "identity",
+    None,
     shader(
         "00",
         include_str!("hr00.wgsl"),
