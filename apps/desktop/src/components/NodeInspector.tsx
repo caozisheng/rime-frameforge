@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type { RuntimeEnvelope } from '../../../../web/src/contracts.js';
 import { normalGraphPresentation } from '../../../../web/src/generated/normal_graph.generated.js';
@@ -136,6 +136,7 @@ function parameterValue(
 }
 
 export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
+  const [iqNodeId, setIqNodeId] = useState<string | null>(null);
   const canConfigure = envelope.lifecycleState === 'stop' || envelope.lifecycleState === 'completed';
   if (nodeId === null) {
     return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Graph inspector</span><h2 id="inspector-heading">Normal Graph</h2></div><span className="tree-mode-badge mode-enabled">graph</span></div><GraphInspector config={quantization} canConfigure={canConfigure} onGraphChange={onGraphQuantizationChange} onModuleChange={onModuleQuantizationChange} /></aside>;
@@ -169,6 +170,11 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
     },
     ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }]),
   ];
+  const iqAvailable = treeNode.id === 'dem' && selectedMethod?.method === '04';
+  const iqOpen = iqAvailable && iqNodeId === treeNode.id;
+  const viewTabs = <div className="inspector-view-tabs" role="tablist" aria-label={`${treeNode.label} views`}><button aria-selected={!iqOpen} className={!iqOpen ? 'is-active' : ''} onClick={() => setIqNodeId(null)} role="tab" type="button">Parameters</button>{iqAvailable && <button aria-selected={iqOpen} className={iqOpen ? 'is-active' : ''} onClick={() => setIqNodeId(treeNode.id)} role="tab" type="button">IQ Tuning</button>}</div>;
+  const parameterView = <div className="inspector-parameters-view"><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} />{iqAvailable && <div className="inspector-iq-entry"><span>Profile tuning</span><button disabled={!canConfigure} onClick={() => setIqNodeId(treeNode.id)} type="button">Open IQ tuning</button></div>}</div>;
+  const iqView = <div className="iq-tuning-viewport"><div className="iq-tuning-content"><TuningProfilePanel canConfigure={canConfigure} baseValues={parameterValues} onApply={(parameter, value) => onParameterChange(executionNode?.id ?? 'dem', parameter, value)} /></div></div>;
 
-  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} />{treeNode.id === 'dem' && selectedMethod?.method === '04' && <TuningProfilePanel canConfigure={canConfigure} baseValues={parameterValues} onApply={(parameter, value) => onParameterChange(executionNode?.id ?? 'dem', parameter, value)} />}</>}</aside>;
-}
+  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><div className="inspector-view-shell">{viewTabs}{iqOpen ? iqView : parameterView}</div></>}</aside>;
+ }

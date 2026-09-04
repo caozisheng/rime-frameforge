@@ -142,7 +142,7 @@ describe('NodeInspector DEM controls', () => {
     expect(html).toContain('value="1.5"');
   });
 
-  it('renders the AHD tuning profile and curve editor', () => {
+  it('keeps AHD parameters visible and exposes IQ as an explicit view', () => {
     const html = renderToStaticMarkup(
       <NodeInspector
         nodeId="dem"
@@ -156,11 +156,10 @@ describe('NodeInspector DEM controls', () => {
       />,
     );
 
-    expect(html).toContain('IQ Tuning');
-    expect(html).toContain('factory-default');
-    expect(html).toContain('ahd_l_threshold curve');
-    expect(html).toContain('ahd_c_threshold_sq curve');
-    expect(html).toContain('<svg');
+    expect(html).toContain('Parameters');
+    expect(html).toContain('Open IQ tuning');
+    expect(html).not.toContain('ahd_l_threshold curve');
+    expect(html).not.toContain('<svg');
   });
 
   it('renders every operator inspector as a tree with compact groups', () => {
