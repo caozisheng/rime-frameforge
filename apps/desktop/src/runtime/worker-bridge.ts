@@ -33,6 +33,8 @@ export interface DngMetadataDescriptor {
   readonly exifExposureTime: readonly number[] | null;
   readonly exifFNumber: readonly number[] | null;
   readonly exifIsoSpeed: number | null;
+  readonly exifBrightnessValue: number | null;
+  readonly exifExposureBiasValue: number | null;
   readonly exifDateTimeOriginal: string | null;
   readonly exifFocalLength: readonly number[] | null;
   readonly xmpByteLength: number | null;

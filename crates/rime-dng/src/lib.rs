@@ -9,6 +9,27 @@ use gamut_ifd::{IfdReader, RawIfd, ReadAt, Variant};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+const BRIGHTNESS_VALUE_TAG: u16 = 37379;
+const EXPOSURE_BIAS_VALUE_TAG: u16 = 37380;
+
+fn exif_scalar(tags: &[gamut_dng::RawTag], tag: u16) -> Option<f64> {
+    let value = tags.iter().find(|raw| raw.tag == tag)?.value.as_rationals();
+    if let Some(rationals) = value {
+        return rational_scalar(rationals.first().copied());
+    }
+    let signed = tags.iter().find(|raw| raw.tag == tag)?.value.as_srationals()?;
+    signed_scalar(signed.first().copied())
+}
+
+fn rational_scalar(value: Option<(u32, u32)>) -> Option<f64> {
+    let (numerator, denominator) = value?;
+    (denominator != 0).then_some(f64::from(numerator) / f64::from(denominator))
+}
+
+fn signed_scalar(value: Option<(i32, i32)>) -> Option<f64> {
+    let (numerator, denominator) = value?;
+    (denominator != 0).then_some(f64::from(numerator) / f64::from(denominator))
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BayerCfa {
     Rggb,
@@ -61,6 +82,8 @@ pub struct DngMetadata {
     pub exif_exposure_time: Option<(u32, u32)>,
     pub exif_f_number: Option<(u32, u32)>,
     pub exif_iso_speed: Option<u16>,
+    pub exif_brightness_value: Option<f64>,
+    pub exif_exposure_bias_value: Option<f64>,
     pub exif_date_time_original: Option<String>,
     pub exif_focal_length: Option<(u32, u32)>,
     pub xmp_byte_length: Option<usize>,
@@ -347,6 +370,8 @@ fn metadata_from_decoded(
         exif_exposure_time: exif.exposure_time,
         exif_f_number: exif.f_number,
         exif_iso_speed: exif.iso_speed,
+        exif_brightness_value: exif_scalar(&decoded.exif_extra, BRIGHTNESS_VALUE_TAG),
+        exif_exposure_bias_value: exif_scalar(&decoded.exif_extra, EXPOSURE_BIAS_VALUE_TAG),
         exif_date_time_original: exif.date_time_original.clone(),
         exif_focal_length: exif.focal_length,
         xmp_byte_length: decoded.metadata.xmp.as_ref().map(Vec::len),
@@ -566,5 +591,39 @@ fn digest_u16(samples: &[u16]) -> String {
             hasher.update(sample.to_le_bytes());
         }
         format!("{hasher:x}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BRIGHTNESS_VALUE_TAG, EXPOSURE_BIAS_VALUE_TAG, exif_scalar};
+    use gamut_dng::{RawTag, Value};
+
+    #[test]
+    fn reads_signed_and_unsigned_exif_apex_values() {
+        let tags = vec![
+            RawTag {
+                tag: BRIGHTNESS_VALUE_TAG,
+                value: Value::SRational(vec![(9, 2)]),
+            },
+            RawTag {
+                tag: EXPOSURE_BIAS_VALUE_TAG,
+                value: Value::SRational(vec![(-3, 2)]),
+            },
+        ];
+
+        assert_eq!(exif_scalar(&tags, BRIGHTNESS_VALUE_TAG), Some(4.5));
+        assert_eq!(exif_scalar(&tags, EXPOSURE_BIAS_VALUE_TAG), Some(-1.5));
+    }
+
+    #[test]
+    fn rejects_missing_or_zero_denominator_exif_values() {
+        let tags = vec![RawTag {
+            tag: BRIGHTNESS_VALUE_TAG,
+            value: Value::Rational(vec![(1, 0)]),
+        }];
+
+        assert_eq!(exif_scalar(&tags, EXPOSURE_BIAS_VALUE_TAG), None);
+        assert_eq!(exif_scalar(&tags, BRIGHTNESS_VALUE_TAG), None);
     }
 }

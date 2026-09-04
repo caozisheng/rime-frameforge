@@ -132,6 +132,8 @@ export function buildDngMetadataGroups(
     group('exposure', 'Exposure', false, [
       rationalNode('exposure.time', 'Exposure time', metadata.exifExposureTime, ' s'),
       leaf('exposure.iso', 'ISO', metadata.exifIsoSpeed),
+      leaf('exposure.brightnessValue', 'Brightness value', metadata.exifBrightnessValue),
+      leaf('exposure.exposureBiasValue', 'Exposure bias value', metadata.exifExposureBiasValue),
       leaf('exposure.baseline', 'Baseline exposure', metadata.baselineExposure),
       leaf('exposure.dateTime', 'Date/time original', metadata.exifDateTimeOriginal),
     ]),
