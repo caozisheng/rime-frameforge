@@ -7,6 +7,7 @@ import { normalGraphQuantization } from '../../../../web/src/generated/normal_qu
 import type { DngFrameDescriptor, DngSequenceDescriptor } from '../runtime/worker-bridge.js';
 import { DngMetadataTree } from './DngMetadataTree.js';
 import { InspectorTree, type InspectorTreeGroup, type InspectorTreeNode } from './InspectorTree.js';
+import { tuningDescriptor, type TuningTarget } from './iq/tuning-target.js';
 import { TuningProfilePanel } from './iq/TuningProfilePanel.js';
 
 export interface ModuleQuantizationPreference {
@@ -46,101 +47,44 @@ function ToggleSwitch({ label, checked, disabled, onToggle }: { readonly label: 
   return <button aria-checked={checked} aria-label={label} className={`inspector-switch${checked ? ' is-on' : ''}`} disabled={disabled} role="switch" type="button" onClick={() => onToggle(!checked)}><span className="inspector-switch-track"><span className="inspector-switch-thumb" /></span></button>;
 }
 
-function moduleControls(
-  node: PresentationNode,
-  preference: ModuleQuantizationPreference,
-  config: GraphQuantizationConfig,
-  canConfigure: boolean,
-  onChange: (preference: ModuleQuantizationPreference) => void,
-): readonly InspectorTreeNode[] {
+function moduleControls(node: PresentationNode, preference: ModuleQuantizationPreference, config: GraphQuantizationConfig, canConfigure: boolean, onChange: (preference: ModuleQuantizationPreference) => void): readonly InspectorTreeNode[] {
   const forcedOff = !config.enabled || node.mode === 'disabled' || node.mode === 'bypass';
   const controlsDisabled = !canConfigure || forcedOff;
   const effectiveOutput = !forcedOff && preference.output_enabled;
-  const update = <K extends keyof ModuleQuantizationPreference>(key: K, value: ModuleQuantizationPreference[K]): void => {
-    onChange({ ...preference, [key]: value });
-  };
-  const profileOptions = PROFILE_OPTIONS.includes(preference.output_profile as typeof PROFILE_OPTIONS[number])
-    ? PROFILE_OPTIONS
-    : [preference.output_profile, ...PROFILE_OPTIONS];
-  const outputControl: InspectorTreeNode = {
-    id: `${node.id}.output`, label: 'Output Rime.Q',
-    control: <ToggleSwitch label={`${node.label} output Rime.Q`} disabled={controlsDisabled} checked={effectiveOutput} onToggle={(checked) => update('output_enabled', checked)} />,
-  };
-  if (!preference.output_enabled) {
-    return [
-      { id: `${node.id}.mode`, label: 'Mode', value: node.mode },
-      { id: `${node.id}.status`, label: 'Status', value: 'disabled' },
-      outputControl,
-    ];
-  }
-  return [
-    { id: `${node.id}.mode`, label: 'Mode', value: node.mode },
-    { id: `${node.id}.status`, label: 'Status', value: effectiveOutput ? 'enabled' : 'disabled' },
-    outputControl,
-    {
-      id: `${node.id}.profile`, label: 'Output profile',
-      control: <select aria-label={`${node.label} output profile`} disabled={controlsDisabled} value={preference.output_profile} onChange={(event) => update('output_profile', event.target.value)}>{profileOptions.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select>,
-    },
-    {
-      id: `${node.id}.clip`, label: 'ClipType',
-      control: <select aria-label={`${node.label} ClipType`} disabled={controlsDisabled} value={preference.clip_type} onChange={(event) => update('clip_type', event.target.value as ModuleQuantizationPreference['clip_type'])}>{CLIP_OPTIONS.map((clip) => <option key={clip} value={clip}>{clip === 'dither_gpu' ? 'dither-gpu' : clip}</option>)}</select>,
-    },
-  ];
+  const update = <K extends keyof ModuleQuantizationPreference>(key: K, value: ModuleQuantizationPreference[K]): void => onChange({ ...preference, [key]: value });
+  const profileOptions = PROFILE_OPTIONS.includes(preference.output_profile as typeof PROFILE_OPTIONS[number]) ? PROFILE_OPTIONS : [preference.output_profile, ...PROFILE_OPTIONS];
+  const outputControl: InspectorTreeNode = { id: `${node.id}.output`, label: 'Output Rime.Q', control: <ToggleSwitch label={`${node.label} output Rime.Q`} disabled={controlsDisabled} checked={effectiveOutput} onToggle={(checked) => update('output_enabled', checked)} /> };
+  if (!preference.output_enabled) return [{ id: `${node.id}.mode`, label: 'Mode', value: node.mode }, { id: `${node.id}.status`, label: 'Status', value: 'disabled' }, outputControl];
+  return [{ id: `${node.id}.mode`, label: 'Mode', value: node.mode }, { id: `${node.id}.status`, label: 'Status', value: effectiveOutput ? 'enabled' : 'disabled' }, outputControl, { id: `${node.id}.profile`, label: 'Output profile', control: <select aria-label={`${node.label} output profile`} disabled={controlsDisabled} value={preference.output_profile} onChange={(event) => update('output_profile', event.target.value)}>{profileOptions.map((profile) => <option key={profile} value={profile}>{profile}</option>)}</select> }, { id: `${node.id}.clip`, label: 'ClipType', control: <select aria-label={`${node.label} ClipType`} disabled={controlsDisabled} value={preference.clip_type} onChange={(event) => update('clip_type', event.target.value as ModuleQuantizationPreference['clip_type'])}>{CLIP_OPTIONS.map((clip) => <option key={clip} value={clip}>{clip === 'dither_gpu' ? 'dither-gpu' : clip}</option>)}</select> }];
 }
 
-function graphTreeNodes(
-  parentId: string,
-  config: GraphQuantizationConfig,
-  canConfigure: boolean,
-  onModuleChange: (moduleId: string, preference: ModuleQuantizationPreference) => void,
-): readonly InspectorTreeNode[] {
+function graphTreeNodes(parentId: string, config: GraphQuantizationConfig, canConfigure: boolean, onModuleChange: (moduleId: string, preference: ModuleQuantizationPreference) => void): readonly InspectorTreeNode[] {
   return normalGraphPresentation.nodes.filter((node) => node.parent_id === parentId).map((node) => {
     const children = graphTreeNodes(node.id, config, canConfigure, onModuleChange);
     const preference = node.execution_node_id === null ? undefined : config.modules.find((module) => module.module_id === node.execution_node_id);
-    const quantizationChildren = preference === undefined
-      ? []
-      : moduleControls(node, preference, config, canConfigure, (next) => onModuleChange(preference.module_id, next));
+    const quantizationChildren = preference === undefined ? [] : moduleControls(node, preference, config, canConfigure, (next) => onModuleChange(preference.module_id, next));
     return { id: `graph.${node.id}`, label: node.label, value: node.mode, defaultExpanded: true, children: [...children, ...quantizationChildren] };
   });
 }
 
-function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }: {
-  readonly config: GraphQuantizationConfig;
-  readonly canConfigure: boolean;
-  readonly onGraphChange: (config: GraphQuantizationConfig) => void;
-  readonly onModuleChange: (moduleId: string, preference: ModuleQuantizationPreference) => void;
-}) {
-  const groups: readonly InspectorTreeGroup[] = [
-    {
-      id: 'overall', label: 'Overall', defaultExpanded: true,
-      children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <ToggleSwitch label="Overall Rime.Q" disabled={!canConfigure} checked={config.enabled} onToggle={(checked) => onGraphChange({ ...config, enabled: checked })} /> }],
-    },
-    { id: 'graph', label: 'Hierarchy', defaultExpanded: true, children: graphTreeNodes(normalGraphPresentation.root_id, config, canConfigure, onModuleChange) },
-  ];
+function GraphInspector({ config, canConfigure, onGraphChange, onModuleChange }: { readonly config: GraphQuantizationConfig; readonly canConfigure: boolean; readonly onGraphChange: (config: GraphQuantizationConfig) => void; readonly onModuleChange: (moduleId: string, preference: ModuleQuantizationPreference) => void }): ReactNode {
+  const groups: readonly InspectorTreeGroup[] = [{ id: 'overall', label: 'Overall', defaultExpanded: true, children: [{ id: 'overall.rimeq', label: 'Rime.Q', control: <ToggleSwitch label="Overall Rime.Q" disabled={!canConfigure} checked={config.enabled} onToggle={(checked) => onGraphChange({ ...config, enabled: checked })} /> }] }, { id: 'graph', label: 'Hierarchy', defaultExpanded: true, children: graphTreeNodes(normalGraphPresentation.root_id, config, canConfigure, onModuleChange) }];
   return <InspectorTree ariaLabel="Normal Graph inspector" groups={groups} storageKey="rime:graph-inspector:normal" />;
 }
 
-function parameterValue(
-  parameter: string,
-  parameterValues: Readonly<Record<string, string | number>>,
-  dngFrame: DngFrameDescriptor | null,
-): string | number {
+function parameterValue(parameter: string, parameterValues: Readonly<Record<string, string | number>>, dngFrame: DngFrameDescriptor | null): string | number {
   if (dngFrame !== null) {
     if (parameter === 'cfa_pattern') return dngFrame.cfa;
     const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
     if (gainIndex !== undefined) return dngFrame.whiteBalanceGains[gainIndex] ?? '—';
   }
-  const explicit = parameterValues[parameter];
-  if (explicit !== undefined) return explicit;
-  return '—';
+  return parameterValues[parameter] ?? '—';
 }
 
-export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps) {
-  const [iqNodeId, setIqNodeId] = useState<string | null>(null);
+export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, quantization = defaultQuantization, onMethodChange, onParameterChange, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined }: NodeInspectorProps): ReactNode {
+  const [tuningTarget, setTuningTarget] = useState<TuningTarget | null>(null);
   const canConfigure = envelope.lifecycleState === 'stop' || envelope.lifecycleState === 'completed';
-  if (nodeId === null) {
-    return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Graph inspector</span><h2 id="inspector-heading">Normal Graph</h2></div><span className="tree-mode-badge mode-enabled">graph</span></div><GraphInspector config={quantization} canConfigure={canConfigure} onGraphChange={onGraphQuantizationChange} onModuleChange={onModuleQuantizationChange} /></aside>;
-  }
+  if (nodeId === null) return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Graph inspector</span><h2 id="inspector-heading">Normal Graph</h2></div><span className="tree-mode-badge mode-enabled">graph</span></div><GraphInspector config={quantization} canConfigure={canConfigure} onGraphChange={onGraphQuantizationChange} onModuleChange={onModuleQuantizationChange} /></aside>;
 
   const treeNode = normalGraphPresentation.nodes.find((node) => node.id === nodeId || node.execution_node_id === nodeId) ?? normalGraphPresentation.nodes[0];
   const executionNode = treeNode.execution_node_id === null ? undefined : normalManifest.nodes.find((node) => node.id === treeNode.execution_node_id);
@@ -149,32 +93,11 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
   const backend = executionNode?.shader_entry === null ? 'asset' : executionNode ? 'wgsl' : 'none';
   const selectedMethod = executionNode?.methods.find((method) => method.method === activeMethod) ?? executionNode?.methods.find((method) => method.method === executionNode.default_method);
   const methodControl = executionNode === undefined || executionNode.methods.length === 0 ? undefined : <select aria-label={`${executionNode.id} method`} disabled={!canConfigure} value={selectedMethod?.method ?? executionNode.default_method} onChange={(event) => onMethodChange(executionNode.id, event.target.value)}>{executionNode.methods.map((method) => <option key={method.method} value={method.method}>{method.method} · {method.shader_entry.replace(/^demosaic_|_main$/g, '')}</option>)}</select>;
+  if (treeNode.id === 'raw_source') return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />}</aside>;
   const preference = executionNode === undefined ? undefined : quantization.modules.find((module) => module.module_id === executionNode.id);
-  const groups: readonly InspectorTreeGroup[] = [
-    { id: 'general', label: 'General', defaultExpanded: true, children: [{ id: 'general.mode', label: 'Mode', value: treeNode.mode }, { id: 'general.backend', label: 'Backend', value: backend }, { id: 'general.input', label: 'Input', value: input?.domain ?? 'unavailable' }, { id: 'general.output', label: 'Output', value: output?.domain ?? 'unavailable' }, { id: 'general.method', label: 'Method', value: selectedMethod?.method ?? '—', control: methodControl }, { id: 'general.shader', label: 'Shader', value: selectedMethod?.shader_entry ?? executionNode?.shader_entry ?? '—' }, { id: 'general.frame', label: 'Frame', value: `${envelope.frameIndex ?? '—'} / ${envelope.framePhase ?? 'idle'}` }, { id: 'general.runRevision', label: 'Run revision', value: String(envelope.runRevision) }, { id: 'general.methodRevision', label: 'Method revision', value: String(envelope.methodRevision) }, { id: 'general.configRevision', label: 'Config revision', value: String(envelope.configRevision) }, { id: 'general.gpuGeneration', label: 'GPU generation', value: String(envelope.gpuGeneration) }, ...(treeNode.reason === null ? [] : [{ id: 'general.reason', label: 'Reason', value: treeNode.reason }])] },
-    {
-      id: 'parameters', label: 'Parameters', defaultExpanded: true,
-      children: selectedMethod === undefined
-        ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }]
-        : selectedMethod.parameters.map((parameter) => {
-          const value = parameterValue(parameter, parameterValues, dngFrame);
-          return {
-            id: `parameters.${parameter}`,
-            label: parameter,
-            value: String(value),
-            control: parameter === 'cfa_pattern' || executionNode?.id !== 'dem'
-              ? <output>{value}</output>
-              : <input aria-label={parameter} disabled={!canConfigure} type="number" step="0.1" value={value === '—' ? '' : value} onChange={(event) => onParameterChange(executionNode.id, parameter, Number(event.target.value))} />,
-          };
-        }),
-    },
-    ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }]),
-  ];
-  const iqAvailable = treeNode.id === 'dem' && selectedMethod?.method === '04';
-  const iqOpen = iqAvailable && iqNodeId === treeNode.id;
-  const viewTabs = <div className="inspector-view-tabs" role="tablist" aria-label={`${treeNode.label} views`}><button aria-selected={!iqOpen} className={!iqOpen ? 'is-active' : ''} onClick={() => setIqNodeId(null)} role="tab" type="button">Parameters</button>{iqAvailable && <button aria-selected={iqOpen} className={iqOpen ? 'is-active' : ''} onClick={() => setIqNodeId(treeNode.id)} role="tab" type="button">IQ Tuning</button>}</div>;
-  const parameterView = <div className="inspector-parameters-view"><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} />{iqAvailable && <div className="inspector-iq-entry"><span>Profile tuning</span><button disabled={!canConfigure} onClick={() => setIqNodeId(treeNode.id)} type="button">Open IQ tuning</button></div>}</div>;
-  const iqView = <div className="iq-tuning-viewport"><div className="iq-tuning-content"><TuningProfilePanel canConfigure={canConfigure} baseValues={parameterValues} onApply={(parameter, value) => onParameterChange(executionNode?.id ?? 'dem', parameter, value)} /></div></div>;
-
-  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{treeNode.id === 'raw_source' ? (dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />) : <><div className="inspector-view-shell">{viewTabs}{iqOpen ? iqView : parameterView}</div></>}</aside>;
- }
+  const groups: readonly InspectorTreeGroup[] = [{ id: 'general', label: 'General', defaultExpanded: true, children: [{ id: 'general.mode', label: 'Mode', value: treeNode.mode }, { id: 'general.backend', label: 'Backend', value: backend }, { id: 'general.input', label: 'Input', value: input?.domain ?? 'unavailable' }, { id: 'general.output', label: 'Output', value: output?.domain ?? 'unavailable' }, { id: 'general.method', label: 'Method', value: selectedMethod?.method ?? '—', control: methodControl }, { id: 'general.shader', label: 'Shader', value: selectedMethod?.shader_entry ?? executionNode?.shader_entry ?? '—' }, { id: 'general.frame', label: 'Frame', value: `${envelope.frameIndex ?? '—'} / ${envelope.framePhase ?? 'idle'}` }, { id: 'general.runRevision', label: 'Run revision', value: String(envelope.runRevision) }, { id: 'general.methodRevision', label: 'Method revision', value: String(envelope.methodRevision) }, { id: 'general.configRevision', label: 'Config revision', value: String(envelope.configRevision) }, { id: 'general.gpuGeneration', label: 'GPU generation', value: String(envelope.gpuGeneration) }, ...(treeNode.reason === null ? [] : [{ id: 'general.reason', label: 'Reason', value: treeNode.reason }])] }, { id: 'parameters', label: 'Parameters', defaultExpanded: true, children: selectedMethod === undefined ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }] : selectedMethod.parameters.map((parameter) => { const value = parameterValue(parameter, parameterValues, dngFrame); const descriptor = executionNode === undefined ? null : tuningDescriptor(executionNode.id, selectedMethod.method, parameter); const editor = parameter === 'cfa_pattern' || executionNode?.id !== 'dem' ? <output>{value}</output> : <span className="inspector-parameter-editor"><input aria-label={parameter} disabled={!canConfigure} type="number" step="0.1" value={value === '—' ? '' : value} onChange={(event) => onParameterChange(executionNode.id, parameter, Number(event.target.value))} />{descriptor === null ? null : <button aria-label={`Tune ${descriptor.parameter}`} className="inspector-tune-button" disabled={!canConfigure} onClick={() => setTuningTarget({ moduleAddress: `vbe.${executionNode.id}`, moduleId: executionNode.id, method: selectedMethod.method, parameter: descriptor.parameter, controlKind: descriptor.controlKind })} type="button">&gt;</button>}</span>; return { id: `parameters.${parameter}`, label: parameter, value: String(value), control: editor }; }), }, ...(preference === undefined ? [] : [{ id: 'quantization', label: 'Rime.Q', defaultExpanded: true, children: moduleControls(treeNode, preference, quantization, canConfigure, (next) => onModuleQuantizationChange(preference.module_id, next)) }])];
+  const selectedTarget = tuningTarget !== null && tuningTarget.moduleId === executionNode?.id && tuningTarget.method === selectedMethod?.method ? tuningTarget : null;
+  const parameterView = <div className="inspector-parameters-view"><InspectorTree key={treeNode.id} ariaLabel={`${treeNode.label} inspector`} groups={groups} storageKey={`rime:node-inspector:${treeNode.id}`} /></div>;
+  const tuningView = selectedTarget === null ? parameterView : <div className="iq-tuning-viewport"><div className="iq-tuning-content"><div className="iq-tuning-back"><button aria-label="Back to Parameters" onClick={() => setTuningTarget(null)} type="button">← Parameters</button></div><TuningProfilePanel canConfigure={canConfigure} parameter={selectedTarget.parameter as 'ahd_l_threshold' | 'ahd_c_threshold_sq'} controlKind={selectedTarget.controlKind} baseValues={parameterValues} onApply={(parameter, value) => onParameterChange(executionNode?.id ?? 'dem', parameter, value)} /></div></div>;
+  return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div><div className="inspector-view-shell">{tuningView}</div></aside>;
+}

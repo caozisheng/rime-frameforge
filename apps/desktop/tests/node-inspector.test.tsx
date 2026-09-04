@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { NodeInspector } from '../src/components/NodeInspector.js';
+import { TuningProfilePanel } from '../src/components/iq/TuningProfilePanel.js';
 import type { RuntimeEnvelope } from '../../web/src/contracts.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import type { DngFrameDescriptor } from '../src/runtime/worker-bridge.js';
@@ -142,7 +143,7 @@ describe('NodeInspector DEM controls', () => {
     expect(html).toContain('value="1.5"');
   });
 
-  it('keeps AHD parameters visible and exposes IQ as an explicit view', () => {
+  it('shows per-parameter IQ tuning actions without mounting a curve page', () => {
     const html = renderToStaticMarkup(
       <NodeInspector
         nodeId="dem"
@@ -156,10 +157,17 @@ describe('NodeInspector DEM controls', () => {
       />,
     );
 
-    expect(html).toContain('Parameters');
-    expect(html).toContain('Open IQ tuning');
+    expect(html).toContain('Tune ahd_l_threshold');
+    expect(html).toContain('Tune ahd_c_threshold_sq');
+    expect(html).not.toContain('Tune cfa_pattern');
     expect(html).not.toContain('ahd_l_threshold curve');
     expect(html).not.toContain('<svg');
+  });
+  it('renders only the selected parameter control on the tuning page', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }} onApply={() => undefined} />);
+    expect(html).toContain('ahd_l_threshold');
+    expect(html).not.toContain('ahd_c_threshold_sq curve');
+    expect(html.match(/<svg/g)?.length).toBe(1);
   });
 
   it('renders every operator inspector as a tree with compact groups', () => {
