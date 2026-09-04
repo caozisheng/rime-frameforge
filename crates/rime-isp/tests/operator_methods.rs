@@ -10,6 +10,15 @@ fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
 }
 
 #[test]
+fn every_method_manifest_owns_shader_and_lifecycle_hooks() {
+    for operator in normal_operators() {
+        for method in operator.definition().methods {
+            assert_eq!(method.shader.method, method.method);
+            assert!(!method.shader.source.is_empty());
+        }
+    }
+}
+#[test]
 fn normal_graph_registers_every_explicit_main_chain_operator() {
     let ids: HashSet<&str> = normal_operators()
         .iter()
@@ -107,7 +116,7 @@ fn dem_and_pfr_have_separate_operator_contracts() {
 
 #[test]
 fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
-    let shader = include_str!("../src/vbe/white_balance/white_balance_00.wgsl");
+    let shader = include_str!("../src/vbe/white_balance/wbc00.wgsl");
 
     assert!(shader.contains("gains: vec4<f32>"));
     assert!(shader.contains("params.cfa_pattern"));

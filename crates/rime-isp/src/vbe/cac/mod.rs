@@ -1,8 +1,9 @@
-mod cac_00;
-mod postprocess;
-mod preprocess;
+mod cac00;
+mod cac00_postprocess;
+mod cac00_preprocess;
+
 use crate::operator::{OperatorDefinition, OperatorPort};
-pub use cac_00::METHOD_00;
+pub use cac00::METHOD_00;
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "cac",
@@ -23,16 +24,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("cac_00.wgsl"),
-        "identity_r32_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

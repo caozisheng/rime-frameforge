@@ -9,9 +9,9 @@ pub mod vpe;
 
 pub use graph::{build_normal_graph_presentation, build_normal_manifest};
 pub use operator::{
-    FrameIdentity, ModuleParameterPacket, Operator, OperatorDefinition, OperatorError,
-    OperatorMethod, OperatorPort, PostprocessContext, PreprocessContext, ShaderAsset,
-    ShaderBindings,
+    FrameIdentity, MethodManifest, ModuleParameterPacket, Operator, OperatorDefinition,
+    OperatorError, OperatorPort, PostprocessContext, PreprocessContext, ShaderAsset,
+    ShaderBindings, empty_postprocess, empty_preprocess,
 };
 
 pub use generated::{

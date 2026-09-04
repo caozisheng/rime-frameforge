@@ -1,8 +1,9 @@
-mod postprocess;
-mod preprocess;
-mod raw_nr_00;
+mod raw_nr00;
+mod raw_nr00_postprocess;
+mod raw_nr00_preprocess;
+
 use crate::operator::{OperatorDefinition, OperatorPort};
-pub use raw_nr_00::METHOD_00;
+pub use raw_nr00::METHOD_00;
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "raw_nr",
@@ -23,16 +24,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("raw_nr_00.wgsl"),
-        "identity_r32_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

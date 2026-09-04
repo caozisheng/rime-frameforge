@@ -1,11 +1,11 @@
-mod postprocess;
-mod preprocess;
-mod rgb_to_yuv_00;
+mod rgb2yuv00;
+mod rgb2yuv00_postprocess;
+mod rgb2yuv00_preprocess;
 
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 
-pub use rgb_to_yuv_00::METHOD_00;
+pub use rgb2yuv00::METHOD_00;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "rgb2yuv",
@@ -26,16 +26,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("rgb_to_yuv_00.wgsl"),
-        "rgb2yuv_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

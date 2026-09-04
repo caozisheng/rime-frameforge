@@ -1,8 +1,9 @@
-mod dbpc_00;
-mod postprocess;
-mod preprocess;
+mod dbpc00;
+mod dbpc00_postprocess;
+mod dbpc00_preprocess;
+
 use crate::operator::{OperatorDefinition, OperatorPort};
-pub use dbpc_00::METHOD_00;
+pub use dbpc00::METHOD_00;
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "dbpc",
@@ -23,16 +24,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("dbpc_00.wgsl"),
-        "identity_r32_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

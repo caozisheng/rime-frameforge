@@ -1,11 +1,11 @@
-mod lsc_00;
-mod postprocess;
-mod preprocess;
+mod lsc00;
+mod lsc00_postprocess;
+mod lsc00_preprocess;
 
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 
-pub use lsc_00::METHOD_00;
+pub use lsc00::METHOD_00;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "lsc",
@@ -26,16 +26,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("lsc_00.wgsl"),
-        "identity_r32_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

@@ -1,11 +1,11 @@
-mod color_correction_00;
-mod postprocess;
-mod preprocess;
+mod color_correction00;
+mod color_correction00_postprocess;
+mod color_correction00_preprocess;
 
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 
-pub use color_correction_00::METHOD_00;
+pub use color_correction00::METHOD_00;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "color_correction",
@@ -26,16 +26,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("color_correction_00.wgsl"),
-        "color_correction_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

@@ -6,7 +6,9 @@
 mod operator_scheduler;
 mod wgpu_backend;
 
-pub use operator_scheduler::{OperatorPhase, OperatorPhaseEvent, execute_operator_phases};
+pub use operator_scheduler::{
+    OperatorPhase, OperatorPhaseEvent, execute_operator_methods, execute_operator_phases,
+};
 pub use wgpu_backend::{WgpuReadbackError, WgpuReadbackExecutor};
 
 use std::collections::VecDeque;

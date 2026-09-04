@@ -62,12 +62,11 @@ impl WgpuReadbackExecutor {
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .map_err(|error| WgpuReadbackError::Device(error.to_string()))?;
-        let operators = rime_isp::normal_operators()
-            .iter()
-            .copied()
-            .map(|operator| {
-                let definition = operator.definition();
-                let shader = operator.shader(definition.default_method)?;
+        let mut operators = Vec::new();
+        for operator in rime_isp::normal_operators().iter().copied() {
+            let definition = operator.definition();
+            for method in definition.methods {
+                let shader = &method.shader;
                 let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some(definition.id),
                     source: wgpu::ShaderSource::Wgsl(shader.source.into()),
@@ -80,13 +79,13 @@ impl WgpuReadbackExecutor {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     cache: None,
                 });
-                Ok(CompiledOperator {
+                operators.push(CompiledOperator {
                     operator,
                     shader,
                     pipeline,
-                })
-            })
-            .collect::<Result<Vec<_>, OperatorError>>()?;
+                });
+            }
+        }
         Ok(Self {
             device,
             queue,
@@ -159,10 +158,13 @@ impl WgpuReadbackExecutor {
             let compiled = self
                 .operators
                 .iter()
-                .find(|compiled| std::ptr::eq(compiled.operator, operator))
+                .find(|compiled| {
+                    std::ptr::eq(compiled.operator, operator)
+                        && compiled.shader.method == packet.method()
+                })
                 .ok_or(OperatorError::Preprocess {
                     module_id: operator.definition().id,
-                    reason: "operator has no compiled GPU pipeline",
+                    reason: "operator method has no compiled GPU pipeline",
                 })?;
             let input = current
                 .as_ref()

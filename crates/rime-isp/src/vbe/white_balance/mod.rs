@@ -1,14 +1,13 @@
-mod postprocess;
-mod preprocess;
-mod white_balance_00;
+mod wbc00_postprocess;
+mod wbc00_preprocess;
+mod white_balance00;
 
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
-
-pub use preprocess::{
+pub use wbc00_preprocess::{
     WhiteBalanceError, WhiteBalanceGains, WhiteBalanceMetadata, white_balance_gains,
 };
-pub use white_balance_00::METHOD_00;
+pub use white_balance00::METHOD_00;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "wbc",
@@ -26,19 +25,6 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     default_method: "00",
     methods: &[METHOD_00],
 };
-
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("white_balance_00.wgsl"),
-        "wbc_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: Some(2),
-        },
-    )],
-    preprocess: preprocess::preprocess,
-    postprocess: postprocess::postprocess,
 };

@@ -1,9 +1,10 @@
-mod postprocess;
-mod preprocess;
-mod tintless_00;
+mod tintless00;
+mod tintless00_postprocess;
+mod tintless00_preprocess;
+
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
-pub use tintless_00::METHOD_00;
+pub use tintless00::METHOD_00;
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "tintless",
     label: "TINTLESS",
@@ -23,16 +24,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("tintless_00.wgsl"),
-        "identity_r32_main",
-        crate::operator::ShaderBindings {
-            input: 0,
-            output: 1,
-            uniform: None,
-        },
-    )],
-    preprocess: preprocess::run,
-    postprocess: postprocess::run,
 };

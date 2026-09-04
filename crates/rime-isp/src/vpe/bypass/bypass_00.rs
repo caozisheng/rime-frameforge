@@ -1,7 +1,10 @@
-use crate::operator::{OperatorMethod, OperatorPort, method};
+use crate::operator::{
+    MethodManifest, OperatorPort, ShaderBindings, empty_postprocess, empty_preprocess,
+    method_manifest, shader,
+};
 use rime_core::{ResourceFormat, SignalDomain};
 
-pub const METHOD: OperatorMethod = method(
+pub const METHOD: MethodManifest = method_manifest(
     "00",
     "identity_r32_main",
     OperatorPort {
@@ -13,4 +16,16 @@ pub const METHOD: OperatorMethod = method(
         format: ResourceFormat::Rgba32Float,
     },
     "identity",
+    shader(
+        "00",
+        "",
+        "identity_r32_main",
+        ShaderBindings {
+            input: 0,
+            output: 1,
+            uniform: None,
+        },
+    ),
+    empty_preprocess,
+    empty_postprocess,
 );

@@ -1,10 +1,10 @@
 import { buildFusedGraphPlan } from './fused-graph-plan.js';
 import quantizeShader from '../../../crates/rime-quant/shaders/quantize.wgsl?raw';
-import demBilinearShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_00.wgsl?raw';
-import demMhcShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_01.wgsl?raw';
-import demPpgShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_02.wgsl?raw';
-import demVngShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_03.wgsl?raw';
-import demAhdShader from '../../../crates/rime-isp/src/vbe/dem/demosaic_04.wgsl?raw';
+import demBilinearShader from '../../../crates/rime-isp/src/vbe/dem/dem00.wgsl?raw';
+import demMhcShader from '../../../crates/rime-isp/src/vbe/dem/dem01.wgsl?raw';
+import demPpgShader from '../../../crates/rime-isp/src/vbe/dem/dem02.wgsl?raw';
+import demVngShader from '../../../crates/rime-isp/src/vbe/dem/dem03.wgsl?raw';
+import demAhdShader from '../../../crates/rime-isp/src/vbe/dem/dem04.wgsl?raw';
 
 const DEMOSAIC_SHADERS = { '00': demBilinearShader, '01': demMhcShader, '02': demPpgShader, '03': demVngShader, '04': demAhdShader } as const;
 const QUANTIZE_FUNCTIONS = quantizeShader.slice(0, quantizeShader.indexOf('@group(0)'));

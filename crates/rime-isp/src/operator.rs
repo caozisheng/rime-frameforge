@@ -6,16 +6,19 @@ pub struct OperatorPort {
     pub format: ResourceFormat,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OperatorMethod {
+#[derive(Clone, Copy, Debug)]
+pub struct MethodManifest {
     pub method: &'static str,
     pub shader_entry: &'static str,
     pub input: OperatorPort,
     pub output: OperatorPort,
     pub parameters: &'static str,
+    pub shader: ShaderAsset,
+    pub preprocess: PreprocessFn,
+    pub postprocess: PostprocessFn,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct OperatorDefinition {
     pub id: &'static str,
     pub label: &'static str,
@@ -24,22 +27,32 @@ pub struct OperatorDefinition {
     pub output: OperatorPort,
     pub output_rime_q_profile: Option<&'static str>,
     pub default_method: &'static str,
-    pub methods: &'static [OperatorMethod],
+    pub methods: &'static [MethodManifest],
 }
 
-pub const fn method(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a method manifest explicitly binds metadata, shader, preprocess, and postprocess"
+)]
+pub const fn method_manifest(
     method: &'static str,
     shader_entry: &'static str,
     input: OperatorPort,
     output: OperatorPort,
     parameters: &'static str,
-) -> OperatorMethod {
-    OperatorMethod {
+    shader: ShaderAsset,
+    preprocess: PreprocessFn,
+    postprocess: PostprocessFn,
+) -> MethodManifest {
+    MethodManifest {
         method,
         shader_entry,
         input,
         output,
         parameters,
+        shader,
+        preprocess,
+        postprocess,
     }
 }
 
@@ -189,70 +202,75 @@ pub type PostprocessFn = fn(&mut PostprocessContext) -> Result<(), OperatorError
 
 pub trait Operator: Sync {
     fn definition(&self) -> &'static OperatorDefinition;
-    /// Freezes this operator's parameters for the current frame.
+
+    /// Resolves one method to its complete immutable manifest.
     ///
     /// # Errors
     ///
-    /// Returns an operator-specific validation error when the frame context
-    /// cannot produce a valid parameter packet.
+    /// Returns `UnknownMethod` when the method is not registered.
+    fn method(&self, method: &str) -> Result<&'static MethodManifest, OperatorError> {
+        self.definition()
+            .methods
+            .iter()
+            .find(|candidate| candidate.method == method)
+            .ok_or_else(|| OperatorError::UnknownMethod {
+                module_id: self.definition().id,
+                method: method.to_owned(),
+            })
+    }
+
+    /// Freezes parameters for the selected method.
+    ///
+    /// # Errors
+    ///
+    /// Returns the selected method's preprocessing error.
     fn preprocess(
         &self,
+        method: &str,
         context: &PreprocessContext,
-    ) -> Result<ModuleParameterPacket, OperatorError>;
+    ) -> Result<ModuleParameterPacket, OperatorError> {
+        let method = self.method(method)?;
+        (method.preprocess)(context, self.definition().id, method.method)
+    }
 
-    /// Resolves one registered method to its immutable GPU shader asset.
+    /// Resolves the selected method's shader.
     ///
     /// # Errors
     ///
-    /// Returns `UnknownMethod` when `method` is not registered by this operator.
-    fn shader(&self, method: &str) -> Result<&'static ShaderAsset, OperatorError>;
+    /// Returns `UnknownMethod` when the method is not registered.
+    fn shader(&self, method: &str) -> Result<&'static ShaderAsset, OperatorError> {
+        Ok(&self.method(method)?.shader)
+    }
 
-    /// Consumes the completed GPU result and updates typed CPU-side state.
+    /// Runs the selected method's result processing.
     ///
     /// # Errors
     ///
-    /// Returns an operator-specific result-processing error.
-    fn postprocess(&self, context: &mut PostprocessContext) -> Result<(), OperatorError>;
+    /// Returns the selected method's postprocessing error.
+    fn postprocess(
+        &self,
+        method: &str,
+        context: &mut PostprocessContext,
+    ) -> Result<(), OperatorError> {
+        (self.method(method)?.postprocess)(context)
+    }
 }
 
 pub struct StaticOperator {
     pub definition: &'static OperatorDefinition,
-    pub shaders: &'static [ShaderAsset],
-    pub preprocess: PreprocessFn,
-    pub postprocess: PostprocessFn,
 }
 
 impl Operator for StaticOperator {
     fn definition(&self) -> &'static OperatorDefinition {
         self.definition
     }
-
-    fn preprocess(
-        &self,
-        context: &PreprocessContext,
-    ) -> Result<ModuleParameterPacket, OperatorError> {
-        (self.preprocess)(context, self.definition.id, self.definition.default_method)
-    }
-
-    fn shader(&self, method: &str) -> Result<&'static ShaderAsset, OperatorError> {
-        self.shaders
-            .iter()
-            .find(|shader| shader.method == method)
-            .ok_or_else(|| OperatorError::UnknownMethod {
-                module_id: self.definition.id,
-                method: method.to_owned(),
-            })
-    }
-
-    fn postprocess(&self, context: &mut PostprocessContext) -> Result<(), OperatorError> {
-        (self.postprocess)(context)
-    }
 }
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "no-op hooks share the fallible Operator preprocess function pointer contract"
-)]
+/// Creates an empty parameter packet for a method without CPU preprocessing.
+///
+/// # Errors
+///
+/// This helper currently cannot fail; its `Result` matches `PreprocessFn`.
 pub fn empty_preprocess(
     context: &PreprocessContext,
     module_id: &'static str,
@@ -265,10 +283,11 @@ pub fn empty_preprocess(
     ))
 }
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "no-op hooks share the fallible Operator postprocess function pointer contract"
-)]
+/// Completes a method without CPU result processing.
+///
+/// # Errors
+///
+/// This helper currently cannot fail; its `Result` matches `PostprocessFn`.
 pub const fn empty_postprocess(_context: &mut PostprocessContext) -> Result<(), OperatorError> {
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::{OperatorDefinition, OperatorMethod, normal_operators};
+use crate::{MethodManifest, OperatorDefinition, normal_operators};
 use rime_core::{
     Extent2d, GraphIqOverride, GraphPresentation, GraphPresentationEdge, GraphTreeKind,
     GraphTreeNode, MethodSpec, NodeExecutionMode, NodeSpec, PipelineManifest, PortRef, PortSpec,
@@ -218,7 +218,7 @@ fn hydrate_executable_ports(nodes: &mut [GraphTreeNode], manifest: &PipelineMani
     }
 }
 
-fn default_method(operator: &OperatorDefinition) -> &OperatorMethod {
+fn default_method(operator: &OperatorDefinition) -> &MethodManifest {
     operator
         .methods
         .iter()

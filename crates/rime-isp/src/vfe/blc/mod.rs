@@ -1,11 +1,11 @@
-mod blc_00;
-mod postprocess;
-mod preprocess;
+mod blc00;
+mod blc00_postprocess;
+mod blc00_preprocess;
 
 use crate::operator::{OperatorDefinition, OperatorPort};
 use rime_core::{NodeExecutionMode, ResourceFormat, SignalDomain};
 
-pub use blc_00::METHOD_00;
+pub use blc00::METHOD_00;
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "blc",
@@ -26,16 +26,4 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
-    shaders: &[crate::operator::shader(
-        "00",
-        include_str!("blc_00.wgsl"),
-        "blc_main",
-        crate::operator::ShaderBindings {
-            input: 1,
-            output: 2,
-            uniform: Some(0),
-        },
-    )],
-    preprocess: preprocess::preprocess,
-    postprocess: postprocess::run,
 };
