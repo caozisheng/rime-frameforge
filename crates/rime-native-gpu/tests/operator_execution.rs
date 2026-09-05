@@ -78,3 +78,17 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
 
     assert!(events.iter().all(|event| event.method == "04"));
 }
+
+#[test]
+fn ahd_preprocess_accepts_scene_brightness_without_iso() {
+    let context = PreprocessContext {
+        identity: FrameIdentity { frame_index: 1, run_revision: 1, method_revision: 1 },
+        width: 1, height: 1, black_level: 0.0, white_level: 1.0,
+        cfa_pattern: [0, 1, 1, 2], as_shot_neutral: Some([1.0, 1.0, 1.0]),
+        as_shot_white_xy: None, color_matrix1: [1.0; 9], color_matrix2: None,
+        scene_brightness_ev: Some(4.0), exposure_deviation_ev: None, iso: None,
+        analog_gain: None, digital_gain: None,
+    };
+    let result = rime_isp::operator_by_id("dem").expect("DEM").preprocess("04", &context);
+    assert!(result.is_ok());
+}

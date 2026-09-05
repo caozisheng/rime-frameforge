@@ -11,13 +11,8 @@ pub(crate) fn run(
             module_id,
             reason: "AHD IQ requires scene brightness EV",
         })?;
-    let iso = context.iso.ok_or(OperatorError::Preprocess {
-        module_id,
-        reason: "AHD IQ requires ISO",
-    })?;
     let values = super::dem04_iq::lookup_default(super::dem04_iq::AhdIqInput {
         scene_brightness_ev,
-        iso,
     })
     .map_err(|reason| OperatorError::Preprocess { module_id, reason })?;
     let mut uniform = [0_u8; 32];

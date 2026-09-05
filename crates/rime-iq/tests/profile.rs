@@ -38,9 +38,17 @@ modules:
       effects:
         ahd_l_threshold:
           unit: lab_delta_l
+          axis: scene_brightness_ev
+          combine: direct
+          interpolation: linear
+          knots: [-4.0, 0.0]
           values: [1.0, 2.0]
         ahd_c_threshold_sq:
           unit: lab_delta_ab_squared
+          axis: scene_brightness_ev
+          combine: direct
+          interpolation: linear
+          knots: [-4.0, 0.0]
           values: [3.0, 4.0]
       modulation_curves: []
   vpe.mctf[1]:
@@ -96,4 +104,23 @@ fn yaml_round_trip_preserves_profile_identity_and_revision() {
     assert_eq!(restored.profile_id(), "test-profile");
     assert_eq!(restored.profile_revision(), 3);
     assert_eq!(restored.modules().len(), 2);
+}
+#[test]
+fn resolves_principal_value_and_ordered_factor_luts() {
+    use std::collections::BTreeMap;
+    let profile = TuningProfile::from_yaml(&PROFILE.replace(
+        "values: [1.0, 2.0]",
+        "values: [1.0, 2.0]\n          factors:\n            - axis: iso\n              interpolation: linear\n              knots: [100.0, 400.0]\n              values: [1.0, 1.2]",
+    )).expect("profile parses");
+    let table = profile.modules()["vbe.dem"].table.as_ref().expect("table");
+    let resolved = table.effects["ahd_l_threshold"]
+        .resolve(
+            "ahd_l_threshold",
+            &BTreeMap::from([("scene_brightness_ev".into(), -2.0), ("iso".into(), 250.0)]),
+            &table.axes,
+        )
+        .expect("LUT resolves");
+    assert!((resolved.direct_value - 1.5).abs() < 1e-12);
+    assert!((resolved.factor_values[0] - 1.1).abs() < 1e-12);
+    assert!((resolved.final_value - 1.65).abs() < 1e-12);
 }

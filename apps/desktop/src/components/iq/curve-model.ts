@@ -7,6 +7,28 @@ export interface CurveRange {
   readonly min: number;
   readonly max: number;
 }
+export type CurveInterpolation = 'linear' | 'bezier';
+
+export function interpolateCurve(points: readonly CurvePoint[], x: number, interpolation: CurveInterpolation = 'linear'): number {
+  if (points.length === 0) return Number.NaN;
+  if (points.length === 1) return points[0]!.y;
+  const coordinate = Math.min(points.at(-1)!.x, Math.max(points[0]!.x, x));
+  const index = points.findIndex((point, pointIndex) => pointIndex > 0 && coordinate <= point.x);
+  const rightIndex = index < 0 ? points.length - 1 : index;
+  const leftIndex = rightIndex - 1;
+  const left = points[leftIndex]!;
+  const right = points[rightIndex]!;
+  const fraction = (coordinate - left.x) / (right.x - left.x);
+  if (interpolation === 'linear') return left.y + fraction * (right.y - left.y);
+  const previous = points[Math.max(0, leftIndex - 1)]!;
+  const next = points[Math.min(points.length - 1, rightIndex + 1)]!;
+  const p0 = left.y;
+  const p1 = left.y + (right.y - previous.y) / 6;
+  const p2 = right.y - (next.y - left.y) / 6;
+  const p3 = right.y;
+  const inverse = 1 - fraction;
+  return inverse ** 3 * p0 + 3 * inverse ** 2 * fraction * p1 + 3 * inverse * fraction ** 2 * p2 + fraction ** 3 * p3;
+}
 
 export type CurveValidation = { readonly valid: true } | { readonly valid: false; readonly reason: 'duplicate_or_unsorted_x' | 'non_finite' | 'out_of_range' };
 

@@ -1,4 +1,7 @@
-#![expect(clippy::missing_errors_doc, reason = "Tuning profile APIs are documented by the surrounding profile contract.")]
+#![expect(
+    clippy::missing_errors_doc,
+    reason = "Tuning profile APIs are documented by the surrounding profile contract."
+)]
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
@@ -26,7 +29,6 @@ impl ModuleCatalogEntry {
             binding_group: None,
         }
     }
-
     #[must_use]
     pub fn with_binding_group(mut self, binding_group: &str) -> Self {
         self.binding_group = Some(binding_group.into());
@@ -43,7 +45,6 @@ pub struct TuningProfile {
     pub camera: CameraMetadata,
     pub modules: BTreeMap<String, ModuleTuningEntry>,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProfileMetadata {
     pub id: String,
@@ -54,20 +55,17 @@ pub struct ProfileMetadata {
     pub created_by: String,
     pub profile_revision: u64,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PipelineMetadata {
     pub graph_id: String,
     pub manifest_revision: String,
     pub base_iq_set: String,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CameraMetadata {
     pub profile_id: String,
     pub calibration_revision: String,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModuleTuningEntry {
     pub module_id: String,
@@ -78,7 +76,6 @@ pub struct ModuleTuningEntry {
     #[serde(default)]
     pub table: Option<ModuleIqTable>,
 }
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TuningMode {
@@ -96,7 +93,6 @@ pub struct ModuleIqTable {
     #[serde(default)]
     pub modulation_curves: Vec<ModulationCurve>,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct IqAxis {
     pub id: String,
@@ -106,18 +102,47 @@ pub struct IqAxis {
     pub coordinate_transform: Option<String>,
     pub knots: Vec<f64>,
 }
-
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IqInterpolation {
+    Linear,
+    Bezier,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IqCombine {
+    Direct,
+    Multiply,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IqLut {
+    pub axis: String,
+    pub interpolation: IqInterpolation,
+    pub knots: Vec<f64>,
+    pub values: Vec<f64>,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct IqEffect {
     pub unit: String,
+    pub axis: String,
+    pub combine: IqCombine,
+    pub interpolation: IqInterpolation,
+    pub knots: Vec<f64>,
     pub values: Vec<f64>,
+    #[serde(default)]
+    pub factors: Vec<IqLut>,
 }
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ModulationCurve {
     pub id: String,
     pub parameter: String,
     pub values: Vec<f64>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedIqEffect {
+    pub direct_value: f64,
+    pub factor_values: Vec<f64>,
+    pub final_value: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -143,17 +168,21 @@ pub enum ProfileError {
     InvalidTableShape { address: String, effect: String },
     #[error("module `{address}` has invalid axis `{axis}`")]
     InvalidAxis { address: String, axis: String },
+    #[error("effect `{effect}` must declare a direct principal axis")]
+    MissingPrincipalAxis { effect: String },
+    #[error("effect `{effect}` references unknown axis `{axis}`")]
+    UnknownAxis { effect: String, axis: String },
+    #[error("effect `{effect}` requires finite coordinate `{axis}`")]
+    MissingCoordinate { effect: String, axis: String },
 }
 
 impl TuningProfile {
     pub fn from_yaml(source: &str) -> Result<Self, ProfileError> {
         serde_yaml::from_str(source).map_err(|error| ProfileError::Parse(error.to_string()))
     }
-
     pub fn to_yaml(&self) -> Result<String, ProfileError> {
         serde_yaml::to_string(self).map_err(|error| ProfileError::Serialize(error.to_string()))
     }
-
     pub fn resolve(self, catalog: &[ModuleCatalogEntry]) -> Result<ResolvedProfile, ProfileError> {
         if self.kind != "rime.tuning_profile" || self.schema_version != 1 {
             return Err(ProfileError::Parse(
@@ -185,17 +214,14 @@ impl TuningProfile {
         }
         Ok(ResolvedProfile { profile: self })
     }
-
     #[must_use]
     pub fn profile_id(&self) -> &str {
         &self.profile.id
     }
-
     #[must_use]
     pub const fn profile_revision(&self) -> u64 {
         self.profile.profile_revision
     }
-
     #[must_use]
     pub fn modules(&self) -> &BTreeMap<String, ModuleTuningEntry> {
         &self.modules
@@ -207,23 +233,125 @@ impl ResolvedProfile {
     pub fn profile_id(&self) -> &str {
         self.profile.profile_id()
     }
-
     #[must_use]
     pub fn module(&self, address: &str) -> Option<&ModuleTuningEntry> {
         self.profile.modules.get(address)
     }
 }
-
 impl ModuleTuningEntry {
     #[must_use]
     pub const fn is_override(&self) -> bool {
         matches!(self.tuning, TuningMode::Override)
     }
-
     #[must_use]
     pub const fn is_inherit(&self) -> bool {
         matches!(self.tuning, TuningMode::Inherit)
     }
+}
+
+impl IqAxis {
+    fn validate(&self, address: &str) -> Result<(), ProfileError> {
+        if self.id.is_empty()
+            || self.source.is_empty()
+            || self.unit.is_empty()
+            || self.knots.is_empty()
+            || self.knots.iter().any(|value| !value.is_finite())
+            || self.knots.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ProfileError::InvalidAxis {
+                address: address.into(),
+                axis: self.id.clone(),
+            });
+        }
+        Ok(())
+    }
+}
+impl IqLut {
+    fn validate(&self, effect: &str) -> Result<(), ProfileError> {
+        if self.axis.is_empty()
+            || self.knots.len() != self.values.len()
+            || self.knots.len() < 2
+            || self.knots.iter().any(|value| !value.is_finite())
+            || self.knots.windows(2).any(|pair| pair[0] >= pair[1])
+            || self
+                .values
+                .iter()
+                .any(|value| !value.is_finite() || *value < 0.0)
+        {
+            return Err(ProfileError::InvalidTableShape {
+                address: "effect".into(),
+                effect: effect.into(),
+            });
+        }
+        Ok(())
+    }
+}
+impl IqEffect {
+    pub fn resolve(
+        &self,
+        effect: &str,
+        coordinates: &BTreeMap<String, f64>,
+        axis_catalog: &[IqAxis],
+    ) -> Result<ResolvedIqEffect, ProfileError> {
+        if self.combine != IqCombine::Direct {
+            return Err(ProfileError::MissingPrincipalAxis {
+                effect: effect.into(),
+            });
+        }
+        let Some(principal_axis) = axis_catalog
+            .iter()
+            .find(|candidate| candidate.id == self.axis)
+        else {
+            return Err(ProfileError::UnknownAxis {
+                effect: effect.into(),
+                axis: self.axis.clone(),
+            });
+        };
+        let Some(coordinate) = coordinates
+            .get(&principal_axis.id)
+            .copied()
+            .filter(|value| value.is_finite())
+        else {
+            return Err(ProfileError::MissingCoordinate {
+                effect: effect.into(),
+                axis: principal_axis.id.clone(),
+            });
+        };
+        let direct_value = interpolate(&self.knots, &self.values, coordinate);
+        let mut factor_values = Vec::with_capacity(self.factors.len());
+        let mut final_value = direct_value;
+        for factor in &self.factors {
+            factor.validate(effect)?;
+            let Some(value) = coordinates
+                .get(&factor.axis)
+                .copied()
+                .filter(|value| value.is_finite())
+            else {
+                return Err(ProfileError::MissingCoordinate {
+                    effect: effect.into(),
+                    axis: factor.axis.clone(),
+                });
+            };
+            let factor_value = interpolate(&factor.knots, &factor.values, value);
+            factor_values.push(factor_value);
+            final_value *= factor_value;
+        }
+        Ok(ResolvedIqEffect {
+            direct_value,
+            factor_values,
+            final_value,
+        })
+    }
+}
+
+fn interpolate(knots: &[f64], values: &[f64], value: f64) -> f64 {
+    let value = value.clamp(knots[0], knots[knots.len() - 1]);
+    let index = knots
+        .partition_point(|knot| *knot <= value)
+        .saturating_sub(1)
+        .min(knots.len() - 2);
+    let fraction = (value - knots[index]) / (knots[index + 1] - knots[index]);
+    values[index] * (1.0 - fraction) + values[index + 1] * fraction
 }
 
 fn validate_entry(address: &str, entry: &ModuleTuningEntry) -> Result<(), ProfileError> {
@@ -234,25 +362,24 @@ fn validate_entry(address: &str, entry: &ModuleTuningEntry) -> Result<(), Profil
             });
         };
         for axis in &table.axes {
-            if axis.id.is_empty()
-                || axis.source.is_empty()
-                || axis.unit.is_empty()
-                || axis.knots.is_empty()
-                || axis.knots.iter().any(|value| !value.is_finite())
-                || axis.knots.windows(2).any(|pair| pair[0] >= pair[1])
-            {
-                return Err(ProfileError::InvalidAxis {
-                    address: address.into(),
-                    axis: axis.id.clone(),
-                });
-            }
+            axis.validate(address)?;
         }
         for (effect, value) in &table.effects {
-            if value.values.len() != table.axes.first().map_or(0, |axis| axis.knots.len())
+            if value.axis.is_empty()
+                || value.knots.len() != value.values.len()
+                || value.knots.len() < 2
+                || value.knots.iter().any(|item| !item.is_finite())
+                || value.knots.windows(2).any(|pair| pair[0] >= pair[1])
                 || value
                     .values
                     .iter()
                     .any(|item| !item.is_finite() || *item < 0.0)
+                || !table.axes.iter().any(|axis| axis.id == value.axis)
+                || value.factors.iter().any(|factor| {
+                    factor.axis.is_empty()
+                        || factor.knots.len() != factor.values.len()
+                        || factor.knots.len() < 2
+                })
             {
                 return Err(ProfileError::InvalidTableShape {
                     address: address.into(),

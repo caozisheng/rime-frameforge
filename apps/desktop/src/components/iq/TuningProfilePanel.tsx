@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 
 import { CurveEditor } from './CurveEditor.js';
-import type { CurvePoint } from './curve-model.js';
+import { interpolateCurve, type CurvePoint } from './curve-model.js';
 import { parseTuningProfile, serializeTuningProfile } from './profile-yaml.js';
 import type { TuningControlKind } from './tuning-target.js';
 
@@ -14,25 +14,11 @@ interface TuningProfilePanelProps {
   readonly onReset?: (parameter: 'ahd_l_threshold' | 'ahd_c_threshold_sq') => void;
 }
 
-const L_CURVE: readonly CurvePoint[] = [{ x: -4, y: 0.12 }, { x: 0, y: 0.05 }, { x: 4, y: 0 }, { x: 8, y: -0.03 }, { x: 12, y: -0.08 }];
-const C_CURVE: readonly CurvePoint[] = [{ x: -4, y: 0.10 }, { x: 0, y: 0.04 }, { x: 4, y: 0 }, { x: 8, y: -0.02 }, { x: 12, y: -0.06 }];
+const L_CURVE: readonly CurvePoint[] = [{ x: -4, y: 1.0 }, { x: 0, y: 1.05 }, { x: 4, y: 1.10 }, { x: 8, y: 1.16 }, { x: 12, y: 1.22 }, { x: 16, y: 1.28 }];
+const C_CURVE: readonly CurvePoint[] = [{ x: -4, y: 3.0 }, { x: 0, y: 3.15 }, { x: 4, y: 3.30 }, { x: 8, y: 3.48 }, { x: 12, y: 3.66 }, { x: 16, y: 3.84 }];
 
-function curveAt(points: readonly CurvePoint[], x: number): number {
-  if (points.length === 0) return 0;
-  if (x <= points[0]!.x) return points[0]!.y;
-  for (let index = 1; index < points.length; index += 1) {
-    const right = points[index]!;
-    const left = points[index - 1]!;
-    if (x <= right.x) {
-      const amount = (x - left.x) / (right.x - left.x);
-      return left.y + amount * (right.y - left.y);
-    }
-  }
-  return points.at(-1)!.y;
-}
-
-export function resolveTuningParameterValue(base: number, points: readonly CurvePoint[], x: number): number {
-  return base * 2 ** curveAt(points, x);
+export function resolveTuningParameterValue(_base: number, points: readonly CurvePoint[], x: number): number {
+  return interpolateCurve(points, x, 'linear');
 }
 
 export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseValues, onApply, onReset = () => undefined }: TuningProfilePanelProps): ReactNode {
@@ -100,6 +86,6 @@ export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseV
 
   const valueText = resolvedValue === null ? '—' : resolvedValue.toFixed(4);
   const baseText = Number.isFinite(base) ? base.toFixed(4) : '—';
-  const modulationText = resolvedValue === null || !Number.isFinite(base) ? '—' : `${(resolvedValue / base).toFixed(4)}×`;
-  return <section className="iq-tuning-panel" aria-label="IQ Tuning" data-iq-parameter={parameter}><div className="iq-tuning-heading"><div><span className="section-label">IQ Tuning</span><strong>{parameter}</strong><small>{controlKind} · {profileId}</small></div><span className="tree-mode-badge mode-enabled">revision {revision}</span></div><label>Profile name<input disabled={!canConfigure} value={profileName} onChange={(event) => setProfileName(event.target.value)} /></label><div className="iq-parameter-values" aria-label={`${parameter} values`}><div><span>Base</span><strong>{baseText}</strong></div><div><span>Modulated</span><strong>{modulationText}</strong></div><div><span>Current value</span><strong>{valueText}</strong></div></div><article className="iq-tuning-card"><h3>{parameter} modulation curve</h3><CurveEditor ariaLabel={`${parameter} curve`} disabled={!canConfigure} points={points} range={{ min: -1, max: 1 }} onChange={onCurveChange} /></article>{error === null ? null : <output className="iq-tuning-error">{error}</output>}<input accept=".yaml,.yml" hidden onChange={(event) => { void load(event); }} ref={fileInput} type="file" /><div className="iq-tuning-actions"><button disabled={!canConfigure} type="button" onClick={reset}>Reset to factory</button><button disabled={!canConfigure || resolvedValue === null} type="button" onClick={apply}>Apply</button><button disabled={!canConfigure || profileName.trim().length === 0} type="button" onClick={save}>Save profile</button><button disabled={!canConfigure} type="button" onClick={() => fileInput.current?.click()}>Load profile</button></div></section>;
+  const axisText = parameter === 'ahd_l_threshold' || parameter === 'ahd_c_threshold_sq' ? 'scene_brightness_ev · EV100_scene' : 'scene_brightness_ev · EV100_scene';
+  return <section className="iq-tuning-panel" aria-label="IQ Tuning" data-iq-parameter={parameter}><div className="iq-tuning-heading"><div><span className="section-label">IQ Tuning</span><strong>{parameter}</strong><small>{controlKind} · {profileId}</small></div><span className="tree-mode-badge mode-enabled">revision {revision}</span></div><div className="iq-tuning-columns"><div className="iq-tuning-controls"><div className="iq-tuning-meta"><span>Axis</span><strong>{axisText}</strong><span>Interpolation</span><strong>linear</strong></div><div className="iq-parameter-values" aria-label={`${parameter} values`}><div><span>Base LUT value</span><strong>{baseText}</strong></div><div><span>Current LUT value</span><strong>{valueText}</strong></div><div><span>Effect value</span><strong>{valueText}</strong></div></div><label>Profile name<input disabled={!canConfigure} value={profileName} onChange={(event) => setProfileName(event.target.value)} /></label><div className="iq-tuning-actions"><button disabled={!canConfigure} type="button" onClick={reset}>Reset to factory</button><button disabled={!canConfigure || resolvedValue === null} type="button" onClick={apply}>Apply</button><button disabled={!canConfigure || profileName.trim().length === 0} type="button" onClick={save}>Save profile</button><button disabled={!canConfigure} type="button" onClick={() => fileInput.current?.click()}>Load profile</button></div></div><div className="iq-tuning-curve"><h3>{parameter} · indexed LUT</h3><CurveEditor ariaLabel={`${parameter} curve`} disabled={!canConfigure} points={points} range={{ min: Math.min(...points.map((point) => point.y)), max: Math.max(...points.map((point) => point.y)) }} interpolation="linear" axisLabel="index / EV knot" valueLabel="parameter value" currentCoordinate={4} onChange={onCurveChange} /></div></div>{error === null ? null : <output className="iq-tuning-error">{error}</output>}<input accept=".yaml,.yml" hidden onChange={(event) => { void load(event); }} ref={fileInput} type="file" /></section>;
 }
