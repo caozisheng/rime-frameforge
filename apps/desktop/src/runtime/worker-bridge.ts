@@ -78,6 +78,7 @@ export interface WorkerBridge {
   loadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void;
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
+  setLut(nodeId: string, parameter: string, values: readonly number[]): void;
   setQuantizationConfig(config: string): void;
   setPreview(nodeA: string, nodeB: string | null, curtain: number): void;
   samplePreview(nodeId: string, x: number, y: number, requestId: number): void;
@@ -116,6 +117,7 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
     loadFrame: (raw, rawByteOffset, descriptor) => send({ type: 'load_frame', raw, rawByteOffset, descriptor }, [raw]),
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),
+    setLut: (nodeId, parameter, values) => send({ type: 'set_lut', nodeId, parameter, values }),
     setQuantizationConfig: (config) => send({ type: 'set_quantization_config', config }),
     setPreview: (nodeA, nodeB, curtain) => send({ type: 'set_preview', nodeA, nodeB, curtain }),
     samplePreview: (nodeId, x, y, requestId) => send({ type: 'sample_preview', nodeId, x, y, requestId }),

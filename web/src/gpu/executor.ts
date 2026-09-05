@@ -4,6 +4,7 @@ import type { ExecutionIdentity } from '../runtime-controller.js';
 import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
 import { compileFusedNormalShader, compileSegmentedNormalShaders } from './fused-normal-shader.js';
+import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters, type GammaParameters } from './gamma.js';
 import { FUSED_UNIFORM_BYTES, packFusedUniforms } from './fused-uniforms.js';
 import { GpuPreviewPresenter, type PreviewView } from './presenter.js';
 import type { QuantizationConfig } from './quantization.js';
@@ -49,6 +50,7 @@ export class NormalGpuExecutor {
   #committedPreviews: readonly PreviewDescriptor[] = [];
   #sampleBuffer: GPUBuffer | null = null;
   #demosaicParameterValues = { vng_threshold: 1.5, ahd_l_threshold: 2.0, ahd_c_threshold_sq: 4.0 };
+  #gammaParameters: GammaParameters = { gamma: DEFAULT_GAMMA_PARAMETERS.gamma, lut: [...DEFAULT_GAMMA_PARAMETERS.lut] };
 
   public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, quantizationConfig: QuantizationConfig) {
     this.#gpu = gpu;
@@ -92,7 +94,7 @@ export class NormalGpuExecutor {
   }
 
   public prepare(identity: ExecutionIdentity): void {
-    this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packFusedUniforms(this.#descriptor, identity.frameIndex, this.#demosaicParameterValues, this.#quantizationConfig));
+    this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packFusedUniforms(this.#descriptor, identity.frameIndex, this.#demosaicParameterValues, this.#quantizationConfig, this.#gammaParameters));
     if (this.#demMethod === '00') {
       this.#fullPipeline ??= this.createPipeline(compileFusedNormalShader('00'), 'normal_fused_main');
       this.#fullBindGroup = this.#gpu.device.createBindGroup({
@@ -217,9 +219,24 @@ export class NormalGpuExecutor {
     this.invalidateBindings();
   }
 
-  public setParameter(parameter: string, value: number): void {
-    if (!(parameter in this.#demosaicParameterValues) || !Number.isFinite(value)) throw new Error(`PARAMETER_INVALID: ${parameter}`);
-    this.#demosaicParameterValues[parameter as 'vng_threshold' | 'ahd_l_threshold' | 'ahd_c_threshold_sq'] = value;
+  public setParameter(nodeId: string, parameter: string, value: number): void {
+    if (nodeId === 'gamma' && parameter === 'gamma') {
+      const next = { ...this.#gammaParameters, gamma: value };
+      validateGammaParameters(next);
+      this.#gammaParameters = next;
+    } else if (nodeId === 'dem' && parameter in this.#demosaicParameterValues && Number.isFinite(value)) {
+      this.#demosaicParameterValues[parameter as 'vng_threshold' | 'ahd_l_threshold' | 'ahd_c_threshold_sq'] = value;
+    } else {
+      throw new Error(`PARAMETER_INVALID: ${nodeId}.${parameter}`);
+    }
+    this.invalidateBindings();
+  }
+
+  public setLut(parameter: string, values: readonly number[]): void {
+    if (parameter !== 'gamma_lut') throw new Error(`PARAMETER_INVALID: ${parameter}`);
+    const next = { ...this.#gammaParameters, lut: [...values] };
+    validateGammaParameters(next);
+    this.#gammaParameters = next;
     this.invalidateBindings();
   }
 

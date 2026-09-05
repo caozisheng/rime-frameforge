@@ -1,10 +1,12 @@
+import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters, type GammaParameters } from './gamma.js';
+
 import type { BayerCfa, RawFrameDescriptor } from '../contracts.js';
 import { buildGpuQuantizationPlans, type QuantizationConfig } from './quantization.js';
 
 const QUANT_BLOCK_BYTES = 64;
 const QUANT_BLOCK_OFFSET = 64;
 const QUANT_MODULE_IDS = ['blc', 'wbc', 'dem', 'color_correction', 'gamma', 'rgb2yuv'] as const;
-export const FUSED_UNIFORM_BYTES = QUANT_BLOCK_OFFSET + QUANT_BLOCK_BYTES * QUANT_MODULE_IDS.length + 32;
+export const FUSED_UNIFORM_BYTES = QUANT_BLOCK_OFFSET + QUANT_BLOCK_BYTES * QUANT_MODULE_IDS.length + 96;
 
 export interface FusedDemosaicParameters {
   readonly vng_threshold: number;
@@ -17,7 +19,9 @@ export function packFusedUniforms(
   frameIndex: number,
   demosaicParameters: FusedDemosaicParameters,
   quantization: QuantizationConfig,
+  gammaParameters: GammaParameters = DEFAULT_GAMMA_PARAMETERS,
 ): ArrayBuffer {
+  validateGammaParameters(gammaParameters);
   const bytes = new ArrayBuffer(FUSED_UNIFORM_BYTES);
   const view = new DataView(bytes);
   view.setUint32(0, descriptor.width, true);
@@ -57,6 +61,8 @@ export function packFusedUniforms(
       view.setUint32(flagOffset, 1, true);
     }
   });
+  view.setFloat32(480, gammaParameters.gamma, true);
+  gammaParameters.lut.forEach((value, index) => view.setFloat32(496 + index * 4, value, true));
   return bytes;
 }
 

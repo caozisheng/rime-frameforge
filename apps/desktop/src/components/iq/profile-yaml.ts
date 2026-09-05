@@ -6,6 +6,8 @@ export interface TuningProfileDraft {
   readonly id: string;
   readonly name: string;
   readonly revision: number;
+  readonly gamma?: number;
+  readonly gammaCurve?: readonly CurvePoint[];
   readonly lCurve: readonly CurvePoint[];
   readonly cCurve: readonly CurvePoint[];
 }
@@ -18,6 +20,18 @@ const ALL_MODULES: readonly [string, string][] = [
 
 export function serializeTuningProfile(draft: TuningProfileDraft): string {
   const modules: Record<string, unknown> = Object.fromEntries(ALL_MODULES.map(([address, moduleId]) => [address, { module_id: moduleId, method: '00', tuning: 'unsupported' }]));
+  modules['vbe.gamma'] = {
+    module_id: 'gamma',
+    method: '00',
+    tuning: 'override',
+    table: {
+      schema_version: 1,
+      parameter_schema_revision: 'gamma00-v1',
+      axes: [{ id: 'linear_luminance_y', source: 'linear_rgb.luminance', unit: 'normalized', knots: (draft.gammaCurve ?? []).map((point) => point.x) }],
+      effects: { gamma: { unit: 'exponent', value: draft.gamma }, gamma_lut: { unit: 'normalized_luminance_y', values: (draft.gammaCurve ?? []).map((point) => point.y) } },
+      modulation_curves: [],
+    },
+  };
   modules['vbe.dem'] = {
     module_id: 'dem',
     method: '04',
@@ -43,7 +57,7 @@ export function serializeTuningProfile(draft: TuningProfileDraft): string {
 interface SerializedProfile {
   readonly kind?: unknown;
   readonly profile?: { readonly id?: unknown; readonly name?: unknown; readonly profile_revision?: unknown };
-  readonly modules?: Record<string, { readonly table?: { readonly axes?: readonly { readonly knots?: readonly number[] }[]; readonly effects?: { readonly ahd_l_threshold?: { readonly values?: readonly number[] }; readonly ahd_c_threshold_sq?: { readonly values?: readonly number[] } } } }>;
+  readonly modules?: Record<string, { readonly table?: { readonly axes?: readonly { readonly id?: unknown; readonly knots?: readonly number[] }[]; readonly effects?: { readonly gamma?: { readonly value?: unknown }; readonly gamma_lut?: { readonly values?: readonly number[] }; readonly ahd_l_threshold?: { readonly values?: readonly number[] }; readonly ahd_c_threshold_sq?: { readonly values?: readonly number[] } } } }>;
 }
 
 export function parseTuningProfile(source: string): TuningProfileDraft {
@@ -52,13 +66,30 @@ export function parseTuningProfile(source: string): TuningProfileDraft {
   const lValues = demTable?.effects?.ahd_l_threshold?.values;
   const cValues = demTable?.effects?.ahd_c_threshold_sq?.values;
   const knots = demTable?.axes?.[0]?.knots;
+  const gammaTable = value.modules?.['vbe.gamma']?.table;
+  const gammaValues = gammaTable?.effects?.gamma_lut?.values;
+  const gammaKnots = gammaTable?.axes?.find((axis) => axis.id === 'linear_luminance_y')?.knots;
   if (value.kind !== 'rime.tuning_profile' || value.profile?.id === undefined || value.profile.name === undefined || lValues === undefined || cValues === undefined || knots === undefined || knots.length !== lValues.length || knots.length !== cValues.length) {
     throw new Error('IQ_PROFILE_INVALID: missing required profile fields');
+  }
+  let gammaDraft: Pick<TuningProfileDraft, 'gamma' | 'gammaCurve'> | Record<string, never> = {};
+  if (gammaTable !== undefined) {
+    const gamma = Number(gammaTable.effects?.gamma?.value);
+    const values = gammaValues?.map(Number);
+    const expectedKnots = Array.from({ length: 9 }, (_, index) => index / 8);
+    const gammaStep = gamma * 10;
+    const validKnots = gammaKnots !== undefined && gammaKnots.length === 9 && gammaKnots.every((knot, index) => Math.abs(Number(knot) - expectedKnots[index]!) < 1e-9);
+    const validValues = values !== undefined && values.length === 9 && values[0] === 0 && values[8] === 1 && values.every((entry, index) => Number.isFinite(entry) && entry >= 0 && entry <= 1 && (index === 0 || entry >= values[index - 1]!));
+    if (!Number.isFinite(gamma) || gamma < 1.8 || gamma > 2.4 || Math.abs(gammaStep - Math.round(gammaStep)) > 1e-6 || !validKnots || !validValues) {
+      throw new Error('IQ_PROFILE_INVALID: invalid Gamma parameters');
+    }
+    gammaDraft = { gamma, gammaCurve: values!.map((y, index) => ({ x: expectedKnots[index]!, y })) };
   }
   return {
     id: String(value.profile.id),
     name: String(value.profile.name),
     revision: Number(value.profile.profile_revision ?? 1),
+    ...gammaDraft,
     lCurve: lValues.map((y, index) => ({ x: knots[index]!, y: Number(y) })),
     cCurve: cValues.map((y, index) => ({ x: knots[index]!, y: Number(y) })),
   };

@@ -22,6 +22,8 @@ const FUSED_PARAMS = `struct FusedParams {
   quant_params: array<QuantParams, 6>,
   quant_enabled_0: vec4<u32>,
   quant_enabled_1: vec4<u32>,
+  gamma_and_padding: vec4<f32>,
+  gamma_lut: array<vec4<f32>, 3>,
 }`;
 const QUANT_HELPERS = `fn quantization_enabled(index: u32) -> bool {
   if (index < 4u) { return params.quant_enabled_0[index] != 0u; }
@@ -41,6 +43,32 @@ fn quantize_rgba(value: vec4<f32>, index: u32, p: vec2<i32>) -> vec4<f32> {
   quant.channel = 2u; let b = quantize_sample(value.b, quant, pixel_group, 0u);
   quant.channel = 3u; let a = quantize_sample(value.a, quant, pixel_group, 0u);
   return vec4<f32>(r, g, b, a);
+}`;
+const GAMMA_HELPERS = `fn gamma_lut_value(index: u32) -> f32 { return params.gamma_lut[index / 4u][index % 4u]; }
+fn gamma_lut_secant(index: u32) -> f32 { return gamma_lut_value(index + 1u) - gamma_lut_value(index); }
+fn gamma_lut_tangent(index: u32) -> f32 {
+  if (index == 0u) { return gamma_lut_secant(0u); }
+  if (index >= 8u) { return gamma_lut_secant(7u); }
+  let left = gamma_lut_secant(index - 1u); let right = gamma_lut_secant(index);
+  if (left * right <= 0.0) { return 0.0; }
+  return 2.0 * left * right / (left + right);
+}
+fn sample_gamma_luminance_lut(value: f32) -> f32 {
+  if (value > 1.0) { return value; }
+  let coordinate = clamp(value, 0.0, 1.0) * 8.0;
+  let index = min(u32(floor(coordinate)), 7u); let t = coordinate - f32(index);
+  let y0 = gamma_lut_value(index); let y1 = gamma_lut_value(index + 1u);
+  let control1 = y0 + gamma_lut_tangent(index) / 3.0; let control2 = y1 - gamma_lut_tangent(index + 1u) / 3.0;
+  let one_minus_t = 1.0 - t;
+  let mapped = one_minus_t * one_minus_t * one_minus_t * y0 + 3.0 * one_minus_t * one_minus_t * t * control1 + 3.0 * one_minus_t * t * t * control2 + t * t * t * y1;
+  return clamp(mapped, min(y0, y1), max(y0, y1));
+}
+fn apply_gamma_luminance_lut(rgb_input: vec3<f32>) -> vec3<f32> {
+  let rgb = max(rgb_input, vec3<f32>(0.0));
+  let luminance = dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+  var mapped_rgb = vec3<f32>(0.0);
+  if (luminance > 0.000001) { mapped_rgb = rgb * (sample_gamma_luminance_lut(luminance) / luminance); }
+  return pow(max(mapped_rgb, vec3<f32>(0.0)), vec3<f32>(1.0 / max(params.gamma_and_padding.x, 0.000001)));
 }`;
 
 export interface SegmentedNormalShaders {
@@ -69,6 +97,7 @@ ${FUSED_PARAMS}
 @group(0) @binding(6) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(7) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
+${GAMMA_HELPERS}
 ${rawBlcWbcFunctions()}
 ${demosaic}
 ${postprocessFunctions('sample_dem(p)')}
@@ -122,8 +151,8 @@ fn sample_color_correction(p: vec2<i32>) -> vec4<f32> {
   return quantize_rgba(corrected, 3u, p);
 }
 fn sample_gamma(p: vec2<i32>) -> vec4<f32> {
-  let rgb = max(sample_color_correction(p).rgb, vec3<f32>(0.0));
-  return quantize_rgba(vec4<f32>(pow(rgb, vec3<f32>(1.0 / 2.2)), 1.0), 4u, p);
+  let encoded = apply_gamma_luminance_lut(sample_color_correction(p).rgb);
+  return quantize_rgba(vec4<f32>(encoded, 1.0), 4u, p);
 }
 fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_gamma(p).rgb;
@@ -176,6 +205,7 @@ ${FUSED_PARAMS}
 @group(0) @binding(3) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(4) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
+${GAMMA_HELPERS}
 fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }
 fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_dem_materialized(p).rgb;
@@ -183,8 +213,8 @@ fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
   return quantize_rgba(corrected, 3u, p);
 }
 fn sample_post_gamma(p: vec2<i32>) -> vec4<f32> {
-  let rgb = max(sample_post_color(p).rgb, vec3<f32>(0.0));
-  return quantize_rgba(vec4<f32>(pow(rgb, vec3<f32>(1.0 / 2.2)), 1.0), 4u, p);
+  let encoded = apply_gamma_luminance_lut(sample_post_color(p).rgb);
+  return quantize_rgba(vec4<f32>(encoded, 1.0), 4u, p);
 }
 fn sample_post_yuv(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_post_gamma(p).rgb;

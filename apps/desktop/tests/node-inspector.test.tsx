@@ -220,6 +220,30 @@ describe('NodeInspector DEM controls', () => {
     expect(html).toContain('aria-label="ahd_l_threshold curve point 1"');
     expect(html).toContain('class="iq-current-marker"');
   });
+  it('renders persisted knot values supplied by the parent draft', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} curves={{ lCurve: [{ x: -4, y: 9.25 }, { x: 4, y: 9.5 }], cCurve: [{ x: -4, y: 3 }, { x: 4, y: 3.3 }] }} onApply={() => undefined} />);
+    expect(html).toContain('[0] -4: 9.2500');
+  });
+  it('renders the adjustable Gamma exponent and luminance-only LUT action', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="gamma" parameterValues={{ gamma: 2.2, gamma_lut: '9-point Y LUT' }} appliedParameterValues={{ gamma: 2.2 }} />);
+    expect(html).toContain('aria-label="gamma"');
+    expect(html).toContain('min="1.8"');
+    expect(html).toContain('max="2.4"');
+    expect(html).toContain('step="0.1"');
+    expect(html).toContain('Tune gamma_lut');
+    expect(html).toContain('9-point Y LUT');
+    expect(html).not.toContain('red_lut');
+    expect(html).not.toContain('green_lut');
+    expect(html).not.toContain('blue_lut');
+  });
+  it('renders Gamma as a nine-knot monotone Bézier luminance curve', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="gamma_lut" controlKind="lut_1d" baseValues={{ gamma: 2.2, gamma_lut: '9-point Y LUT' }} onApply={() => undefined} />);
+    expect(html).toContain('linear_luminance_y · normalized');
+    expect(html).toContain('<strong>monotone Bézier</strong>');
+    expect(html.match(/aria-label="gamma_lut curve point/g)?.length).toBe(9);
+    expect(html).toContain('[0] 0: 0.0000');
+    expect(html).toContain('[8] 1: 1.0000');
+  });
   it('renders every operator inspector as a tree with compact groups', () => {
     const html = renderToStaticMarkup(
       <NodeInspector

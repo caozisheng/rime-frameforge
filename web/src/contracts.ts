@@ -75,6 +75,7 @@ export type RuntimeCommand =
   | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
+  | { readonly type: 'set_lut'; readonly nodeId: string; readonly parameter: string; readonly values: readonly number[] }
   | { readonly type: 'set_quantization_config'; readonly config: string }
   | { readonly type: 'set_preview'; readonly nodeA: string; readonly nodeB: string | null; readonly curtain: number }
   | { readonly type: 'sample_preview'; readonly nodeId: string; readonly x: number; readonly y: number; readonly requestId: number }

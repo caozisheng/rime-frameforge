@@ -26,6 +26,8 @@ describe('fused uniform ABI', () => {
     expect(view.getUint32(60, true)).toBe(7);
     expect(view.getFloat32(64, true)).toBe(2 ** 14);
     expect([view.getUint32(448, true), view.getUint32(452, true), view.getUint32(456, true), view.getUint32(460, true), view.getUint32(464, true), view.getUint32(468, true)]).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(view.getFloat32(480, true)).toBeCloseTo(2.2);
+    expect(Array.from({ length: 9 }, (_, index) => view.getFloat32(496 + index * 4, true))).toEqual([0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1]);
   });
 
   it('clears inline quantization flags when the graph is disabled', () => {

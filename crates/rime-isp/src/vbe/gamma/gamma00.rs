@@ -13,7 +13,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::EncodedRgb,
         format: ResourceFormat::Rgba32Float,
     },
-    "gamma",
+    "gamma gamma_lut",
     None,
     shader(
         "00",
@@ -22,7 +22,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         ShaderBindings {
             input: 0,
             output: 1,
-            uniform: None,
+            uniform: Some(2),
         },
     ),
     gamma00_preprocess::run,

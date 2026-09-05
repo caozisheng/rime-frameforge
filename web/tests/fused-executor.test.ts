@@ -111,3 +111,11 @@ describe('fused Normal GPU executor', () => {
     expect(fake.counts.sampleCopies).toBe(1);
   });
 });
+
+  it('rejects parameters submitted to the wrong graph node', () => {
+    const fake = fusedGpu();
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    expect(() => executor.setParameter('gamma', 'ahd_l_threshold', 3)).toThrow('PARAMETER_INVALID');
+    expect(() => executor.setParameter('dem', 'gamma', 2.4)).toThrow('PARAMETER_INVALID');
+    expect(() => executor.setParameter('gamma', 'gamma', 2.4)).not.toThrow();
+  });

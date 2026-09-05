@@ -21,6 +21,10 @@ const parameterValues: Record<string, number> = {
   vng_threshold: 1.5,
   ahd_l_threshold: 2.0,
   ahd_c_threshold_sq: 4.0,
+  gamma: 2.2,
+};
+const lutValues: Record<string, readonly number[]> = {
+  gamma_lut: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1],
 };
 let envelope: RuntimeEnvelope = {
   graphInstanceId: 1,
@@ -99,11 +103,17 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     return;
   }
   if (command.type === 'set_parameter') {
-    if (executor === null || command.nodeId !== 'dem') {
-      throw new Error('INVALID_STATE_TRANSITION: DEM executor is unavailable');
-    }
-    executor.setParameter(command.parameter, command.value);
+    if (executor === null) throw new Error('INVALID_STATE_TRANSITION: parameter executor is unavailable');
+    executor.setParameter(command.nodeId, command.parameter, command.value);
     parameterValues[command.parameter] = command.value;
+    envelope = authority.changeMethod();
+    self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
+    return;
+  }
+  if (command.type === 'set_lut') {
+    if (executor === null || command.nodeId !== 'gamma') throw new Error('INVALID_STATE_TRANSITION: Gamma executor is unavailable');
+    executor.setLut(command.parameter, command.values);
+    lutValues[command.parameter] = [...command.values];
     envelope = authority.changeMethod();
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
@@ -156,7 +166,8 @@ function createExecutor(generation: number): void {
   const quantization = JSON.parse(authority.quantizationConfig()) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0];
   executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, quantization);
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
-  for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter, value);
+  for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
+  for (const [parameter, values] of Object.entries(lutValues)) executor.setLut(parameter, values);
   controller = new RuntimeController(
     executor,
     (previews) => self.postMessage({ type: 'preview', envelope, previews } satisfies RuntimeEvent),

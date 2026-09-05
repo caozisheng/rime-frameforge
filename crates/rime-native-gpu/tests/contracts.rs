@@ -68,7 +68,7 @@ fn native_graph_plan_matches_v013_normal_manifest() {
     );
     assert_eq!(
         plan.manifest_hash(),
-        "103ed3a42c24feafe2723d60f7e4317a583dbf9ac202e2ccc558a9234a60586c"
+        rime_isp::build_normal_manifest().manifest_hash
     );
 }
 

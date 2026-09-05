@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rime_isp::{OperatorDefinition, normal_operators};
+use rime_isp::{normal_operators, OperatorDefinition};
 
 #[test]
 fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
@@ -92,11 +92,9 @@ fn mctf_uses_one_module_schema_and_default_iq_table() {
 
 #[test]
 fn ce_replaces_color_as_the_vpe_operator_name() {
-    assert!(
-        !normal_operators()
-            .iter()
-            .any(|operator| operator.definition().id == "color")
-    );
+    assert!(!normal_operators()
+        .iter()
+        .any(|operator| operator.definition().id == "color"));
     assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
 #[test]
@@ -125,6 +123,18 @@ fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
     assert!(shader.contains("params.gains[channel]"));
     assert!(!shader.contains("gain = 2.0"));
     assert!(!shader.contains("gain = 1.5"));
+}
+
+#[test]
+fn gamma_exposes_adjustable_exponent_and_luminance_lut() {
+    let gamma = normal_operators()
+        .iter()
+        .find(|operator| operator.definition().id == "gamma")
+        .expect("Gamma operator")
+        .definition();
+    let method = gamma.methods.first().expect("Gamma method");
+    assert_eq!(method.parameters, "gamma gamma_lut");
+    assert_eq!(method.shader.bindings.uniform, Some(2));
 }
 
 #[test]

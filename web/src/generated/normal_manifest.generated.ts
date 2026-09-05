@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "103ed3a42c24feafe2723d60f7e4317a583dbf9ac202e2ccc558a9234a60586c",
+  "manifest_hash": "ae4c6f1bae91dd2cb0a7bea10240587b3f73d87f9ef8f64cebbe302274656f63",
   "nodes": [
     {
       "id": "raw_source",
@@ -609,7 +609,8 @@ export const normalManifest = {
           "method": "00",
           "shader_entry": "gamma_main",
           "parameters": [
-            "gamma"
+            "gamma",
+            "gamma_lut"
           ]
         }
       ]

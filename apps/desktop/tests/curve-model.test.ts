@@ -30,4 +30,16 @@ describe('IQ curve model', () => {
     expect(interpolateCurve(points, 8, 'bezier')).toBe(2);
     expect(interpolateCurve(points, 2, 'bezier')).toBeGreaterThan(1);
   });
+
+  it('keeps monotone Bézier segments within their neighboring knot values', () => {
+    const monotone = [{ x: 0, y: 0 }, { x: 0.125, y: 0.6 }, { x: 0.25, y: 0.61 }, { x: 0.375, y: 0.9 }];
+    for (let index = 0; index < monotone.length - 1; index += 1) {
+      for (let sample = 0; sample <= 16; sample += 1) {
+        const x = monotone[index]!.x + sample / 16 * (monotone[index + 1]!.x - monotone[index]!.x);
+        const value = interpolateCurve(monotone, x, 'bezier');
+        expect(value).toBeGreaterThanOrEqual(monotone[index]!.y);
+        expect(value).toBeLessThanOrEqual(monotone[index + 1]!.y);
+      }
+    }
+  });
 });

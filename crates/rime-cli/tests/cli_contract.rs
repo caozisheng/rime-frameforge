@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rime_cli::{Cli, Command, RenderOptions, natural_sort_dng_paths, resolve_graph_config};
+use rime_cli::{natural_sort_dng_paths, resolve_graph_config, Cli, Command, RenderOptions};
 
 #[test]
 fn cli_exposes_v013_headless_commands() {
@@ -66,7 +66,7 @@ fn resolved_config_reuses_normal_manifest_and_fixed_ring() {
     assert_eq!(resolved.ring_capacity, 2);
     assert_eq!(
         resolved.manifest_hash,
-        "103ed3a42c24feafe2723d60f7e4317a583dbf9ac202e2ccc558a9234a60586c"
+        rime_isp::build_normal_manifest().manifest_hash
     );
 }
 

@@ -533,6 +533,25 @@ principal direct LUT lookup
 
 多轴参数必须在 UI 中显示主轴 direct value、每个 factor 和最终乘积。单轴 AHD 参数只显示直接 LUT 值，不显示伪造的 modulation gain。
 
+### 7.1 Gamma 的亮度 LUT 与全链路 hue 不变量
+
+全链路只有 Gamma 编码本身可以执行逐 R/G/B transfer function。其他一维 tone/LUT 曲线必须在亮度域工作，并将同一个 gain 作用到三个线性 RGB 通道；禁止为 R/G/B 分别查表，否则会改变 hue。
+
+Gamma method `00` 的执行顺序固定为：
+
+```text
+linear RGB
+  -> Y = 0.2126 R + 0.7152 G + 0.0722 B
+  -> Y' = monotone_bezier_lut(Y)
+  -> gain = Y' / max(Y, epsilon)
+  -> RGB' = RGB * gain
+  -> encoded RGB = pow(max(RGB', 0), 1 / gamma)
+```
+
+`gamma_lut` 定义在归一化线性亮度 `[0, 1]` 上，共 9 个等距 knot。端点固定为 `(0, 0)` 与 `(1, 1)`，中间 7 点只允许修改 y，采用无 overshoot 的单调三次 Bézier 插值。`Y <= epsilon` 输出黑色；`Y > 1` 绕过有限域 LUT，以保证默认 identity LUT 不截断高光。`gamma` 默认 `2.2`，合法范围 `[1.8, 2.4]`，步进 `0.1`。
+
+native method packet 与 fused WebGPU uniform 都必须保存同一组 `gamma + 9 LUT values`，并采用等价的插值和黑位策略。桌面端 Parameter 页面修改 `gamma`，IQ 页面修改 `gamma_lut`；两者保持 draft，只有 Apply 或 graph Run 才在 frame boundary 提交。
+
 ## 8. 风格、override 和 revision
 
 AHD 使用 canonical module address：

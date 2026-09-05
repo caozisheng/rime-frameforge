@@ -11,6 +11,7 @@ interface CurveEditorProps {
   readonly valueLabel?: string;
   readonly currentCoordinate?: number;
   readonly disabled?: boolean;
+  readonly lockedPointIndices?: readonly number[];
   readonly onChange: (points: readonly CurvePoint[]) => void;
 }
 
@@ -21,7 +22,7 @@ const RIGHT = 16;
 const TOP = 16;
 const BOTTOM = 48;
 
-export function CurveEditor({ ariaLabel, points, range, interpolation = 'linear', axisLabel = 'index', valueLabel = 'value', currentCoordinate, disabled = false, onChange }: CurveEditorProps): ReactNode {
+export function CurveEditor({ ariaLabel, points, range, interpolation = 'linear', axisLabel = 'index', valueLabel = 'value', currentCoordinate, disabled = false, lockedPointIndices = [], onChange }: CurveEditorProps): ReactNode {
   const titleId = useId();
   const minX = points[0]?.x ?? 0;
   const maxX = points.at(-1)?.x ?? 1;
@@ -51,7 +52,7 @@ export function CurveEditor({ ariaLabel, points, range, interpolation = 'linear'
       <text className="iq-axis-label" transform={`translate(12 ${(TOP + HEIGHT - BOTTOM) / 2}) rotate(-90)`} textAnchor="middle">{valueLabel}</text>
       <path className="iq-curve-path" d={path} />
       {currentCoordinate === undefined || markerValue === undefined ? null : <g className="iq-current-marker"><line x1={toX(currentCoordinate)} x2={toX(currentCoordinate)} y1={TOP} y2={HEIGHT - BOTTOM} /><circle cx={toX(currentCoordinate)} cy={toY(markerValue)} r="4" /></g>}
-      {points.map((point, index) => <circle aria-label={`${ariaLabel} point ${index + 1}`} aria-valuemax={range.max} aria-valuemin={range.min} aria-valuenow={point.y} className="iq-curve-point" cx={toX(point.x)} cy={toY(point.y)} key={`${point.x}:${index}`} r="5" role="slider" tabIndex={disabled ? -1 : 0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (!disabled && event.currentTarget.hasPointerCapture(event.pointerId)) onChange(moveCurvePoint(points, index, fromPointerY(event), range)); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} />)}
+      {points.map((point, index) => { const locked = disabled || lockedPointIndices.includes(index); return <circle aria-disabled={locked} aria-label={`${ariaLabel} point ${index + 1}`} aria-valuemax={range.max} aria-valuemin={range.min} aria-valuenow={point.y} className="iq-curve-point" cx={toX(point.x)} cy={toY(point.y)} key={`${point.x}:${index}`} r="5" role="slider" tabIndex={locked ? -1 : 0} onPointerDown={(event) => { if (!locked) event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (!locked && event.currentTarget.hasPointerCapture(event.pointerId)) onChange(moveCurvePoint(points, index, fromPointerY(event), range)); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} />; })}
     </svg>
     <div className="iq-curve-values">{points.map((point, index) => <span key={point.x}>[{index}] {point.x}: {point.y.toFixed(4)}</span>)}</div>
   </div>;

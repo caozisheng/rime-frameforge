@@ -85,7 +85,7 @@ describe('NormalGpuExecutor frame reuse', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
     executor.reset();
-    executor.setParameter('ahd_l_threshold', 3.0);
+    executor.setParameter('dem', 'ahd_l_threshold', 3.0);
     const secondIdentity = { ...identity, runRevision: 2, methodRevision: 2 };
     executor.prepare(secondIdentity);
     await executor.execute('output', secondIdentity);

@@ -23,7 +23,7 @@ fn normal_registry_exposes_complete_executable_operator_assets() {
         assert_ne!(shader.bindings.input, shader.bindings.output);
         assert_eq!(
             shader.bindings.uniform.is_some(),
-            matches!(definition.id, "blc" | "wbc" | "dem"),
+            matches!(definition.id, "blc" | "wbc" | "dem" | "gamma"),
             "{} uniform binding differs from its parameter packet contract",
             definition.id
         );

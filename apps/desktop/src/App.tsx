@@ -6,10 +6,12 @@ import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import { normalManifest } from '../../../web/src/generated/normal_manifest.generated.js';
+import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters } from '../../../web/src/gpu/gamma.js';
 import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
 import { NodeInspector, type GraphQuantizationConfig, type ModuleQuantizationPreference } from './components/NodeInspector.js';
 import { PreviewSurface, type PreviewSampleValue } from './components/PreviewSurface.js';
+import { FACTORY_TUNING_CURVES, type TuningCurveDraft } from './components/iq/TuningProfilePanel.js';
 import { loadDngIntoWorker, loadDngPathIntoWorker, loadDngSequenceIntoWorker, loadDngSequencePathIntoWorker, loadDecodedDngIntoWorker, decodeDngPath } from './runtime/dng-loader.js';
 import { isCurrentDngPrefetch, nextDngRunFrame } from './runtime/dng-sequence.js';
 import { listenNativePipeline, renderDngNative, type NativeRenderDescriptor } from './runtime/native-pipeline.js';
@@ -65,11 +67,16 @@ export function App() {
     vng_threshold: 1.5,
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
+    gamma: 2.2,
+    gamma_lut: '9-point Y LUT',
   });
   const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
+    gamma: 2.2,
   });
+  const [tuningCurves, setTuningCurves] = useState<TuningCurveDraft>(FACTORY_TUNING_CURVES);
+  const [appliedGammaCurve, setAppliedGammaCurve] = useState(FACTORY_TUNING_CURVES.gammaCurve);
   const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
   const [loadedDng, setLoadedDng] = useState<DngFrameDescriptor | null>(null);
   const [dngSequence, setDngSequence] = useState<DngSequenceDescriptor | null>(null);
@@ -311,10 +318,16 @@ export function App() {
   };
   const changeParameter = (_nodeId: string, parameter: string, value: number): void => {
     if (!Number.isFinite(value)) return;
+    if (parameter === 'gamma') {
+      try { validateGammaParameters({ ...DEFAULT_GAMMA_PARAMETERS, gamma: value }); } catch { return; }
+    }
     setParameterValues((current) => ({ ...current, [parameter]: value }));
   };
   const applyParameterAndRerun = (nodeId: string, parameter: string, value: number): void => {
     if (bridgeRef.current === null || !Number.isFinite(value)) return;
+    if (parameter === 'gamma') {
+      try { validateGammaParameters({ ...DEFAULT_GAMMA_PARAMETERS, gamma: value }); } catch { return; }
+    }
     const frameIndex = dngFrameIndexRef.current;
     setParameterValues((current) => ({ ...current, [parameter]: value }));
     setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
@@ -322,9 +335,21 @@ export function App() {
     bridgeRef.current.setParameter(nodeId, parameter, value);
     bridgeRef.current.run(frameIndex);
   };
+  const applyLutAndRerun = (nodeId: string, parameter: 'gamma_lut', values: readonly number[]): void => {
+    if (bridgeRef.current === null) return;
+    setAppliedGammaCurve(tuningCurves.gammaCurve);
+    setCommandPending(true);
+    bridgeRef.current.setLut(nodeId, parameter, values);
+    bridgeRef.current.run(dngFrameIndexRef.current);
+  };
   const resetParameterToFactory = (_nodeId: string, parameter: string): void => {
+    if (parameter === 'gamma_lut') {
+      setTuningCurves((current) => ({ ...current, gammaCurve: FACTORY_TUNING_CURVES.gammaCurve }));
+      return;
+    }
     const value = parameter === 'ahd_l_threshold' ? 2.0 : 4.0;
     setParameterValues((current) => ({ ...current, [parameter]: value }));
+    setTuningCurves((current) => parameter === 'ahd_l_threshold' ? { ...current, lCurve: FACTORY_TUNING_CURVES.lCurve } : { ...current, cCurve: FACTORY_TUNING_CURVES.cCurve });
   };
   const changeGraphQuantization = (next: GraphQuantizationConfig): void => {
     if (bridgeRef.current === null) return;
@@ -339,19 +364,27 @@ export function App() {
   };
   const flushParameterDrafts = (): void => {
     if (bridgeRef.current === null) return;
-    for (const [parameter, value] of Object.entries(parameterValues)) {
-      if (parameter === 'ahd_l_threshold' || parameter === 'ahd_c_threshold_sq') {
-        const applied = appliedParameterValues[parameter];
-        if (typeof value === 'number' && value !== applied) {
-          bridgeRef.current.setParameter('dem', parameter, value);
-          setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
-        }
+    for (const parameter of ['ahd_l_threshold', 'ahd_c_threshold_sq', 'gamma'] as const) {
+      const value = parameterValues[parameter];
+      const applied = appliedParameterValues[parameter];
+      if (typeof value === 'number' && value !== applied) {
+        bridgeRef.current.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
+        setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
       }
+    }
+    if (tuningCurves.gammaCurve.some((point, index) => point.y !== appliedGammaCurve[index]?.y)) {
+      bridgeRef.current.setLut('gamma', 'gamma_lut', tuningCurves.gammaCurve.map((point) => point.y));
+      setAppliedGammaCurve(tuningCurves.gammaCurve);
     }
   };
   const runGraph = (): void => {
-    if (bridgeRef.current === null || dngPathsRef.current.length === 0) return;
+    if (bridgeRef.current === null) return;
     flushParameterDrafts();
+    if (dngPathsRef.current.length === 0) {
+      setCommandPending(true);
+      bridgeRef.current.run(0);
+      return;
+    }
     const pending = pendingDngRef.current;
     const runIndex = nextDngRunFrame(dngFrameIndexRef.current, dngPathsRef.current.length, envelope.visibleFrameCommitted, pending?.index ?? null);
     sequencePlayingRef.current = dngPathsRef.current.length > 1 && runIndex + 1 < dngPathsRef.current.length;
@@ -466,7 +499,7 @@ export function App() {
             defaultLayout={rightLayout}
             onLayoutChanged={(layout) => writePaneLayout(window.localStorage, RIGHT_LAYOUT_KEY, layout)}
           >
-            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} quantization={quantization} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onParameterReset={resetParameterToFactory} /></div></Panel>
+            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} tuningCurves={tuningCurves} quantization={quantization} onTuningCurvesChange={setTuningCurves} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onLutApply={applyLutAndRerun} onParameterReset={resetParameterToFactory} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
             <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} previews={previews} nativePreview={nativePreview === null ? null : { dataUrl: nativePreview.previewDataUrl, width: nativePreview.previewWidth, height: nativePreview.previewHeight, outputWidth: nativePreview.width, outputHeight: nativePreview.height, nodeId: nativePreview.nodeId, portId: nativePreview.portId, frameIndex: nativePreview.frameIndex }} fileName={nativePreview === null ? loadedDng?.fileName ?? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} sample={previewSample} mode={previewMode} selectedNode={selectedNode} nodeOptions={PREVIEW_NODE_OPTIONS} previewCapabilities={PREVIEW_CAPABILITIES} compareA={compareA} compareB={compareB} focused={previewFocused} onModeChange={setPreviewMode} onCompareAChange={setCompareA} onCompareBChange={setCompareB} onFocusedChange={setPreviewFocused} onPresentationChange={changePreviewPresentation} onSampleRequest={requestPreviewSample} /></div></Panel>
           </Group>
