@@ -59,12 +59,12 @@ fn parses_and_resolves_full_profile_entries() {
     assert!(
         resolved
             .module("vbe.dem")
-            .is_some_and(|entry| entry.is_override())
+            .is_some_and(rime_iq::ModuleTuningEntry::is_override)
     );
     assert!(
         resolved
             .module("vpe.mctf[1]")
-            .is_some_and(|entry| entry.is_inherit())
+            .is_some_and(rime_iq::ModuleTuningEntry::is_inherit)
     );
 }
 

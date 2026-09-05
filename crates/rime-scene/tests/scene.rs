@@ -88,7 +88,7 @@ fn classifies_scene_by_configured_brightness_ranges() {
     .expect("non-overlapping labels");
 
     assert_eq!(
-        classify_scene(&meta, &labels).map(|label| label.id()),
+        classify_scene(&meta, &labels).map(rime_scene::SceneLabel::id),
         Some("daylight")
     );
 }

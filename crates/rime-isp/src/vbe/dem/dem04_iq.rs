@@ -29,6 +29,7 @@ const C_VALUES: [[f64; 4]; 6] = [
     [3.84, 4.20, 4.59, 5.04],
 ];
 
+#[expect(clippy::cast_possible_truncation, reason = "AHD thresholds are validated bounded f32 shader parameters.")]
 pub(crate) fn lookup_default(input: AhdIqInput) -> Result<AhdIqValues, &'static str> {
     if !input.iso.is_finite() || input.iso <= 0.0 {
         return Err("ISO must be finite and positive");
@@ -39,20 +40,8 @@ pub(crate) fn lookup_default(input: AhdIqInput) -> Result<AhdIqValues, &'static 
     let (scene_index, scene_fraction) = locate(&SCENE_KNOTS, input.scene_brightness_ev);
     let (iso_index, iso_fraction) = locate_log(&ISO_KNOTS, input.iso);
     Ok(AhdIqValues {
-        ahd_l_threshold: bilinear(
-            &L_VALUES,
-            scene_index,
-            scene_fraction,
-            iso_index,
-            iso_fraction,
-        ) as f32,
-        ahd_c_threshold_sq: bilinear(
-            &C_VALUES,
-            scene_index,
-            scene_fraction,
-            iso_index,
-            iso_fraction,
-        ) as f32,
+        ahd_l_threshold: bilinear(&L_VALUES, scene_index, scene_fraction, iso_index, iso_fraction) as f32,
+        ahd_c_threshold_sq: bilinear(&C_VALUES, scene_index, scene_fraction, iso_index, iso_fraction) as f32,
     })
 }
 

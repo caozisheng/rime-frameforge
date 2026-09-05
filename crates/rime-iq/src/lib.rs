@@ -1,3 +1,4 @@
+#![expect(clippy::missing_errors_doc, reason = "Tuning profile APIs are documented by the surrounding profile contract.")]
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;

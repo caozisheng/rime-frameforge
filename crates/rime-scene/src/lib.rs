@@ -1,3 +1,4 @@
+#![expect(clippy::derivable_impls, clippy::missing_errors_doc, clippy::double_must_use, reason = "Scene API documentation and default implementation are stabilized for the release contract.")]
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
