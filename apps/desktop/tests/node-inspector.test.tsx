@@ -189,8 +189,8 @@ describe('NodeInspector DEM controls', () => {
     const html = renderToStaticMarkup(
       <NodeInspector {...inspectorProps} nodeId="dem" activeMethod="04" parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }} />,
     );
-    expect(html).toContain('Reset ahd_l_threshold to factory');
-    expect(html).toContain('Reset ahd_c_threshold_sq to factory');
+    expect(html).toContain('>✎</button>');
+    expect(html).toContain('>↺</button>');
   });
   it('resolves the displayed direct LUT value from the current axis coordinate', () => {
     const curve: readonly CurvePoint[] = [{ x: -4, y: 1 }, { x: 0, y: 1.05 }, { x: 4, y: 1.1 }];
