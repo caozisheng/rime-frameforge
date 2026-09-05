@@ -464,177 +464,74 @@ AHD IQ 表不能复制：
 - 已经派生完成的某一帧 module parameter；
 - 其他模块的 IQ 表。
 
-### 6.2 首版表结构
+### 6.2 主轴值 LUT 与因子 LUT
 
-首版采用显式二维 Cartesian grid：
+多轴参数必须显式指定一个主轴。主轴对应直接效果值，其他轴只能作为独立的一维乘因子：
+
+```text
+principal_axis: scene_brightness_ev
+direct_value = direct_lut(scene_brightness_ev)
+final_value = direct_value × factor_lut_1(axis_1) × factor_lut_2(axis_2)
+```
+
+AHD method `04` 的两个参数均使用 `scene_brightness_ev` 作为主轴，且首版不启用因子轴：
 
 ```yaml
-schema_version: 1
-module: vbe.dem
-module_address: vbe.dem
-method: "04"
-style: default
-parameter_schema_revision: dem04-v1
-
-axes:
-  - id: scene_brightness_ev
-    source: scene_meta.scene_brightness.ev_apex
-    unit: EV100_scene
-    domain: [-6.0, 20.0]
-    knots: [-4.0, 0.0, 4.0, 8.0, 12.0, 16.0]
-    out_of_range: clamp
-  - id: iso
-    source: scene_meta.gain.iso
-    unit: ISO
-    knots: [100, 200, 400, 800, 1600, 3200, 6400]
-    out_of_range: clamp
-
-interpolation:
-  type: multilinear
-  coordinate_transform:
-    scene_brightness_ev: linear
-    iso: log2
-
 effects:
   ahd_l_threshold:
     unit: lab_delta_l
-    value_domain: normalized_shader_lab
-    range: [0.0, 100.0]
-    combine: multiply_log2
-    values:
-      dimensions: [scene_brightness_ev, iso]
-      rows: [...]
+    principal_axis: scene_brightness_ev
+    interpolation: linear
+    combine: direct
+    knots: [-4.0, 0.0, 4.0, 8.0, 12.0, 16.0]
+    values: [...]
+    factors: []
   ahd_c_threshold_sq:
     unit: lab_delta_ab_squared
-    value_domain: normalized_shader_lab
-    range: [0.0, 10000.0]
-    combine: multiply_log2
-    values:
-      dimensions: [scene_brightness_ev, iso]
-      rows: [...]
-
-modulation_curves: []
+    principal_axis: scene_brightness_ev
+    interpolation: linear
+    combine: direct
+    knots: [-4.0, 0.0, 4.0, 8.0, 12.0, 16.0]
+    values: [...]
+    factors: []
 ```
 
-这里的 `rows` 不是无语义数组：schema 显式声明维度顺序、每个维度的 knots 和行列含义。实现校验必须验证矩阵形状与 knots 完整匹配。
-
-ISO 使用 `log2` 坐标插值，因为 ISO/gain 的噪声变化更接近 stop/log 关系；场景亮度 EV 已经是对数单位，在 EV 域线性插值。
+`knots` 与 `values` 长度必须相同。单轴 LUT 的插值结果就是效果参数，不是 delta，也不乘隐藏 base。ISO、曝光偏差和 CCT 保留在 `SceneMeta`，只有校准数据证明必要时才显式声明为 factor LUT。
 
 ### 6.3 查找规则
 
 给定 `SceneMeta` 和 `CameraMeta`：
 
 1. 根据 `module_address`、method、style 和 revision 解析目标资产；
-2. 校验所有必需轴是否存在、单位是否匹配；
-3. 将场景亮度转换到表声明的 `EV100_scene`；
-4. 将 ISO 转换到 `log2(ISO)` 坐标；
-5. 执行二维 multilinear interpolation；
-6. 按 parameter 的 `combine` 应用调制曲线；
-7. 执行字段范围检查；
-8. 按 AHD parameter schema 的 Rime.Q profile 量化；
-9. 生成带来源 revision 的 `ModuleParameterPacket`。
+2. 校验主轴来源、单位、knot 排序和 values 长度；
+3. 读取主轴坐标并按 `out_of_range` 执行 clamp；
+4. 对主轴 LUT 执行声明的 `linear` 或 `bezier` 插值；
+5. 对每个显式 factor LUT 读取对应坐标并执行一维插值；
+6. 按资产声明顺序将 factor 值相乘；
+7. 执行范围检查和 Rime.Q 量化；
+8. 生成包含主轴值、factor 中间值、最终值和 revision 的 packet 审计信息。
 
-默认边界策略为 `clamp`，禁止未声明的 extrapolation。缺少轴、单位错误、method 不匹配、表形状错误或调制曲线非法时必须拒绝加载。
+缺少主轴、主轴不是 direct、factor 轴重复、单位错误、表形状错误、非法插值或缺少必需 factor 坐标时必须拒绝加载。
 
 ### 6.4 参数值与效果值分离
 
-IQ 表保存的是效果参数，不是最终 GPU 寄存器值：
-
 ```text
-IQ effect value
-  -> camera noise profile / sensor calibration
-  -> scene meta
-  -> modulation
+principal direct LUT lookup
+  -> optional factor LUT multiplication
   -> range validation
   -> Rime.Q quantization
   -> final ahd threshold uniform
 ```
 
-同一套 IQ 表在不同 camera profile 下，可能生成不同的最终模块参数。`camera_profile_id` 和 `calibration_revision` 必须写入参数包审计信息。
+`ahd_c_threshold_sq` 始终保存平方色度差阈值，不在运行时开平方。
 
-## 7. AHD 调制曲线
+## 7. 标准一维 LUT 曲线
 
-### 7.1 设计目标
+一维 LUT 曲线是模块 IQ 的通用调校组件。模块只声明主轴或 factor 轴的 `knots`、`values`、插值模式和值域；不重复实现图形交互。
 
-基础二维表解决主要场景变化；调制曲线解决单个轴的细粒度变化，避免建立稠密高维表。
+`Iq1dCurveEditor` 使用 indexed grid：横坐标显示 LUT index，并同时标注 axis knot；纵坐标显示实际参数值和单位。它支持分段线性与 Bézier 两种模式，固定 x/index，只允许编辑 y/value，并显示当前 frame marker 与插值结果。
 
-调制曲线必须：
-
-- 绑定明确的 axis source、unit 和 parameter；
-- 具有 knots、范围和 clamp 策略；
-- 明确 additive 或 multiplicative 组合方式；
-- 经过 schema 校验；
-- 在 preprocess 中计算，不能由 shader 临时查表；
-- 具有曲线 revision，并进入最终参数包。
-
-### 7.2 首选组合方式：log2 gain 曲线
-
-两个阈值都是非负阈值，首版使用 `multiply_log2`：
-
-\[
-p_{final}=p_{base}\cdot2^{m(x)}
-\]
-
-其中：
-
-- `p_base` 是基础二维表插值结果；
-- `m(x)` 是轴 `x` 上的调制曲线，通常在 `0` 附近表示“不调制”；
-- `p_final` 是校验和量化前的模块参数。
-
-这样可以保证：
-
-- 参数不会因为负的 additive offset 变成非法值；
-- 不同参数量级可以使用统一的 stop-like 曲线；
-- `ahd_c_threshold_sq` 继续以平方阈值形式保存，不需要开平方。
-
-若某参数未来需要绝对差值调节，schema 可以单独声明 `additive`，但不能隐式混用。
-
-### 7.3 曲线资产示例
-
-```yaml
-modulation_curves:
-  - id: ahd_l_vs_exposure_deviation
-    parameter: ahd_l_threshold
-    axis:
-      source: scene_meta.exposure.exposure_deviation_ev
-      unit: EV
-      knots: [-2.0, -1.0, 0.0, 1.0, 2.0]
-      out_of_range: clamp
-    combine: multiply_log2
-    values: [0.12, 0.05, 0.0, -0.03, -0.08]
-
-  - id: ahd_c_vs_cct
-    parameter: ahd_c_threshold_sq
-    enabled: false
-    axis:
-      source: scene_meta.color.cct_kelvin
-      unit: K
-      knots: [2800, 3500, 4500, 5500, 6500, 7500]
-      out_of_range: clamp
-    coordinate_transform: reciprocal_mired
-    combine: multiply_log2
-    values: [0.08, 0.04, 0.0, -0.02, -0.04, -0.06]
-```
-
-首版只启用已经有可靠调校数据的曲线。示例中的数值是 schema 示例，不是 GH5S 的最终 IQ 数值；正式默认表必须由测试样本调校得到，不能把示例数值宣称为校准结果。
-
-### 7.4 调制顺序
-
-固定顺序：
-
-```text
-base surface lookup
-  -> scene/gain modulation
-  -> optional exposure-deviation modulation
-  -> optional CCT modulation
-  -> camera-profile/noise-profile combination
-  -> range validation
-  -> quantization
-```
-
-资产必须声明调制顺序和每条曲线的组合方式。不能让 UI 用户任意重排曲线，因为重排会改变结果且破坏可复现性。
-
-如果未来调制数量增长到难以解释，应升级为显式多维 surface，而不是继续叠加无界曲线。
+多轴参数必须在 UI 中显示主轴 direct value、每个 factor 和最终乘积。单轴 AHD 参数只显示直接 LUT 值，不显示伪造的 modulation gain。
 
 ## 8. 风格、override 和 revision
 

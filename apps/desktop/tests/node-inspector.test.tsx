@@ -192,15 +192,15 @@ describe('NodeInspector DEM controls', () => {
     expect(html).toContain('Reset ahd_l_threshold to factory');
     expect(html).toContain('Reset ahd_c_threshold_sq to factory');
   });
-  it('resolves the displayed parameter value from the factory base and current curve', () => {
-    const curve: readonly CurvePoint[] = [{ x: -4, y: 0 }, { x: 0, y: 0 }, { x: 4, y: 1 }];
-    expect(resolveTuningParameterValue(2, curve, 4)).toBe(4);
+  it('resolves the displayed direct LUT value from the current axis coordinate', () => {
+    const curve: readonly CurvePoint[] = [{ x: -4, y: 1 }, { x: 0, y: 1.05 }, { x: 4, y: 1.1 }];
+    expect(resolveTuningParameterValue(2, curve, 4)).toBeCloseTo(1.1);
   });
-  it('renders base, modulation, and current parameter values', () => {
+  it('renders base, current LUT, and effect values', () => {
     const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} onApply={() => undefined} />);
-    expect(html).toContain('Base');
-    expect(html).toContain('Modulated');
-    expect(html).toContain('Current value');
+    expect(html).toContain('Base LUT value');
+    expect(html).toContain('Current LUT value');
+    expect(html).toContain('Effect value');
     expect(html).toContain('2.0000');
   });
   it('shows the applied AHD value when returning to the parameter page', () => {
@@ -212,6 +212,13 @@ describe('NodeInspector DEM controls', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="dem" activeMethod="04" parameterValues={{ cfa_pattern: 'rggb', ahd_l_threshold: 3.25, ahd_c_threshold_sq: 4 }} appliedParameterValues={{ ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }} />);
     expect(html).toContain('data-parameter-dirty="ahd_l_threshold"');
     expect(html).toContain('class="inspector-parameter-editor is-dirty"');
+  });
+  it('renders indexed grid labels and current LUT coordinate', () => {
+    const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} onApply={() => undefined} />);
+    expect(html).toContain('index / EV knot');
+    expect(html).toContain('parameter value');
+    expect(html).toContain('aria-label="ahd_l_threshold curve point 1"');
+    expect(html).toContain('class="iq-current-marker"');
   });
   it('renders every operator inspector as a tree with compact groups', () => {
     const html = renderToStaticMarkup(
