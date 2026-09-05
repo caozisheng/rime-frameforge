@@ -1,6 +1,6 @@
 {
   "name": "@rime/desktop",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "@dagrejs/dagre": "^3.1.1",
     "@fontsource/dm-mono": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
-    "@rime/web-runtime": "0.1.12",
+    "@rime/web-runtime": "0.1.13",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tisoap/react-flow-smart-edge": "^5.0.0",
