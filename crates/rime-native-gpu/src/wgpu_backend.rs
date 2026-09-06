@@ -1,16 +1,20 @@
 #![expect(
-    clippy::missing_errors_doc,
     clippy::cast_possible_truncation,
-    reason = "The backend mirrors the explicit graph submission contract and narrows validated DNG metadata to GPU f32 parameters."
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::missing_errors_doc,
+    clippy::too_many_lines,
+    reason = "the backend mirrors the explicit graph submission contract and narrows validated DNG/image coordinates to GPU resource domains"
 )]
-
-use std::sync::{Mutex, mpsc};
 
 use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
+use rime_isp::vbe::drc::{DrcExposurePolicy, DrcLocalStatistics};
+use rime_isp::vbe::white_balance::{WhiteBalanceError, WhiteBalanceMetadata, white_balance_gains};
 use rime_isp::{
     FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
 };
+use std::sync::{Mutex, mpsc};
 use thiserror::Error;
 use wgpu::util::DeviceExt as _;
 
@@ -38,6 +42,50 @@ struct CompiledOperator {
     pipeline: wgpu::ComputePipeline,
 }
 
+struct DrcPipelines {
+    prefilter: wgpu::ComputePipeline,
+    downsample: wgpu::ComputePipeline,
+    reconstruct: wgpu::ComputePipeline,
+    guided_stats_horizontal: wgpu::ComputePipeline,
+    guided_stats_vertical: wgpu::ComputePipeline,
+    guided_coefficients: wgpu::ComputePipeline,
+    guided_coefficients_horizontal: wgpu::ComputePipeline,
+    guided_apply_vertical: wgpu::ComputePipeline,
+    combine_global: wgpu::ComputePipeline,
+    combine_local: wgpu::ComputePipeline,
+}
+
+impl DrcPipelines {
+    fn new(device: &wgpu::Device) -> Self {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("drc-pipeline"),
+            source: wgpu::ShaderSource::Wgsl(rime_isp::vbe::drc::DRC_PIPELINE_WGSL.into()),
+        });
+        let pipeline = |entry_point: &'static str| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry_point),
+                layout: None,
+                module: &module,
+                entry_point: Some(entry_point),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+        Self {
+            prefilter: pipeline("drc_prefilter_main"),
+            downsample: pipeline("pyramid_downsample_main"),
+            reconstruct: pipeline("pyramid_reconstruct_main"),
+            guided_stats_horizontal: pipeline("guided_stats_horizontal_main"),
+            guided_stats_vertical: pipeline("guided_stats_vertical_main"),
+            guided_coefficients: pipeline("guided_coefficients_main"),
+            guided_coefficients_horizontal: pipeline("guided_coefficients_horizontal_main"),
+            guided_apply_vertical: pipeline("guided_apply_vertical_main"),
+            combine_global: pipeline("drc_combine_global_main"),
+            combine_local: pipeline("drc_combine_local_main"),
+        }
+    }
+}
+
 struct PooledTexture {
     domain: SignalDomain,
     format: ResourceFormat,
@@ -51,6 +99,7 @@ pub struct WgpuReadbackExecutor {
     queue: wgpu::Queue,
     operators: Vec<CompiledOperator>,
     texture_pool: Mutex<Vec<PooledTexture>>,
+    drc_pipelines: DrcPipelines,
 }
 
 impl WgpuReadbackExecutor {
@@ -62,6 +111,7 @@ impl WgpuReadbackExecutor {
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .map_err(|error| WgpuReadbackError::Device(error.to_string()))?;
+        let drc_pipelines = DrcPipelines::new(&device);
         let mut operators = Vec::new();
         for operator in rime_isp::normal_operators().iter().copied() {
             let definition = operator.definition();
@@ -91,6 +141,7 @@ impl WgpuReadbackExecutor {
             queue,
             operators,
             texture_pool: Mutex::new(Vec::new()),
+            drc_pipelines,
         })
     }
 
@@ -115,16 +166,82 @@ impl WgpuReadbackExecutor {
         )
     }
 
+    pub fn render_with_drc_method(
+        &self,
+        frame: &DecodedRawFrame,
+        method: &str,
+    ) -> Result<super::PreviewSurface, WgpuReadbackError> {
+        self.render_with_drc_options(frame, method, DrcExposurePolicy::Baseline, None, 0.0)
+    }
+
+    pub fn render_with_drc_options(
+        &self,
+        frame: &DecodedRawFrame,
+        method: &str,
+        exposure_policy: DrcExposurePolicy,
+        metered_target_ev100: Option<f64>,
+        profile_adjustment_ev: f64,
+    ) -> Result<super::PreviewSurface, WgpuReadbackError> {
+        self.render_internal(
+            frame,
+            super::NativeFrameIdentity {
+                frame_index: frame.frame_index,
+                run_revision: 0,
+                method_revision: 0,
+                gpu_generation: 0,
+                phase: rime_core::FramePhase::Output,
+            },
+            Some(method),
+            exposure_policy,
+            metered_target_ev100,
+            profile_adjustment_ev,
+        )
+    }
+
     pub fn render_with_identity(
         &self,
         frame: &DecodedRawFrame,
         identity: super::NativeFrameIdentity,
+    ) -> Result<super::PreviewSurface, WgpuReadbackError> {
+        self.render_internal(
+            frame,
+            identity,
+            None,
+            DrcExposurePolicy::Baseline,
+            None,
+            0.0,
+        )
+    }
+
+    fn render_internal(
+        &self,
+        frame: &DecodedRawFrame,
+        identity: super::NativeFrameIdentity,
+        drc_method: Option<&str>,
+        drc_exposure_policy: DrcExposurePolicy,
+        drc_metered_target_ev100: Option<f64>,
+        drc_profile_adjustment_ev: f64,
     ) -> Result<super::PreviewSurface, WgpuReadbackError> {
         Self::validate_input(&frame.layout, frame.samples().len())?;
         let width = frame.layout.width;
         let height = frame.layout.height;
         let cfa_pattern =
             Self::cfa_pattern(frame.layout.cfa).ok_or(DngReaderError::UnsupportedCfa)?;
+        let black_level = frame.metadata.black_levels.first().copied().unwrap_or(0.0) as f32;
+        let white_level = frame
+            .metadata
+            .white_levels
+            .first()
+            .copied()
+            .unwrap_or(4095.0) as f32;
+        let cfa_gains = build_drc_cfa_gains(frame, cfa_pattern)?;
+        let drc_local_statistics = build_drc_local_statistics(
+            frame.samples(),
+            &frame.layout,
+            black_level,
+            white_level,
+            cfa_gains,
+        )?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
                 frame_index: identity.frame_index,
@@ -133,23 +250,26 @@ impl WgpuReadbackExecutor {
             },
             width,
             height,
-            black_level: frame.metadata.black_levels.first().copied().unwrap_or(0.0) as f32,
-            white_level: frame
-                .metadata
-                .white_levels
-                .first()
-                .copied()
-                .unwrap_or(4095.0) as f32,
+            black_level,
+            white_level,
             cfa_pattern,
             as_shot_neutral: frame.metadata.as_shot_neutral,
             as_shot_white_xy: frame.metadata.as_shot_white_xy,
             color_matrix1: frame.metadata.color_matrix1,
             color_matrix2: frame.metadata.color_matrix2,
+            analog_balance: frame.metadata.analog_balance,
             scene_brightness_ev: frame.metadata.exif_brightness_value,
             exposure_deviation_ev: frame.metadata.exif_exposure_bias_value,
             iso: frame.metadata.exif_iso_speed.map(f64::from),
             analog_gain: None,
             digital_gain: None,
+            baseline_exposure_ev: frame.metadata.baseline_exposure,
+            exposure_time_seconds: positive_ratio(frame.metadata.exif_exposure_time),
+            f_number: positive_ratio(frame.metadata.exif_f_number),
+            drc_local_statistics: Some(drc_local_statistics),
+            drc_exposure_policy,
+            drc_metered_target_ev100,
+            drc_profile_adjustment_ev,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan
@@ -157,9 +277,26 @@ impl WgpuReadbackExecutor {
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
+        let selected = order
+            .iter()
+            .filter(|id| **id != "raw_source")
+            .map(|id| {
+                let operator = rime_isp::operator_by_id(id).ok_or_else(|| {
+                    OperatorError::UnregisteredOperator {
+                        module_id: (*id).to_owned(),
+                    }
+                })?;
+                let method = if *id == "drc" {
+                    drc_method.unwrap_or(operator.definition().default_method)
+                } else {
+                    operator.definition().default_method
+                };
+                Ok((*id, method))
+            })
+            .collect::<Result<Vec<_>, OperatorError>>()?;
         let raw_texture = self.upload_raw(frame);
         let mut current: Option<PooledTexture> = None;
-        super::execute_operator_phases(&order, &preprocess_context, |operator, packet| {
+        super::execute_operator_methods(&selected, &preprocess_context, |operator, packet| {
             let compiled = self
                 .operators
                 .iter()
@@ -187,11 +324,15 @@ impl WgpuReadbackExecutor {
                     module_id: operator.definition().id,
                     reason: "texture pool is unavailable",
                 })?;
-            self.dispatch(compiled, packet, input, &output.texture)
-                .map_err(|_| OperatorError::Preprocess {
-                    module_id: operator.definition().id,
-                    reason: "GPU dispatch failed",
-                })?;
+            let dispatch = if operator.definition().id == "drc" {
+                self.dispatch_drc(packet, input, &output.texture)
+            } else {
+                self.dispatch(compiled, packet, input, &output.texture)
+            };
+            dispatch.map_err(|_| OperatorError::Preprocess {
+                module_id: operator.definition().id,
+                reason: "GPU dispatch failed",
+            })?;
             if let Some(previous) = current.replace(output) {
                 self.release_texture(previous)
                     .map_err(|_| OperatorError::Preprocess {
@@ -244,6 +385,263 @@ impl WgpuReadbackExecutor {
         texture
     }
 
+    fn dispatch_drc(
+        &self,
+        packet: &ModuleParameterPacket,
+        input: &wgpu::Texture,
+        output: &wgpu::Texture,
+    ) -> Result<(), WgpuReadbackError> {
+        if packet.bytes().len() < 48 {
+            return Err(WgpuReadbackError::Resource(
+                "DRC scalar packet is incomplete".to_owned(),
+            ));
+        }
+        let uniform = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("drc-scalars"),
+                contents: packet.bytes(),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let global_resource = packet.resource("tone_lut_global").ok_or_else(|| {
+            WgpuReadbackError::Resource("DRC global tone LUT is missing".to_owned())
+        })?;
+        let global_lut = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(global_resource.id()),
+                contents: global_resource.bytes(),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        let local_lut = packet.resource("tone_lut_local").map(|resource| {
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(resource.id()),
+                    contents: resource.bytes(),
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
+        });
+        let level_count = u32::from_ne_bytes(
+            packet.bytes()[24..28]
+                .try_into()
+                .expect("validated DRC level count bytes"),
+        )
+        .clamp(1, 5) as usize;
+        let width = input.width();
+        let height = input.height();
+        let y0 = self.create_drc_texture(wgpu::TextureFormat::R32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.prefilter,
+            &uniform,
+            &[(1, input)],
+            4,
+            &y0,
+            &[],
+        );
+        let mut levels = vec![y0];
+        for _ in 1..level_count {
+            let previous = levels.last().expect("first DRC pyramid level");
+            let next = self.create_drc_texture(
+                wgpu::TextureFormat::R32Float,
+                (previous.width() / 2).max(1),
+                (previous.height() / 2).max(1),
+            );
+            self.dispatch_drc_pass(
+                &self.drc_pipelines.downsample,
+                &uniform,
+                &[(1, previous)],
+                4,
+                &next,
+                &[],
+            );
+            levels.push(next);
+        }
+
+        let mut base =
+            self.dispatch_guided_base(levels.last().expect("DRC pyramid is non-empty"), &uniform);
+        for index in (0..levels.len().saturating_sub(1)).rev() {
+            let candidate = self.create_drc_texture(
+                wgpu::TextureFormat::R32Float,
+                levels[index].width(),
+                levels[index].height(),
+            );
+            self.dispatch_drc_pass(
+                &self.drc_pipelines.reconstruct,
+                &uniform,
+                &[(1, &levels[index]), (2, &levels[index + 1]), (3, &base)],
+                4,
+                &candidate,
+                &[],
+            );
+            base = self.dispatch_guided_base(&candidate, &uniform);
+        }
+
+        let mut tone_buffers = vec![(6, &global_lut)];
+        let combine = if packet.method() == "01" {
+            let local = local_lut.as_ref().ok_or_else(|| {
+                WgpuReadbackError::Resource("DRC01 local tone LUT is missing".to_owned())
+            })?;
+            tone_buffers.push((7, local));
+            &self.drc_pipelines.combine_local
+        } else {
+            &self.drc_pipelines.combine_global
+        };
+        self.dispatch_drc_pass(
+            combine,
+            &uniform,
+            &[(1, input), (2, &levels[0]), (3, &base)],
+            4,
+            output,
+            &tone_buffers,
+        );
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
+        Ok(())
+    }
+
+    fn dispatch_guided_base(&self, input: &wgpu::Texture, uniform: &wgpu::Buffer) -> wgpu::Texture {
+        let width = input.width();
+        let height = input.height();
+        let stats_horizontal =
+            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.guided_stats_horizontal,
+            uniform,
+            &[(1, input)],
+            5,
+            &stats_horizontal,
+            &[],
+        );
+        let stats_vertical =
+            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.guided_stats_vertical,
+            uniform,
+            &[(1, &stats_horizontal)],
+            5,
+            &stats_vertical,
+            &[],
+        );
+        let coefficients = self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.guided_coefficients,
+            uniform,
+            &[(2, &stats_vertical)],
+            5,
+            &coefficients,
+            &[],
+        );
+        let coefficients_horizontal =
+            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.guided_coefficients_horizontal,
+            uniform,
+            &[(1, &coefficients)],
+            5,
+            &coefficients_horizontal,
+            &[],
+        );
+        let output = self.create_drc_texture(wgpu::TextureFormat::R32Float, width, height);
+        self.dispatch_drc_pass(
+            &self.drc_pipelines.guided_apply_vertical,
+            uniform,
+            &[(1, &coefficients_horizontal), (2, input)],
+            4,
+            &output,
+            &[],
+        );
+        output
+    }
+
+    fn create_drc_texture(
+        &self,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("drc-transient"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        })
+    }
+
+    fn dispatch_drc_pass(
+        &self,
+        pipeline: &wgpu::ComputePipeline,
+        uniform: &wgpu::Buffer,
+        inputs: &[(u32, &wgpu::Texture)],
+        output_binding: u32,
+        output: &wgpu::Texture,
+        buffers: &[(u32, &wgpu::Buffer)],
+    ) {
+        let input_views = inputs
+            .iter()
+            .map(|(binding, texture)| {
+                (
+                    *binding,
+                    texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut entries = Vec::with_capacity(2 + input_views.len() + buffers.len());
+        entries.push(wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform.as_entire_binding(),
+        });
+        entries.extend(
+            input_views
+                .iter()
+                .map(|(binding, view)| wgpu::BindGroupEntry {
+                    binding: *binding,
+                    resource: wgpu::BindingResource::TextureView(view),
+                }),
+        );
+        entries.push(wgpu::BindGroupEntry {
+            binding: output_binding,
+            resource: wgpu::BindingResource::TextureView(&output_view),
+        });
+        entries.extend(
+            buffers
+                .iter()
+                .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                    binding: *binding,
+                    resource: buffer.as_entire_binding(),
+                }),
+        );
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("drc-pass"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("drc-pass"),
+            });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("drc-pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(output.width().div_ceil(8), output.height().div_ceil(8), 1);
+        }
+        self.queue.submit([encoder.finish()]);
+    }
+
     fn dispatch(
         &self,
         compiled: &CompiledOperator,
@@ -275,6 +673,18 @@ impl WgpuReadbackExecutor {
             }
             (None, true) => None,
         };
+        let parameter_resources = packet
+            .resources()
+            .iter()
+            .map(|resource| {
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(resource.id()),
+                        contents: resource.bytes(),
+                        usage: wgpu::BufferUsages::STORAGE,
+                    })
+            })
+            .collect::<Vec<_>>();
         let mut entries = vec![
             wgpu::BindGroupEntry {
                 binding: compiled.shader.bindings.input,
@@ -289,6 +699,12 @@ impl WgpuReadbackExecutor {
         {
             entries.push(wgpu::BindGroupEntry {
                 binding,
+                resource: buffer.as_entire_binding(),
+            });
+        }
+        for (index, buffer) in parameter_resources.iter().enumerate() {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 3 + index as u32,
                 resource: buffer.as_entire_binding(),
             });
         }
@@ -470,6 +886,72 @@ impl WgpuReadbackExecutor {
             BayerCfa::Unsupported => None,
         }
     }
+}
+
+fn build_drc_cfa_gains(
+    frame: &DecodedRawFrame,
+    cfa_pattern: [u32; 4],
+) -> Result<[f32; 4], WgpuReadbackError> {
+    let metadata = WhiteBalanceMetadata {
+        as_shot_neutral: frame.metadata.as_shot_neutral,
+        as_shot_white_xy: frame.metadata.as_shot_white_xy,
+        color_matrix1: frame.metadata.color_matrix1,
+        color_matrix2: frame.metadata.color_matrix2,
+        analog_balance: frame.metadata.analog_balance,
+    };
+    let gains = match white_balance_gains(&metadata) {
+        Ok(gains) => [gains.red, gains.green, gains.blue],
+        Err(WhiteBalanceError::MissingSource) => [1.0; 3],
+        Err(error) => return Err(WgpuReadbackError::Resource(error.to_string())),
+    };
+    let mut cfa_gains = [1.0; 4];
+    for (output, channel) in cfa_gains.iter_mut().zip(cfa_pattern) {
+        *output = *gains.get(channel as usize).ok_or_else(|| {
+            WgpuReadbackError::Resource("invalid CFA channel for DRC statistics".to_owned())
+        })?;
+    }
+    Ok(cfa_gains)
+}
+
+fn build_drc_local_statistics(
+    samples: &[u16],
+    layout: &RawFrameLayout,
+    black_level: f32,
+    white_level: f32,
+    cfa_gains: [f32; 4],
+) -> Result<DrcLocalStatistics, WgpuReadbackError> {
+    const TILES_X: u32 = 8;
+    const TILES_Y: u32 = 6;
+    const BINS: u32 = 64;
+    if !black_level.is_finite() || !white_level.is_finite() || white_level <= black_level {
+        return Err(WgpuReadbackError::Resource(
+            "invalid levels for DRC local statistics".to_owned(),
+        ));
+    }
+    let mut histograms = vec![0_u32; (TILES_X * TILES_Y * BINS) as usize];
+    let range = white_level - black_level;
+    for y in 0..layout.height {
+        for x in 0..layout.width {
+            let sample_index = (y * layout.row_stride_samples + x) as usize;
+            let cfa_index = ((y & 1) * 2 + (x & 1)) as usize;
+            let normalized = (((f32::from(samples[sample_index]) - black_level) / range)
+                * cfa_gains[cfa_index])
+                .clamp(0.0, 1.0);
+            let tile_x = (x * TILES_X / layout.width).min(TILES_X - 1);
+            let tile_y = (y * TILES_Y / layout.height).min(TILES_Y - 1);
+            let bin = ((normalized * (BINS - 1) as f32).floor() as u32).min(BINS - 1);
+            let index = ((tile_y * TILES_X + tile_x) * BINS + bin) as usize;
+            histograms[index] = histograms[index].saturating_add(1);
+        }
+    }
+    DrcLocalStatistics::new(TILES_X, TILES_Y, BINS, histograms)
+        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))
+}
+
+fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {
+    value.and_then(|(numerator, denominator)| {
+        (denominator != 0).then(|| f64::from(numerator) / f64::from(denominator))
+    })
 }
 
 fn texture_format(format: ResourceFormat) -> wgpu::TextureFormat {

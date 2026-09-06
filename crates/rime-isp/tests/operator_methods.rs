@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rime_isp::{normal_operators, OperatorDefinition};
+use rime_isp::{OperatorDefinition, normal_operators};
 
 #[test]
 fn normal_operators_use_two_digit_methods_with_shared_io_contracts() {
@@ -92,9 +92,11 @@ fn mctf_uses_one_module_schema_and_default_iq_table() {
 
 #[test]
 fn ce_replaces_color_as_the_vpe_operator_name() {
-    assert!(!normal_operators()
-        .iter()
-        .any(|operator| operator.definition().id == "color"));
+    assert!(
+        !normal_operators()
+            .iter()
+            .any(|operator| operator.definition().id == "color")
+    );
     assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
 #[test]
@@ -155,6 +157,60 @@ fn dem_registers_reference_methods_and_cfa_parameters() {
         assert!(method.parameters.contains("cfa"));
         assert!(method.shader_entry.starts_with("demosaic_"));
     }
+}
+
+#[test]
+fn drc_registers_global_and_local_tone_methods_with_shared_raw_contracts() {
+    let drc = normal_operators()
+        .iter()
+        .find(|operator| operator.definition().id == "drc")
+        .expect("DRC operator")
+        .definition();
+    assert_eq!(drc.mode, rime_core::NodeExecutionMode::Enabled);
+    assert_eq!(
+        drc.methods
+            .iter()
+            .map(|method| method.method)
+            .collect::<Vec<_>>(),
+        ["00", "01"]
+    );
+    let global = &drc.methods[0];
+    let local = &drc.methods[1];
+    assert_eq!(global.input, local.input);
+    assert_eq!(global.output, local.output);
+    assert_eq!(global.input, global.output);
+    assert_eq!(global.shader.bindings.uniform, Some(0));
+    assert_eq!(local.shader.bindings.uniform, Some(0));
+    assert!(global.parameters.contains("global_tone_lut"));
+    assert!(local.parameters.contains("local_tone_lut"));
+    assert_eq!(global.shader.source, local.shader.source);
+    assert_eq!(global.shader.stages.len(), 9);
+    assert_eq!(local.shader.stages.len(), 9);
+    let global_combine = global
+        .shader
+        .stages
+        .iter()
+        .find(|stage| stage.entry_point == "drc_combine_global_main")
+        .expect("global combine stage");
+    assert!(
+        global_combine
+            .bindings
+            .iter()
+            .any(|binding| binding.binding == 6)
+    );
+    let local_combine = local
+        .shader
+        .stages
+        .iter()
+        .find(|stage| stage.entry_point == "drc_combine_local_main")
+        .expect("local combine stage");
+    assert!(
+        local_combine
+            .bindings
+            .iter()
+            .any(|binding| binding.binding == 7)
+    );
+    assert_ne!(global.shader.entry_point, local.shader.entry_point);
 }
 
 fn assert_operator_methods_are_valid(operator: &OperatorDefinition) {

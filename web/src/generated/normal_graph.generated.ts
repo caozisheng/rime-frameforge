@@ -191,7 +191,7 @@ export const normalGraphPresentation = {
       "label": "DRC",
       "parent_id": "vbe",
       "kind": "operator",
-      "mode": "bypass",
+      "mode": "enabled",
       "execution_node_id": "drc",
       "module_id": null,
       "iq_override_id": null,
@@ -201,7 +201,7 @@ export const normalGraphPresentation = {
       "outputs": [
         "out"
       ],
-      "reason": "method 00: identity bypass",
+      "reason": null,
       "default_expanded": false
     },
     {

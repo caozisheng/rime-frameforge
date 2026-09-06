@@ -1,6 +1,8 @@
 import type { RawFrameDescriptor } from '../contracts.js';
 
-const BYTES_PER_PIXEL_BY_STAGE = [2, 4, 4, 16, 16, 16, 16] as const;
+const NORMAL_FULL_RESOLUTION_BYTES_PER_PIXEL = 54;
+const DRC_LEVEL_BYTES_PER_PIXEL = 76;
+const DRC_BUFFER_BYTES = 48 + 257 * (1 + 8 * 6) * 4;
 const DEFAULT_MAX_TEXTURE_DIMENSION = 8192;
 const SAFE_MEMORY_FRACTION = 0.7;
 
@@ -24,18 +26,26 @@ export function validateNormalGraphAdapterLimits(limits: Pick<GPUSupportedLimits
 }
 
 export function estimateNormalGraphLivePeakBytes(descriptor: RawFrameDescriptor): number {
-  const pixels = descriptor.width * descriptor.height;
-  let maxAdjacent = 0;
-  for (let index = 0; index < BYTES_PER_PIXEL_BY_STAGE.length - 1; index += 1) {
-    const adjacent = BYTES_PER_PIXEL_BY_STAGE[index]! + BYTES_PER_PIXEL_BY_STAGE[index + 1]!;
-    maxAdjacent = Math.max(maxAdjacent, adjacent);
-  }
-  return pixels * (BYTES_PER_PIXEL_BY_STAGE[0] + maxAdjacent);
+  return retainedGraphBytes(descriptor);
 }
 
 export function estimateNormalGraphPoolBytes(descriptor: RawFrameDescriptor): number {
-  const pixels = descriptor.width * descriptor.height;
-  return BYTES_PER_PIXEL_BY_STAGE.reduce((total, bytesPerPixel) => total + pixels * bytesPerPixel, 0);
+  return retainedGraphBytes(descriptor);
+}
+
+function retainedGraphBytes(descriptor: RawFrameDescriptor): number {
+  const fullPixels = descriptor.width * descriptor.height;
+  let width = descriptor.width;
+  let height = descriptor.height;
+  let pyramidPixels = 0;
+  for (let level = 0; level < 3; level += 1) {
+    pyramidPixels += width * height;
+    width = Math.max(1, Math.floor(width / 2));
+    height = Math.max(1, Math.floor(height / 2));
+  }
+  return fullPixels * NORMAL_FULL_RESOLUTION_BYTES_PER_PIXEL
+    + pyramidPixels * DRC_LEVEL_BYTES_PER_PIXEL
+    + DRC_BUFFER_BYTES;
 }
 
 export interface GpuMemoryEstimate {

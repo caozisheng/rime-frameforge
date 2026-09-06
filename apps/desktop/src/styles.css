@@ -26,6 +26,7 @@
   --error: #c43d3d;
   --completed: #2f6f56;
   --disabled: #9aa3ac;
+  --implemented-soft: #eef7f2;
   --shadow-float: 0 2px 8px rgb(0 0 0 / 8%);
 }
 
@@ -264,6 +265,7 @@ button:disabled {
   cursor: pointer;
   transition: border-color 140ms ease, background-color 140ms ease;
 }
+.normal-node.appearance-implemented { background: var(--implemented-soft); }
 
 .graph-node:hover { border-color: var(--selection); background: var(--selection-soft); }
 .graph-node.is-selected { border: 2px solid var(--selection); background: var(--selection-soft); }

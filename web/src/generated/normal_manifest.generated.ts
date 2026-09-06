@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "ae4c6f1bae91dd2cb0a7bea10240587b3f73d87f9ef8f64cebbe302274656f63",
+  "manifest_hash": "83aa4235e7f2950870cabe3f369544ddada1b966c0c895b59997377f222695fc",
   "nodes": [
     {
       "id": "raw_source",
@@ -288,7 +288,7 @@ export const normalManifest = {
     {
       "id": "drc",
       "display_name": "DRC",
-      "shader_entry": "identity_r32_main",
+      "shader_entry": "drc_combine_global_main",
       "inputs": [
         {
           "id": "in",
@@ -315,9 +315,35 @@ export const normalManifest = {
       "methods": [
         {
           "method": "00",
-          "shader_entry": "identity_r32_main",
+          "shader_entry": "drc_combine_global_main",
           "parameters": [
-            "identity"
+            "drc_gain",
+            "knee",
+            "amplifier",
+            "luma_guard",
+            "min_ratio",
+            "max_ratio",
+            "level_count",
+            "feature_flags",
+            "cfa",
+            "global_tone_lut"
+          ]
+        },
+        {
+          "method": "01",
+          "shader_entry": "drc_combine_local_main",
+          "parameters": [
+            "drc_gain",
+            "knee",
+            "amplifier",
+            "luma_guard",
+            "min_ratio",
+            "max_ratio",
+            "level_count",
+            "feature_flags",
+            "cfa",
+            "global_tone_lut",
+            "local_tone_lut"
           ]
         }
       ]

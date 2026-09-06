@@ -53,7 +53,7 @@ function fusedGpu() {
 beforeEach(() => {
   Object.assign(globalThis, {
     GPUTextureUsage: { COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8 },
-    GPUBufferUsage: { UNIFORM: 64, COPY_DST: 8, MAP_READ: 1 },
+    GPUBufferUsage: { UNIFORM: 64, STORAGE: 128, COPY_DST: 8, MAP_READ: 1 },
     GPUMapMode: { READ: 1 },
   });
 });
@@ -67,7 +67,7 @@ describe('fused Normal GPU executor', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
 
-    expect(fake.counts).toMatchObject({ computePasses: 1, renderPasses: 1, submits: 1, waits: 1, dispatches: 1, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 23, renderPasses: 1, submits: 1, waits: 1, dispatches: 23, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('encodes bounded complex DEM segments in one submission and one frame fence', async () => {
@@ -79,7 +79,7 @@ describe('fused Normal GPU executor', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
 
-    expect(fake.counts).toMatchObject({ computePasses: 4, renderPasses: 1, submits: 1, waits: 1, dispatches: 4, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 26, renderPasses: 1, submits: 1, waits: 1, dispatches: 26, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('rebinds two committed outputs for Compare without recomputing the graph', async () => {
@@ -91,7 +91,7 @@ describe('fused Normal GPU executor', () => {
 
     await executor.present('blc', 'dem', 0.4);
 
-    expect(fake.counts.computePasses).toBe(1);
+    expect(fake.counts.computePasses).toBe(23);
     expect(fake.counts.renderPasses).toBe(2);
     expect(fake.counts.draws).toBe(3);
     expect(fake.counts.scissors).toEqual([1]);

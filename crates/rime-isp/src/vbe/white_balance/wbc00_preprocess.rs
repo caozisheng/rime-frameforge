@@ -8,6 +8,7 @@ pub struct WhiteBalanceMetadata {
     pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix1: [f64; 9],
     pub color_matrix2: Option<[f64; 9]>,
+    pub analog_balance: Option<[f64; 3]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -49,6 +50,7 @@ pub fn white_balance_gains(
                 .as_shot_white_xy
                 .ok_or(WhiteBalanceError::MissingSource)?,
             metadata.color_matrix2.unwrap_or(metadata.color_matrix1),
+            metadata.analog_balance,
         )?,
     };
     let gains = [1.0 / neutral[0], 1.0 / neutral[1], 1.0 / neutral[2]];
@@ -83,6 +85,7 @@ pub(crate) fn preprocess(
         as_shot_white_xy: context.as_shot_white_xy,
         color_matrix1: context.color_matrix1,
         color_matrix2: context.color_matrix2,
+        analog_balance: context.analog_balance,
     })
     .map_err(|error| OperatorError::Preprocess {
         module_id,
@@ -131,6 +134,7 @@ fn validate_neutral(neutral: [f64; 3]) -> Result<[f64; 3], WhiteBalanceError> {
 fn neutral_from_white_xy(
     white_xy: [f64; 2],
     color_matrix: [f64; 9],
+    analog_balance: Option<[f64; 3]>,
 ) -> Result<[f64; 3], WhiteBalanceError> {
     let [x, y] = white_xy;
     if !x.is_finite() || !y.is_finite() || x <= 0.0 || y <= 0.0 || x + y >= 1.0 {
@@ -140,11 +144,22 @@ fn neutral_from_white_xy(
         return Err(WhiteBalanceError::InvalidColorMatrix);
     }
     let xyz = [x / y, 1.0, (1.0 - x - y) / y];
-    let camera = [
+    let mut camera = [
         color_matrix[0] * xyz[0] + color_matrix[1] * xyz[1] + color_matrix[2] * xyz[2],
         color_matrix[3] * xyz[0] + color_matrix[4] * xyz[1] + color_matrix[5] * xyz[2],
         color_matrix[6] * xyz[0] + color_matrix[7] * xyz[1] + color_matrix[8] * xyz[2],
     ];
+    if let Some(balance) = analog_balance {
+        if !balance
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+        {
+            return Err(WhiteBalanceError::InvalidCameraWhite);
+        }
+        for (camera, balance) in camera.iter_mut().zip(balance) {
+            *camera *= balance;
+        }
+    }
     if !camera.iter().all(|value| value.is_finite() && *value > 0.0) {
         return Err(WhiteBalanceError::InvalidCameraWhite);
     }

@@ -78,34 +78,46 @@ export interface SegmentedNormalShaders {
   readonly post: string;
 }
 
+export function compileBlcShader(): string {
+  return `${QUANTIZE_FUNCTIONS}
+${FUSED_PARAMS}
+@group(0) @binding(0) var raw_input: texture_2d<u32>;
+@group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(2) var<uniform> params: FusedParams;
+${QUANT_HELPERS}
+${rawBlcFunctions()}
+@compute @workgroup_size(8, 8)
+fn blc_main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= params.width || gid.y >= params.height) { return; }
+  let p = vec2<i32>(gid.xy);
+  textureStore(blc_output, p, vec4<f32>(sample_blc(p), 0.0, 0.0, 1.0));
+}`;
+}
+
 export function compileFusedNormalShader(demMethod: keyof typeof DEMOSAIC_SHADERS = '00'): string {
   const plan = buildFusedGraphPlan();
-  if (plan.nodes.length !== 6 || plan.previewNodeId !== 'rgb2yuv') throw new Error('FUSED_GRAPH_INVALID: unexpected Normal Graph plan');
-  if (demMethod !== '00') {
-    throw new Error(`FUSED_GRAPH_BOUNDARY: DEM method ${demMethod} requires a materialization boundary`);
-  }
+  if (plan.nodes.length !== 7 || plan.previewNodeId !== 'rgb2yuv') throw new Error('FUSED_GRAPH_INVALID: unexpected Normal Graph plan');
+  if (demMethod !== '00') throw new Error(`FUSED_GRAPH_BOUNDARY: DEM method ${demMethod} requires a materialization boundary`);
   const demosaic = adaptBilinearDemosaic(demBilinearShader);
   return `${QUANTIZE_FUNCTIONS}
 // dem-method:00
 ${FUSED_PARAMS}
-@group(0) @binding(0) var raw_input: texture_2d<u32>;
-@group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(2) var wbc_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(3) var dem_output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(4) var color_output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(5) var gamma_output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(6) var yuv_output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(7) var<uniform> params: FusedParams;
+@group(0) @binding(0) var drc_input: texture_2d<f32>;
+@group(0) @binding(1) var wbc_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(2) var dem_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(3) var color_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(4) var gamma_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(5) var yuv_output: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(6) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 ${GAMMA_HELPERS}
-${rawBlcWbcFunctions()}
+${drcWbcFunctions()}
 ${demosaic}
 ${postprocessFunctions('sample_dem(p)')}
 @compute @workgroup_size(8, 8)
 fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
   let p = vec2<i32>(gid.xy);
-  textureStore(blc_output, p, vec4<f32>(sample_blc(p), 0.0, 0.0, 1.0));
   textureStore(wbc_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));
   textureStore(dem_output, p, sample_dem_quantized(p));
   textureStore(color_output, p, sample_color_correction(p));
@@ -116,7 +128,7 @@ fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 export function compileSegmentedNormalShaders(demMethod: keyof typeof DEMOSAIC_SHADERS): SegmentedNormalShaders {
   const plan = buildFusedGraphPlan();
-  if (plan.nodes.length !== 6 || plan.previewNodeId !== 'rgb2yuv') throw new Error('FUSED_GRAPH_INVALID: unexpected Normal Graph plan');
+  if (plan.nodes.length !== 7 || plan.previewNodeId !== 'rgb2yuv') throw new Error('FUSED_GRAPH_INVALID: unexpected Normal Graph plan');
   if (demMethod === '00') throw new Error('FUSED_GRAPH_SEGMENT_INVALID: bilinear DEM should use full fusion');
   return {
     pre: compilePreShader(),
@@ -126,20 +138,25 @@ export function compileSegmentedNormalShaders(demMethod: keyof typeof DEMOSAIC_S
   };
 }
 
-function rawBlcWbcFunctions(): string {
+function rawBlcFunctions(): string {
   return `fn source_extent() -> vec2<u32> { return vec2<u32>(params.width, params.height); }
 fn clamp_source(p: vec2<i32>) -> vec2<i32> { return clamp(p, vec2<i32>(0), vec2<i32>(source_extent()) - vec2<i32>(1)); }
 fn sample_raw(p: vec2<i32>) -> f32 { return f32(textureLoad(raw_input, clamp_source(p), 0).r); }
 fn sample_blc(p: vec2<i32>) -> f32 {
   let q = clamp_source(p);
   return quantize_scalar((sample_raw(q) - params.black_level) / (params.white_level - params.black_level), 0u, q);
+}`;
 }
+
+function drcWbcFunctions(): string {
+  return `fn source_extent() -> vec2<u32> { return vec2<u32>(params.width, params.height); }
+fn clamp_source(p: vec2<i32>) -> vec2<i32> { return clamp(p, vec2<i32>(0), vec2<i32>(source_extent()) - vec2<i32>(1)); }
 fn sample_wbc(p: vec2<i32>) -> f32 {
   let q = clamp_source(p);
   let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u);
   let channel = params.cfa_pattern[phase.y * 2u + phase.x];
   let gain = params.white_balance_gains[channel];
-  return quantize_scalar(sample_blc(q) * gain, 1u, q);
+  return quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q);
 }`;
 }
 
@@ -164,17 +181,15 @@ fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> {
 function compilePreShader(): string {
   return `${QUANTIZE_FUNCTIONS}
 ${FUSED_PARAMS}
-@group(0) @binding(0) var raw_input: texture_2d<u32>;
-@group(0) @binding(1) var blc_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(2) var pre_output: texture_storage_2d<r32float, write>;
-@group(0) @binding(3) var<uniform> params: FusedParams;
+@group(0) @binding(0) var drc_input: texture_2d<f32>;
+@group(0) @binding(1) var pre_output: texture_storage_2d<r32float, write>;
+@group(0) @binding(2) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
-${rawBlcWbcFunctions()}
+${drcWbcFunctions()}
 @compute @workgroup_size(8, 8)
 fn pre_demosaic_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (gid.x >= params.width || gid.y >= params.height) { return; }
   let p = vec2<i32>(gid.xy);
-  textureStore(blc_output, p, vec4<f32>(sample_blc(p), 0.0, 0.0, 1.0));
   textureStore(pre_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));
 }`;
 }

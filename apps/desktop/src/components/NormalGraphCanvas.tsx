@@ -10,6 +10,7 @@ import { NormalDataEdge } from './NormalDataEdge.js';
 import { layoutNormalContainers, type NormalContainerLayoutNode } from '../normal-container-layout.js';
 import { getNormalPortHandles, normalHandlePositions, toNormalReactFlowEdge } from '../normal-edge.js';
 import { normalFlowTopologyKey } from '../normal-flow-key.js';
+import { normalNodeAppearance } from '../../../../web/src/normal-node-appearance.js';
 
 interface NormalGraphCanvasProps {
   readonly envelope: RuntimeEnvelope;
@@ -101,7 +102,7 @@ function NormalNodeComponent({ data, selected }: NodeProps<NormalFlowNode>) {
       {getNormalPortHandles(data.inputs).map((handle) => (
         <Handle key={`target:${handle.id}`} id={handle.id} type="target" position={normalHandlePositions.target} style={{ top: handle.top }} className="dag-handle" />
       ))}
-      <div className={`graph-node normal-node mode-${data.mode} ${selected ? 'is-selected' : ''}`}>
+      <div className={`graph-node normal-node mode-${data.mode} appearance-${normalNodeAppearance(data.kind, data.mode)} ${selected ? 'is-selected' : ''}`}>
         <div className="normal-node-title">
           {data.kind === 'group' && <button className="normal-group-toggle" type="button" onClick={(event) => { event.stopPropagation(); data.onToggle(data.id); }} aria-label={`${data.expanded ? 'Collapse' : 'Expand'} ${data.label}`}>{data.expanded ? '▾' : '▸'}</button>}
           <strong>{data.label}</strong>

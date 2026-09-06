@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rime_cli::{natural_sort_dng_paths, resolve_graph_config, Cli, Command, RenderOptions};
+use rime_cli::{Cli, Command, RenderOptions, natural_sort_dng_paths, resolve_graph_config};
 
 #[test]
 fn cli_exposes_v013_headless_commands() {
@@ -17,6 +17,46 @@ fn cli_exposes_v013_headless_commands() {
     ])
     .expect("render command must parse");
     assert!(matches!(cli.command, Command::Render { .. }));
+}
+
+#[test]
+fn render_exposes_global_and_local_drc_methods() {
+    let cli = Cli::try_parse_from([
+        "rime-frameforge",
+        "render",
+        "input.dng",
+        "--output",
+        "out.png",
+        "--drc-method",
+        "01",
+        "--drc-exposure-policy",
+        "baseline-plus-bias",
+        "--drc-metered-target-ev100",
+        "10.5",
+        "--drc-profile-adjustment-ev",
+        "0.25",
+    ])
+    .expect("DRC01 option must parse");
+    let Command::Render { options, .. } = cli.command else {
+        panic!("expected render command");
+    };
+    assert_eq!(options.drc_method, "01");
+    assert_eq!(options.drc_exposure_policy, "baseline-plus-bias");
+    assert_eq!(options.drc_metered_target_ev100, Some(10.5));
+    assert!((options.drc_profile_adjustment_ev - 0.25).abs() < f64::EPSILON);
+
+    assert!(
+        Cli::try_parse_from([
+            "rime-frameforge",
+            "render",
+            "input.dng",
+            "--output",
+            "out.png",
+            "--drc-method",
+            "99",
+        ])
+        .is_err()
+    );
 }
 
 #[test]

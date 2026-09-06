@@ -11,6 +11,7 @@ fn explicit_as_shot_neutral_takes_precedence_over_white_xy() {
         as_shot_white_xy: Some([0.3127, 0.3290]),
         color_matrix1: matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         color_matrix2: Some(matrix([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])),
+        analog_balance: None,
     })
     .expect("explicit neutral is valid");
 
@@ -26,6 +27,7 @@ fn white_xy_uses_color_matrix2_and_normalizes_gains_by_green() {
         as_shot_white_xy: Some([0.25, 0.25]),
         color_matrix1: matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         color_matrix2: Some(matrix([2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.25])),
+        analog_balance: None,
     })
     .expect("white xy is valid");
 
@@ -41,6 +43,7 @@ fn white_xy_falls_back_to_color_matrix1() {
         as_shot_white_xy: Some([0.25, 0.25]),
         color_matrix1: matrix([2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.25]),
         color_matrix2: None,
+        analog_balance: None,
     })
     .expect("white xy is valid");
 
@@ -50,12 +53,28 @@ fn white_xy_falls_back_to_color_matrix1() {
 }
 
 #[test]
+fn white_xy_applies_dng_analog_balance_before_gain_normalization() {
+    let gains = white_balance_gains(&WhiteBalanceMetadata {
+        as_shot_neutral: None,
+        as_shot_white_xy: Some([0.25, 0.25]),
+        color_matrix1: matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        color_matrix2: None,
+        analog_balance: Some([2.0, 1.0, 0.5]),
+    })
+    .expect("white xy and AnalogBalance are valid");
+    assert!((gains.red - 0.5).abs() < 1e-6);
+    assert!((gains.green - 1.0).abs() < 1e-6);
+    assert!((gains.blue - 1.0).abs() < 1e-6);
+}
+
+#[test]
 fn invalid_white_balance_metadata_is_rejected() {
     let error = white_balance_gains(&WhiteBalanceMetadata {
         as_shot_neutral: None,
         as_shot_white_xy: Some([0.0, 0.25]),
         color_matrix1: matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         color_matrix2: None,
+        analog_balance: None,
     })
     .expect_err("invalid chromaticity must fail");
 
@@ -69,6 +88,7 @@ fn non_finite_color_matrix_is_rejected() {
         as_shot_white_xy: Some([0.25, 0.25]),
         color_matrix1: matrix([f64::NAN, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         color_matrix2: None,
+        analog_balance: None,
     })
     .expect_err("non-finite matrix must fail");
 
@@ -82,6 +102,7 @@ fn gains_that_overflow_f32_are_rejected() {
         as_shot_white_xy: None,
         color_matrix1: matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         color_matrix2: None,
+        analog_balance: None,
     })
     .expect_err("GPU f32 overflow must fail");
 

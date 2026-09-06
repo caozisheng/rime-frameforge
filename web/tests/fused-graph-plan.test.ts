@@ -8,6 +8,7 @@ describe('fused Normal Graph plan', () => {
 
     expect(plan.nodes.map((node) => node.id)).toEqual([
       'blc',
+      'drc',
       'wbc',
       'dem',
       'color_correction',
@@ -21,7 +22,6 @@ describe('fused Normal Graph plan', () => {
       'tintless',
       'lsc',
       'hr',
-      'drc',
       'cac',
       'raw_nr',
       'pfr',

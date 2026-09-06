@@ -68,3 +68,18 @@ pub fn render_normal_graph_quantization_typescript() -> Result<String, Diagnosti
         "export const normalGraphQuantization = {quantization_json} as const;\n"
     ))
 }
+
+/// Renders the shared DRC multi-pass WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_drc_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source = serde_json::to_string(crate::vbe::drc::DRC_PIPELINE_WGSL).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize DRC pipeline WGSL: {error}"),
+        )
+    })?;
+    Ok(format!("export const drcPipelineWgsl = {source};\n"))
+}

@@ -46,7 +46,7 @@ export const normalGraphQuantization = {
     },
     {
       "module_id": "drc",
-      "output_enabled": false,
+      "output_enabled": true,
       "output_profile": "s0.10",
       "clip_type": "truncate"
     },

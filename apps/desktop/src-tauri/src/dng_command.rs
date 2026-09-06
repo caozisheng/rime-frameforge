@@ -231,6 +231,7 @@ pub fn descriptor_from_frame(
         as_shot_white_xy: metadata.as_shot_white_xy,
         color_matrix1: metadata.color_matrix1,
         color_matrix2: metadata.color_matrix2,
+        analog_balance: metadata.analog_balance,
     })
     .map_err(|error| format!("DNG_WHITE_BALANCE_INVALID: {error}"))?;
     Ok(DngFrameDescriptor {

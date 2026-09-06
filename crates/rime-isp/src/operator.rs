@@ -66,12 +66,41 @@ pub struct ShaderBindings {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShaderBindingKind {
+    Texture,
+    StorageTexture,
+    UniformBuffer,
+    StorageBuffer,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShaderBindingAccess {
+    Read,
+    Write,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShaderStageBinding {
+    pub binding: u32,
+    pub resource: &'static str,
+    pub kind: ShaderBindingKind,
+    pub access: ShaderBindingAccess,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShaderStageAsset {
+    pub entry_point: &'static str,
+    pub bindings: &'static [ShaderStageBinding],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ShaderAsset {
     pub method: &'static str,
     pub source: &'static str,
     pub entry_point: &'static str,
     pub bindings: ShaderBindings,
     pub workgroup_size: [u32; 3],
+    pub stages: &'static [ShaderStageAsset],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,7 +110,7 @@ pub struct FrameIdentity {
     pub method_revision: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct PreprocessContext {
     pub identity: FrameIdentity,
     pub width: u32,
@@ -93,16 +122,53 @@ pub struct PreprocessContext {
     pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix1: [f64; 9],
     pub color_matrix2: Option<[f64; 9]>,
+    pub analog_balance: Option<[f64; 3]>,
     pub scene_brightness_ev: Option<f64>,
     pub exposure_deviation_ev: Option<f64>,
     pub iso: Option<f64>,
     pub analog_gain: Option<f64>,
     pub digital_gain: Option<f64>,
+    pub baseline_exposure_ev: Option<f64>,
+    pub exposure_time_seconds: Option<f64>,
+    pub f_number: Option<f64>,
+    pub drc_local_statistics: Option<crate::vbe::drc::DrcLocalStatistics>,
+    pub drc_exposure_policy: crate::vbe::drc::DrcExposurePolicy,
+    pub drc_metered_target_ev100: Option<f64>,
+    pub drc_profile_adjustment_ev: f64,
 }
 
 #[derive(Debug)]
 pub struct PostprocessContext {
     pub identity: FrameIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleParameterResource {
+    id: &'static str,
+    extent: [u32; 3],
+    bytes: Vec<u8>,
+}
+
+impl ModuleParameterResource {
+    #[must_use]
+    pub const fn new(id: &'static str, extent: [u32; 3], bytes: Vec<u8>) -> Self {
+        Self { id, extent, bytes }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> &'static str {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn extent(&self) -> [u32; 3] {
+        self.extent
+    }
+
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -112,6 +178,7 @@ pub struct ModuleParameterPacket {
     identity: FrameIdentity,
     bytes: [u8; MAX_UNIFORM_BYTES],
     len: usize,
+    resources: Vec<ModuleParameterResource>,
 }
 
 impl ModuleParameterPacket {
@@ -127,6 +194,7 @@ impl ModuleParameterPacket {
             identity,
             bytes: [0; MAX_UNIFORM_BYTES],
             len: 0,
+            resources: Vec::new(),
         }
     }
 
@@ -160,6 +228,39 @@ impl ModuleParameterPacket {
         &self.bytes[..self.len]
     }
 
+    /// Adds one immutable parameter resource to this invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DuplicateResource` when the resource identifier is already present.
+    pub fn push_resource(
+        &mut self,
+        resource: ModuleParameterResource,
+    ) -> Result<(), OperatorError> {
+        if self
+            .resources
+            .iter()
+            .any(|current| current.id == resource.id)
+        {
+            return Err(OperatorError::DuplicateResource {
+                module_id: self.module_id,
+                resource_id: resource.id,
+            });
+        }
+        self.resources.push(resource);
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn resource(&self, id: &str) -> Option<&ModuleParameterResource> {
+        self.resources.iter().find(|resource| resource.id == id)
+    }
+
+    #[must_use]
+    pub fn resources(&self) -> &[ModuleParameterResource] {
+        &self.resources
+    }
+
     #[must_use]
     pub const fn module_id(&self) -> &'static str {
         self.module_id
@@ -190,6 +291,11 @@ pub enum OperatorError {
         module_id: &'static str,
         actual: usize,
         maximum: usize,
+    },
+    #[error("operator `{module_id}` has duplicate parameter resource `{resource_id}`")]
+    DuplicateResource {
+        module_id: &'static str,
+        resource_id: &'static str,
     },
     #[error("operator `{module_id}` preprocessing failed: {reason}")]
     Preprocess {
@@ -309,5 +415,24 @@ pub const fn shader(
         entry_point,
         bindings,
         workgroup_size: [8, 8, 1],
+        stages: &[],
+    }
+}
+
+#[must_use]
+pub const fn shader_plan(
+    method: &'static str,
+    source: &'static str,
+    entry_point: &'static str,
+    bindings: ShaderBindings,
+    stages: &'static [ShaderStageAsset],
+) -> ShaderAsset {
+    ShaderAsset {
+        method,
+        source,
+        entry_point,
+        bindings,
+        workgroup_size: [8, 8, 1],
+        stages,
     }
 }

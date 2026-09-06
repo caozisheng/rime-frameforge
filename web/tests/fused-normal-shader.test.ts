@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileFusedNormalShader, compileSegmentedNormalShaders } from '../src/gpu/fused-normal-shader.js';
+import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from '../src/gpu/fused-normal-shader.js';
 
 const bypassIds = [
-  'sbpc_horizontal', 'dbpc', 'sbpc', 'tintless', 'lsc', 'hr', 'drc', 'cac', 'raw_nr', 'pfr', 'three_d_lut',
+  'sbpc_horizontal', 'dbpc', 'sbpc', 'tintless', 'lsc', 'hr', 'cac', 'raw_nr', 'pfr', 'three_d_lut',
 ];
 
 describe('fused Normal Graph WGSL compiler', () => {
@@ -11,11 +11,13 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader('00');
 
     expect(shader.match(/@compute/g)).toHaveLength(1);
-    expect(shader.match(/texture_storage_2d/g)).toHaveLength(6);
+    expect(shader.match(/texture_storage_2d/g)).toHaveLength(5);
     expect(shader).toContain('texture_storage_2d<rgba16float');
     expect(shader).not.toContain('texture_storage_2d<rgba32float');
-    expect(shader).toContain('textureStore(blc_output');
+    expect(shader).toContain('textureLoad(drc_input');
     expect(shader).toContain('textureStore(yuv_output');
+    const blc = compileBlcShader();
+    expect(blc).toContain('textureStore(blc_output');
   });
 
   it('keeps complex DEM methods behind a bounded materialization boundary', () => {
@@ -27,7 +29,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shaders.pre).toContain('pre_demosaic_main');
     expect(shaders.dem).toContain('demosaic_ppg_main');
     expect(shaders.post).toContain('postprocess_main');
-    expect(shaders.pre.match(/texture_storage_2d/g)).toHaveLength(2);
+    expect(shaders.pre.match(/texture_storage_2d/g)).toHaveLength(1);
     expect(shaders.quantize.match(/texture_storage_2d/g)).toHaveLength(1);
     expect(shaders.quantize).toContain('quantize_rgba(textureLoad(dem_input');
     expect(shaders.post.match(/texture_storage_2d/g)).toHaveLength(3);
@@ -42,7 +44,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader('00');
 
     bypassIds.forEach((id) => expect(shader).not.toMatch(new RegExp(`fn (?:sample_)?${id}(?:\\(|_)`)));
-    ['sample_blc', 'sample_wbc', 'sample_dem', 'sample_color_correction', 'sample_gamma', 'sample_rgb2yuv']
+    ['sample_wbc', 'sample_dem', 'sample_color_correction', 'sample_gamma', 'sample_rgb2yuv']
       .forEach((name) => expect(shader).toContain(`fn ${name}`));
   });
 
@@ -67,7 +69,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).not.toContain('gain = 2.0');
     expect(shader).not.toContain('gain = 1.5');
     expect(shader).toContain('let q = clamp_source(p)');
-    expect(shader).toContain('quantize_scalar(sample_blc(q) * gain, 1u, q)');
+    expect(shader).toContain('quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q)');
   });
 
   it('embeds six inline Rime.Q output plans', () => {

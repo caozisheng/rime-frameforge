@@ -32,3 +32,34 @@ fn gh5s_frame_runs_through_native_operator_graph() {
     );
     assert!(surface.pixels().iter().all(|value| value.is_finite()));
 }
+
+#[test]
+fn gh5s_frame_can_select_local_tone_drc01() {
+    let frame = DngReader::new()
+        .decode_file(Path::new(GH5S_SAMPLE), 8)
+        .expect("GH5S DNG must decode");
+    let executor = match WgpuReadbackExecutor::new() {
+        Ok(executor) => executor,
+        Err(WgpuReadbackError::AdapterUnavailable) => return,
+        Err(error) => panic!("native GPU must initialize when an adapter exists: {error}"),
+    };
+
+    let global = executor
+        .render_with_drc_method(&frame, "00")
+        .expect("DRC00 render");
+    let local = executor
+        .render_with_drc_method(&frame, "01")
+        .expect("DRC01 render");
+
+    assert_eq!(local.width(), global.width());
+    assert_eq!(local.height(), global.height());
+    assert!(local.pixels().iter().all(|value| value.is_finite()));
+    assert!(
+        local
+            .pixels()
+            .iter()
+            .zip(global.pixels())
+            .any(|(left, right)| (left - right).abs() > 1e-6),
+        "local tone must differ from global tone on the GH5S frame"
+    );
+}

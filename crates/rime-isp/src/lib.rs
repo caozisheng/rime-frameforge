@@ -3,20 +3,23 @@
 mod generated;
 mod graph;
 mod operator;
+pub mod primitives;
 pub mod vbe;
 pub mod vfe;
 pub mod vpe;
 
 pub use graph::{build_normal_graph_presentation, build_normal_manifest};
 pub use operator::{
-    FrameIdentity, MethodManifest, ModuleParameterPacket, Operator, OperatorDefinition,
-    OperatorError, OperatorPort, PostprocessContext, PreprocessContext, ShaderAsset,
-    ShaderBindings, empty_postprocess, empty_preprocess,
+    FrameIdentity, MethodManifest, ModuleParameterPacket, ModuleParameterResource, Operator,
+    OperatorDefinition, OperatorError, OperatorPort, PostprocessContext, PreprocessContext,
+    ShaderAsset, ShaderBindingAccess, ShaderBindingKind, ShaderBindings, ShaderStageAsset,
+    ShaderStageBinding, empty_postprocess, empty_preprocess, shader_plan,
 };
 
 pub use generated::{
-    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
-    render_normal_manifest_json, render_normal_manifest_typescript,
+    render_drc_pipeline_typescript, render_normal_graph_presentation_typescript,
+    render_normal_graph_quantization_typescript, render_normal_manifest_json,
+    render_normal_manifest_typescript,
 };
 /// Shared fixed-grid quantization and deterministic dither utilities.
 pub use rime_quant;

@@ -33,6 +33,7 @@ export interface RawFrameDescriptor {
   readonly blackLevel: number;
   readonly whiteLevel: number;
   readonly whiteBalanceGains: readonly [number, number, number];
+  readonly baselineExposure?: number | null;
 }
 export interface TransferAuditSnapshot {
   readonly hostReadBytes: number;

@@ -19,6 +19,7 @@ use clap::{Args, Parser, Subcommand};
 use image::{ImageBuffer, Rgba};
 use rime_core::GraphQuantizationConfig;
 use rime_dng::DngReader;
+use rime_isp::vbe::drc::DrcExposurePolicy;
 use rime_native_gpu::{
     BoundedFrameRing, FrameSlotState, NativePipelineConfig, WgpuReadbackError,
     WgpuReadbackExecutor, build_normal_graph_plan,
@@ -91,6 +92,14 @@ pub struct RenderOptions {
     pub print_resolved_config: bool,
     #[arg(long)]
     pub graph_config: Option<PathBuf>,
+    #[arg(long, default_value = "00", value_parser = ["00", "01"])]
+    pub drc_method: String,
+    #[arg(long, default_value = "baseline", value_parser = ["baseline", "baseline-plus-bias", "capture-bias", "calibrated-metering"])]
+    pub drc_exposure_policy: String,
+    #[arg(long)]
+    pub drc_metered_target_ev100: Option<f64>,
+    #[arg(long, default_value_t = 0.0)]
+    pub drc_profile_adjustment_ev: f64,
     #[arg(long, default_value = "h264")]
     pub codec: String,
     #[arg(long, default_value_t = 24)]
@@ -107,6 +116,10 @@ impl Default for RenderOptions {
             dry_run: false,
             print_resolved_config: false,
             graph_config: None,
+            drc_method: "00".to_owned(),
+            drc_exposure_policy: "baseline".to_owned(),
+            drc_metered_target_ev100: None,
+            drc_profile_adjustment_ev: 0.0,
             codec: "h264".to_owned(),
             fps: 24,
         }
@@ -253,7 +266,13 @@ fn render(input: &Path, options: &RenderOptions) -> Result<(), CliError> {
         return Ok(());
     }
     let frame = DngReader::new().decode_file(input, 0)?;
-    let surface = WgpuReadbackExecutor::new()?.render(&frame)?;
+    let surface = WgpuReadbackExecutor::new()?.render_with_drc_options(
+        &frame,
+        &options.drc_method,
+        drc_exposure_policy(options),
+        options.drc_metered_target_ev100,
+        options.drc_profile_adjustment_ev,
+    )?;
     write_png(
         &options.output,
         surface.width(),
@@ -264,6 +283,15 @@ fn render(input: &Path, options: &RenderOptions) -> Result<(), CliError> {
         options,
         serde_json::json!({"event":"completed", "frames":1, "output":options.output, "encoder_backend":config.encoder_backend}),
     )
+}
+
+fn drc_exposure_policy(options: &RenderOptions) -> DrcExposurePolicy {
+    match options.drc_exposure_policy.as_str() {
+        "baseline-plus-bias" => DrcExposurePolicy::BaselinePlusCaptureBias,
+        "capture-bias" => DrcExposurePolicy::CaptureBiasOnly,
+        "calibrated-metering" => DrcExposurePolicy::CalibratedMetering,
+        _ => DrcExposurePolicy::Baseline,
+    }
 }
 
 fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError> {
@@ -294,7 +322,13 @@ fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError
         let frame = DngReader::new().decode_file(path, index as u64)?;
         ring.transition(slot, FrameSlotState::Decoded)
             .map_err(|error| CliError::Graph(error.to_string()))?;
-        let surface = executor.render(&frame)?;
+        let surface = executor.render_with_drc_options(
+            &frame,
+            &options.drc_method,
+            drc_exposure_policy(options),
+            options.drc_metered_target_ev100,
+            options.drc_profile_adjustment_ev,
+        )?;
         ring.transition(slot, FrameSlotState::GpuSubmitted)
             .map_err(|error| CliError::Graph(error.to_string()))?;
         let extent = (surface.width(), surface.height());

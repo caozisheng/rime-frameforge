@@ -1,5 +1,5 @@
 use rime_isp::{FrameIdentity, PreprocessContext};
-use rime_native_gpu::{execute_operator_phases, OperatorPhase};
+use rime_native_gpu::{OperatorPhase, execute_operator_phases};
 
 #[test]
 fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
@@ -18,11 +18,19 @@ fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        analog_balance: None,
         scene_brightness_ev: None,
         exposure_deviation_ev: None,
         iso: None,
         analog_gain: None,
         digital_gain: None,
+        baseline_exposure_ev: None,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
     };
     let events = execute_operator_phases(&["blc", "wbc"], &context, |_operator, _packet| Ok(()))
         .expect("operator phases must succeed");
@@ -60,11 +68,19 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        analog_balance: None,
         scene_brightness_ev: Some(8.0),
         exposure_deviation_ev: None,
         iso: Some(100.0),
         analog_gain: None,
         digital_gain: None,
+        baseline_exposure_ev: None,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
     };
     let events = rime_native_gpu::execute_operator_methods(
         &[("dem", "04")],
@@ -96,11 +112,19 @@ fn ahd_preprocess_accepts_scene_brightness_without_iso() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        analog_balance: None,
         scene_brightness_ev: Some(4.0),
         exposure_deviation_ev: None,
         iso: None,
         analog_gain: None,
         digital_gain: None,
+        baseline_exposure_ev: None,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
     };
     let result = rime_isp::operator_by_id("dem")
         .expect("DEM")
@@ -125,11 +149,19 @@ fn gamma_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        analog_balance: None,
         scene_brightness_ev: Some(4.0),
         exposure_deviation_ev: None,
         iso: None,
         analog_gain: None,
         digital_gain: None,
+        baseline_exposure_ev: None,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
     };
     let packet = rime_isp::operator_by_id("gamma")
         .expect("Gamma")

@@ -36,12 +36,13 @@ describe('validateGpuInput', () => {
     );
   });
 
-  it('estimates the serial live working set', () => {
-    expect(estimateNormalGraphLivePeakBytes(gh5s)).toBe(3744 * 2776 * (2 + 16 + 16));
-  });
-
-  it('estimates the retained cold-start pool separately', () => {
-    expect(estimateNormalGraphPoolBytes(gh5s)).toBe(3744 * 2776 * (2 + 4 + 4 + 16 + 16 + 16 + 16));
+  it('accounts for retained Normal Graph and three-level DRC resources', () => {
+    const full = 3744 * 2776;
+    const half = Math.floor(3744 / 2) * Math.floor(2776 / 2);
+    const quarter = Math.floor(3744 / 4) * Math.floor(2776 / 4);
+    const expected = full * 54 + (full + half + quarter) * 76 + 48 + 257 * 49 * 4;
+    expect(estimateNormalGraphLivePeakBytes(gh5s)).toBe(expected);
+    expect(estimateNormalGraphPoolBytes(gh5s)).toBe(expected);
   });
 
   it('requests the six storage textures used by the fused Preview pipeline', () => {

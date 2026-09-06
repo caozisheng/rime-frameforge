@@ -227,7 +227,6 @@ fn presentation_and_manifest_share_executable_nodes() {
         "tintless",
         "lsc",
         "hr",
-        "drc",
         "cac",
         "raw_nr",
         "three_d_lut",
@@ -240,6 +239,20 @@ fn presentation_and_manifest_share_executable_nodes() {
             NodeExecutionMode::Bypass
         );
     }
+    assert_eq!(
+        presentation
+            .node("drc")
+            .expect("DRC presentation node")
+            .mode,
+        NodeExecutionMode::Enabled
+    );
+    assert_eq!(
+        presentation
+            .node("drc")
+            .expect("DRC presentation node")
+            .reason,
+        None
+    );
     assert_eq!(
         presentation.node("pyrd").expect("disabled branch").mode,
         NodeExecutionMode::Disabled

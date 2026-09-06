@@ -3,8 +3,8 @@ use std::{fs, path::Path};
 use rime_core::render_top_graph_presentation_typescript;
 
 use rime_isp::{
-    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
-    render_normal_manifest_typescript,
+    render_drc_pipeline_typescript, render_normal_graph_presentation_typescript,
+    render_normal_graph_quantization_typescript, render_normal_manifest_typescript,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,6 +29,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         web_dir.join("normal_quantization.generated.ts"),
         render_normal_graph_quantization_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("drc_pipeline.generated.ts"),
+        render_drc_pipeline_typescript()?,
     )?;
     Ok(())
 }

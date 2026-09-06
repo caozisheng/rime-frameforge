@@ -320,9 +320,9 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             "drc",
             "DRC",
             "vbe",
-            NodeExecutionMode::Bypass,
+            NodeExecutionMode::Enabled,
             Some("drc"),
-            Some("method 00: identity bypass"),
+            None,
         ),
         operator(
             "cac",
