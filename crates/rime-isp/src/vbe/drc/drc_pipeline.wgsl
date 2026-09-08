@@ -111,115 +111,30 @@ fn pyramid_reconstruct_main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 
-fn local_variance(texture: texture_2d<f32>, center: vec2<i32>, radius: i32) -> f32 {
-  var sum = 0.0;
-  var sum_sq = 0.0;
-  var count = 0.0;
-  let size = vec2<i32>(textureDimensions(texture));
-  for (var dy = -radius; dy <= radius; dy += 1) {
-    for (var dx = -radius; dx <= radius; dx += 1) {
-      let position = center + vec2<i32>(dx, dy);
-      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
-        let value = textureLoad(texture, position, 0).x;
-        sum += value;
-        sum_sq += value * value;
-        count += 1.0;
-      }
-    }
-  }
-  let mean = sum / max(count, 1.0);
-  return max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
-}
 fn gradient_chi(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
-  return sqrt(abs(local_variance(texture, center, GRADIENT_GUIDED_RADIUS_1) * local_variance(texture, center, GRADIENT_GUIDED_RADIUS_3)));
-}
-
-fn dynamic_epsilon(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
-  let size = vec2<i32>(textureDimensions(texture));
-  var minimum = 1e30;
-  var maximum = -1e30;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    for (var dx = -3; dx <= 3; dx += 1) {
-      let position = center + vec2<i32>(dx, dy);
-      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
-        let value = textureLoad(texture, position, 0).x;
-        minimum = min(minimum, value);
-        maximum = max(maximum, value);
-      }
-    }
-  }
-  let dynamic_range = max(maximum - minimum, 0.0);
-  return max((0.001 * dynamic_range) * (0.001 * dynamic_range), 1e-12);
+  return gf_gradient_chi(texture, center);
 }
 
 fn gradient_weight(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
-  let size = vec2<i32>(textureDimensions(texture));
-  let chi = gradient_chi(texture, center);
-  let epsilon = dynamic_epsilon(texture, center);
-  var mean = 0.0;
-  var count = 0.0;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    for (var dx = -3; dx <= 3; dx += 1) {
-      let position = center + vec2<i32>(dx, dy);
-      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
-        mean += gradient_chi(texture, position);
-        count += 1.0;
-      }
-    }
-  }
-  return (chi + epsilon) / (mean / max(count, 1.0) + epsilon);
+  return gf_gradient_weight(texture, center);
 }
 
 fn gradient_guided_gamma(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
-  let chi = gradient_chi(texture, center);
-  let size = vec2<i32>(textureDimensions(texture));
-  var mean = 0.0;
-  var minimum = 1e30;
-  var count = 0.0;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    for (var dx = -3; dx <= 3; dx += 1) {
-      let position = center + vec2<i32>(dx, dy);
-      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
-        let local_chi = gradient_chi(texture, position);
-        mean += local_chi;
-        minimum = min(minimum, local_chi);
-        count += 1.0;
-      }
-    }
-  }
-  let average = mean / max(count, 1.0);
-  let denominator = max(average - minimum, 1e-6);
-  let gamma = 1.0 - 1.0 / (1.0 + exp(4.0 * (chi - average) / denominator));
-  return clamp(gamma, 0.0, 1.0);
+  return gf_gradient_gamma(texture, center);
 }
-
 
 @compute @workgroup_size(8, 8)
 fn guided_coefficients_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = textureDimensions(output_rgba);
   if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
   let position = vec2<i32>(id.xy);
-  var sum = 0.0;
-  var sum_sq = 0.0;
-  var count = 0.0;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    for (var dx = -3; dx <= 3; dx += 1) {
-      let sample_position = position + vec2<i32>(dx, dy);
-      if (sample_position.x >= 0 && sample_position.y >= 0 && sample_position.x < i32(size.x) && sample_position.y < i32(size.y)) {
-        let value = textureLoad(input_a, sample_position, 0).x;
-        sum += value;
-        sum_sq += value * value;
-        count += 1.0;
-      }
-    }
-  }
-  let mean = sum / max(count, 1.0);
-  let variance = max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
-  let weight = max(gradient_weight(input_a, position), 1e-6);
+  let moments = gf_box_moments(input_a, position, vec2<i32>(size));
+  let variance = max(moments.y - moments.x * moments.x, 0.0);
+  let weight = max(gf_gradient_weight(input_a, position), 1e-6);
   let regularization = 1.0 / weight;
-  let gamma = gradient_guided_gamma(input_a, position);
+  let gamma = gf_gradient_gamma(input_a, position);
   let a = (variance + regularization * gamma) / (variance + regularization);
-  let b = mean - a * mean;
+  let b = moments.x - a * moments.x;
   textureStore(output_rgba, position, vec4<f32>(a, b, 0.0, 0.0));
 }
 

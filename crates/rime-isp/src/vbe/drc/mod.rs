@@ -18,7 +18,10 @@ pub use tone::{
     generate_global_tone_lut, generate_local_tone_lut,
 };
 
-pub const DRC_PIPELINE_WGSL: &str = include_str!("drc_pipeline.wgsl");
+pub const DRC_PIPELINE_WGSL: &str = concat!(
+    include_str!("../../primitives/guided_filter_shared.wgsl"),
+    include_str!("drc_pipeline.wgsl"),
+);
 use rime_core::NodeExecutionMode;
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {
     id: "drc",

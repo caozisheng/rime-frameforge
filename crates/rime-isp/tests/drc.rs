@@ -531,11 +531,20 @@ fn drc_gradient_guided_coefficients_preserve_regularized_covariance() {
 }
 
 #[test]
-fn drc_guided_statistics_stay_in_float32_registers() {
+fn drc_guided_statistics_come_from_the_shared_filter_component() {
     let shader = rime_isp::vbe::drc::DRC_PIPELINE_WGSL;
+    let shared = rime_isp::primitives::guided_filter::GUIDED_FILTER_SHARED_FUNCTIONS;
     assert!(
-        shader.contains("var sum_sq = 0.0;") && shader.contains("variance = max(sum_sq / max(count, 1.0) - mean * mean, 0.0)"),
+        shader.starts_with(shared),
+        "DRC must splice the shared gf_* statistics instead of duplicating them"
+    );
+    assert!(
+        shared.contains("gf_box_moments") && shared.contains("sum_sq += value * value;"),
         "second moments must accumulate in f32 registers before variance subtraction"
+    );
+    assert!(
+        shader.contains("gf_box_moments(input_a, position, vec2<i32>(size))"),
+        "the coefficients pass must consume the shared box-moment helper"
     );
     assert!(
         !shader.contains("guided_stats_horizontal_main"),

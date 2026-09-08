@@ -17,7 +17,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
     None,
     shader_plan(
         "00",
-        include_str!("drc_pipeline.wgsl"),
+        super::DRC_PIPELINE_WGSL,
         "drc_combine_global_main",
         ShaderBindings {
             input: 1,
