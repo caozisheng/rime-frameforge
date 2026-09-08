@@ -1,7 +1,7 @@
 import type { RawFrameDescriptor } from '../contracts.js';
 
 const NORMAL_FULL_RESOLUTION_BYTES_PER_PIXEL = 54;
-const DRC_LEVEL_BYTES_PER_PIXEL = 76;
+const DRC_LEVEL_BYTES_PER_PIXEL = 44;
 const DRC_BUFFER_BYTES = 48 + 257 * (1 + 8 * 6) * 4;
 const DEFAULT_MAX_TEXTURE_DIMENSION = 8192;
 const SAFE_MEMORY_FRACTION = 0.7;

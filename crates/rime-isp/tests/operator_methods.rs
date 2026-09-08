@@ -213,6 +213,38 @@ fn drc_registers_global_and_local_tone_methods_with_shared_raw_contracts() {
     assert_ne!(global.shader.entry_point, local.shader.entry_point);
 }
 
+#[test]
+fn every_demosaic_method_uses_shared_rgb_saturation_clipping() {
+    let dem = normal_operators()
+        .iter()
+        .find(|operator| operator.definition().id == "dem")
+        .expect("DEM operator")
+        .definition();
+    for method in dem.methods {
+        assert!(
+            method.shader.source.contains("shared_saturation_clip"),
+            "DEM method {} must preserve RGB ratios at saturation",
+            method.method
+        );
+    }
+}
+
+#[test]
+fn color_correction_uses_shared_rgb_saturation_clipping() {
+    let color = normal_operators()
+        .iter()
+        .find(|operator| operator.definition().id == "color_correction")
+        .expect("color correction operator")
+        .definition();
+    assert!(
+        color.methods[0]
+            .shader
+            .source
+            .contains("shared_saturation_clip"),
+        "CCM output must preserve RGB ratios at saturation"
+    );
+}
+
 fn assert_operator_methods_are_valid(operator: &OperatorDefinition) {
     assert!(
         !operator.methods.is_empty(),

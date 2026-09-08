@@ -135,6 +135,12 @@ pub struct PreprocessContext {
     pub drc_exposure_policy: crate::vbe::drc::DrcExposurePolicy,
     pub drc_metered_target_ev100: Option<f64>,
     pub drc_profile_adjustment_ev: f64,
+    /// Optional DRC gain offset in EV; omitted means zero.
+    pub drc_gain_offset_ev: Option<f32>,
+    /// Optional DRC tone knee; omitted means one.
+    pub drc_knee: Option<f32>,
+    /// Optional DRC detail amplifier; omitted means the Sony reference default of three.
+    pub drc_amplifier: Option<f32>,
 }
 
 #[derive(Debug)]

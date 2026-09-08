@@ -20,6 +20,12 @@ fn coordinate(uv: vec2<f32>, extent: vec2<u32>) -> vec2<i32> {
   return vec2<i32>(clamp(uv * vec2<f32>(extent), vec2<f32>(0.0), vec2<f32>(extent - vec2<u32>(1u))));
 }
 
+fn linear_to_srgb(value: f32) -> f32 {
+  let clamped = clamp(value, 0.0, 1.0);
+  if (clamped <= 0.0031308) { return 12.92 * clamped; }
+  return 1.055 * pow(clamped, 1.0 / 2.4) - 0.055;
+}
+
 fn display_code(rgb: vec3<f32>) -> vec4<f32> {
   return vec4<f32>(clamp(trunc(rgb * 256.0), vec3<f32>(0.0), vec3<f32>(255.0)) / 255.0, 1.0);
 }
@@ -35,7 +41,7 @@ fn present_raw(in: VertexOut) -> @location(0) vec4<f32> {
 fn present_gray(in: VertexOut) -> @location(0) vec4<f32> {
   let extent = textureDimensions(float_tex);
   let value = textureLoad(float_tex, coordinate(in.uv, extent), 0).r;
-  return display_code(vec3<f32>(value));
+  return display_code(vec3<f32>(linear_to_srgb(value)));
 }
 
 @fragment

@@ -5,7 +5,7 @@ import { interpolateCurve, type CurvePoint } from './curve-model.js';
 import { parseTuningProfile, serializeTuningProfile } from './profile-yaml.js';
 import type { TuningControlKind } from './tuning-target.js';
 
-export type TuningParameter = 'ahd_l_threshold' | 'ahd_c_threshold_sq' | 'gamma_lut';
+export type TuningParameter = 'ahd_l_threshold' | 'ahd_c_threshold_sq' | 'gamma_lut' | 'drc_gain_offset_ev' | 'knee' | 'amplifier';
 
 export interface TuningCurveDraft {
   readonly lCurve: readonly CurvePoint[];
@@ -57,12 +57,41 @@ function monotoneGammaCurve(previous: readonly CurvePoint[], next: readonly Curv
 }
 
 export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseValues, curves = FACTORY_TUNING_CURVES, onCurvesChange = () => undefined, onApply, onLutApply = () => undefined, onReset = () => undefined, onGammaLoad = () => undefined }: TuningProfilePanelProps): ReactNode {
+  const scalarDefault = parameter === 'drc_gain_offset_ev' ? 0 : 1;
+  const [scalarDraft, setScalarDraft] = useState(() => Number.isFinite(Number(baseValues[parameter])) ? Number(baseValues[parameter]) : scalarDefault);
   const [profileId, setProfileId] = useState('factory-default');
   const [profileName, setProfileName] = useState('Factory default');
   const [revision, setRevision] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const isGammaLut = parameter === 'gamma_lut';
+  const scalar = controlKind === 'scalar';
+  const scalarConfig = parameter === 'drc_gain_offset_ev' ? { unit: 'EV', min: -4, max: 4, step: 0.1, range: '-4 to 4 EV' } : parameter === 'knee' ? { unit: 'normalized tone knee', min: 0, max: undefined, step: 0.01, range: '> 0 normalized' } : { unit: 'normalized amplifier', min: 0, max: undefined, step: 0.01, range: '≥ 0' };
+  const scalarBase = Number.isFinite(Number(baseValues[parameter])) ? Number(baseValues[parameter]) : scalarDefault;
+  const scalarValue = Number.isFinite(scalarDraft) ? scalarDraft : scalarBase;
+  const scalarApply = (): void => {
+    const valid = Number.isFinite(scalarValue) && (parameter !== 'knee' || scalarValue > 0) && scalarValue >= scalarConfig.min && (scalarConfig.max === undefined || scalarValue <= scalarConfig.max);
+    if (!valid) { setError(`IQ_PARAMETER_INVALID: ${parameter}`); return; }
+    onApply(parameter, scalarValue);
+    setRevision((value) => value + 1);
+    setError(null);
+  };
+  const scalarReset = (): void => {
+    setScalarDraft(scalarDefault);
+    onReset(parameter);
+    setRevision((value) => value + 1);
+    setError(null);
+  };
+  if (scalar) return <section className="iq-tuning-panel" aria-label="IQ Tuning" data-iq-parameter={parameter}>
+    <div className="iq-tuning-heading"><div><span className="section-label">IQ Tuning</span><strong>{parameter}</strong><small>{controlKind} · factory-default</small></div><span className="tree-mode-badge mode-enabled">revision {revision}</span></div>
+    <div className="iq-tuning-controls iq-scalar-controls">
+      <div className="iq-tuning-meta"><span>Unit</span><strong>{scalarConfig.unit}</strong><span>Range</span><strong>{scalarConfig.range}</strong></div>
+      <div className="iq-parameter-values" aria-label={`${parameter} values`}><div><span>Base value</span><strong>{Number.isFinite(scalarBase) ? scalarBase.toFixed(4) : '—'}</strong></div><div><span>Current value</span><strong>{Number.isFinite(scalarValue) ? scalarValue.toFixed(4) : '—'}</strong></div><div><span>Effect value</span><strong>{parameter === 'drc_gain_offset_ev' && Number.isFinite(scalarValue) ? (2 ** scalarValue).toFixed(4) : Number.isFinite(scalarValue) ? scalarValue.toFixed(4) : '—'}</strong></div></div>
+      <label>{parameter}<input aria-label={`${parameter} current value`} disabled={!canConfigure} type="number" min={scalarConfig.min} max={scalarConfig.max} step={scalarConfig.step} value={Number.isFinite(scalarValue) ? scalarValue : ''} onChange={(event) => setScalarDraft(Number(event.target.value))} /></label>
+      <div className="iq-tuning-actions"><button aria-label="Reset tuning to factory" disabled={!canConfigure} type="button" onClick={scalarReset}>↺</button><button aria-label="Apply tuning" disabled={!canConfigure || !Number.isFinite(scalarValue)} type="button" onClick={scalarApply}>✓</button></div>
+    </div>
+    {error === null ? null : <output className="iq-tuning-error">{error}</output>}
+  </section>;
   const points = curveForParameter(curves, parameter);
   const interpolation = isGammaLut ? 'bezier' : 'linear';
   const currentCoordinate = isGammaLut ? 0.5 : 4;

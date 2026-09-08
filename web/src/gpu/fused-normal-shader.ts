@@ -29,8 +29,11 @@ const QUANT_HELPERS = `fn quantization_enabled(index: u32) -> bool {
   if (index < 4u) { return params.quant_enabled_0[index] != 0u; }
   return params.quant_enabled_1[index - 4u] != 0u;
 }
+fn module_saturation(index: u32) -> f32 {
+  return select(1.0, params.quant_params[index].qmax, quantization_enabled(index));
+}
 fn quantize_scalar(value: f32, index: u32, p: vec2<i32>) -> f32 {
-  if (!quantization_enabled(index)) { return value; }
+  if (!quantization_enabled(index)) { return clamp(value, 0.0, module_saturation(index)); }
   let pixel_group = u32(max(p.y, 0)) * params.width + u32(max(p.x, 0));
   return quantize_sample(value, params.quant_params[index], pixel_group, 0u);
 }
@@ -144,7 +147,7 @@ fn clamp_source(p: vec2<i32>) -> vec2<i32> { return clamp(p, vec2<i32>(0), vec2<
 fn sample_raw(p: vec2<i32>) -> f32 { return f32(textureLoad(raw_input, clamp_source(p), 0).r); }
 fn sample_blc(p: vec2<i32>) -> f32 {
   let q = clamp_source(p);
-  return quantize_scalar((sample_raw(q) - params.black_level) / (params.white_level - params.black_level), 0u, q);
+  return clamp(quantize_scalar((sample_raw(q) - params.black_level) / (params.white_level - params.black_level), 0u, q), 0.0, module_saturation(0u));
 }`;
 }
 
@@ -156,7 +159,7 @@ fn sample_wbc(p: vec2<i32>) -> f32 {
   let phase = vec2<u32>(u32(q.x) & 1u, u32(q.y) & 1u);
   let channel = params.cfa_pattern[phase.y * 2u + phase.x];
   let gain = params.white_balance_gains[channel];
-  return quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q);
+  return clamp(quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q), 0.0, module_saturation(1u));
 }`;
 }
 
@@ -165,7 +168,7 @@ function postprocessFunctions(demExpression: string): string {
 fn sample_color_correction(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_dem_quantized(p).rgb;
   let corrected = vec4<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b, 1.0);
-  return quantize_rgba(corrected, 3u, p);
+  return quantize_rgba(vec4<f32>(shared_saturation_clip(corrected.rgb), 1.0), 3u, p);
 }
 fn sample_gamma(p: vec2<i32>) -> vec4<f32> {
   let encoded = apply_gamma_luminance_lut(sample_color_correction(p).rgb);
@@ -221,11 +224,17 @@ ${FUSED_PARAMS}
 @group(0) @binding(4) var<uniform> params: FusedParams;
 ${QUANT_HELPERS}
 ${GAMMA_HELPERS}
+fn shared_saturation_clip(rgb: vec3<f32>) -> vec3<f32> {
+  let peak = max(max(rgb.r, rgb.g), rgb.b);
+  let scaled = rgb / peak;
+  let clipped = select(scaled, vec3<f32>(1.0), min(min(scaled.r, scaled.g), scaled.b) >= 0.5);
+  return select(rgb, clipped, peak > 1.0);
+}
 fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }
 fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
   let rgb = sample_dem_materialized(p).rgb;
   let corrected = vec4<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b, 1.0);
-  return quantize_rgba(corrected, 3u, p);
+  return quantize_rgba(vec4<f32>(shared_saturation_clip(corrected.rgb), 1.0), 3u, p);
 }
 fn sample_post_gamma(p: vec2<i32>) -> vec4<f32> {
   let encoded = apply_gamma_luminance_lut(sample_post_color(p).rgb);
@@ -255,7 +264,7 @@ fn sample_dem(p: vec2<i32>) -> vec4<f32> {
   let extent = source_extent(); var sums = vec3<f32>(0.0); var counts = vec3<f32>(0.0);
   let low = max(p - vec2<i32>(1), vec2<i32>(0)); let high = min(p + vec2<i32>(1), vec2<i32>(extent) - 1);
   for (var y = low.y; y <= high.y; y++) { for (var x = low.x; x <= high.x; x++) { let q = vec2<i32>(x, y); let channel = cfa(q, extent); sums[channel] += sample_demosaic_input(q, extent); counts[channel] += 1.0; } }
-  return vec4<f32>(sums / max(counts, vec3<f32>(1.0)), 1.0);
+  return vec4<f32>(shared_saturation_clip(sums / max(counts, vec3<f32>(1.0))), 1.0);
 }`;
 }
 

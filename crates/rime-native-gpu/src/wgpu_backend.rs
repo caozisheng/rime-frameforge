@@ -10,7 +10,7 @@
 use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
 use rime_isp::vbe::drc::{DrcExposurePolicy, DrcLocalStatistics};
-use rime_isp::vbe::white_balance::{WhiteBalanceError, WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 use rime_isp::{
     FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
 };
@@ -18,6 +18,8 @@ use std::sync::{Mutex, mpsc};
 use thiserror::Error;
 use wgpu::util::DeviceExt as _;
 
+
+const MAX_READBACK_BYTES: u64 = 128 * 1024 * 1024;
 #[derive(Debug, Error)]
 pub enum WgpuReadbackError {
     #[error("GPU adapter is unavailable")]
@@ -46,8 +48,6 @@ struct DrcPipelines {
     prefilter: wgpu::ComputePipeline,
     downsample: wgpu::ComputePipeline,
     reconstruct: wgpu::ComputePipeline,
-    guided_stats_horizontal: wgpu::ComputePipeline,
-    guided_stats_vertical: wgpu::ComputePipeline,
     guided_coefficients: wgpu::ComputePipeline,
     guided_coefficients_horizontal: wgpu::ComputePipeline,
     guided_apply_vertical: wgpu::ComputePipeline,
@@ -75,8 +75,6 @@ impl DrcPipelines {
             prefilter: pipeline("drc_prefilter_main"),
             downsample: pipeline("pyramid_downsample_main"),
             reconstruct: pipeline("pyramid_reconstruct_main"),
-            guided_stats_horizontal: pipeline("guided_stats_horizontal_main"),
-            guided_stats_vertical: pipeline("guided_stats_vertical_main"),
             guided_coefficients: pipeline("guided_coefficients_main"),
             guided_coefficients_horizontal: pipeline("guided_coefficients_horizontal_main"),
             guided_apply_vertical: pipeline("guided_apply_vertical_main"),
@@ -234,13 +232,26 @@ impl WgpuReadbackExecutor {
             .first()
             .copied()
             .unwrap_or(4095.0) as f32;
-        let cfa_gains = build_drc_cfa_gains(frame, cfa_pattern)?;
+        let analysis_wbc = white_balance_gains(&WhiteBalanceMetadata {
+            as_shot_neutral: frame.metadata.as_shot_neutral,
+            as_shot_white_xy: frame.metadata.as_shot_white_xy,
+            color_matrix1: frame.metadata.color_matrix1,
+            color_matrix2: frame.metadata.color_matrix2,
+            analog_balance: frame.metadata.analog_balance,
+        })
+        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
+        let analysis_rgb_gains = [analysis_wbc.red, analysis_wbc.green, analysis_wbc.blue];
+        let analysis_cfa_raw = cfa_pattern.map(|channel| analysis_rgb_gains[channel as usize]);
+        let analysis_avg =
+            analysis_cfa_raw.iter().sum::<f32>() / analysis_cfa_raw.len() as f32;
+        let analysis_cfa_gains: [f32; 4] =
+            analysis_cfa_raw.map(|gain| gain / analysis_avg);
         let drc_local_statistics = build_drc_local_statistics(
             frame.samples(),
             &frame.layout,
             black_level,
             white_level,
-            cfa_gains,
+            analysis_cfa_gains,
         )?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
@@ -270,6 +281,9 @@ impl WgpuReadbackExecutor {
             drc_exposure_policy,
             drc_metered_target_ev100,
             drc_profile_adjustment_ev,
+            drc_gain_offset_ev: None,
+            drc_knee: None,
+            drc_amplifier: None,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan
@@ -503,37 +517,18 @@ impl WgpuReadbackExecutor {
     fn dispatch_guided_base(&self, input: &wgpu::Texture, uniform: &wgpu::Buffer) -> wgpu::Texture {
         let width = input.width();
         let height = input.height();
-        let stats_horizontal =
-            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
-        self.dispatch_drc_pass(
-            &self.drc_pipelines.guided_stats_horizontal,
-            uniform,
-            &[(1, input)],
-            5,
-            &stats_horizontal,
-            &[],
-        );
-        let stats_vertical =
-            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
-        self.dispatch_drc_pass(
-            &self.drc_pipelines.guided_stats_vertical,
-            uniform,
-            &[(1, &stats_horizontal)],
-            5,
-            &stats_vertical,
-            &[],
-        );
-        let coefficients = self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+        let coefficients =
+            self.create_drc_texture(wgpu::TextureFormat::Rgba16Float, width, height);
         self.dispatch_drc_pass(
             &self.drc_pipelines.guided_coefficients,
             uniform,
-            &[(2, &stats_vertical)],
+            &[(1, input)],
             5,
             &coefficients,
             &[],
         );
         let coefficients_horizontal =
-            self.create_drc_texture(wgpu::TextureFormat::Rgba32Float, width, height);
+            self.create_drc_texture(wgpu::TextureFormat::Rgba16Float, width, height);
         self.dispatch_drc_pass(
             &self.drc_pipelines.guided_coefficients_horizontal,
             uniform,
@@ -795,63 +790,75 @@ impl WgpuReadbackExecutor {
         height: u32,
     ) -> Result<Vec<f32>, WgpuReadbackError> {
         let row_bytes = super::aligned_readback_bytes_per_row(width);
+        let batch_rows = u32::try_from(
+            (MAX_READBACK_BYTES / u64::from(row_bytes)).clamp(1, u64::from(height)),
+        )
+        .unwrap_or(1);
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rime-native-readback"),
-            size: u64::from(row_bytes) * u64::from(height),
+            size: u64::from(row_bytes) * u64::from(batch_rows),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("rime-native-preview-readback"),
-            });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: output,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &readback,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row_bytes),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        self.queue.submit([encoder.finish()]);
-        let slice = readback.slice(..);
-        let (sender, receiver) = mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = sender.send(result);
-        });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
-        receiver
-            .recv()
-            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?
-            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
-        let mapped = slice.get_mapped_range();
         let visible = width * 16;
-        let pixels = mapped
-            .chunks_exact(row_bytes as usize)
-            .flat_map(|row| {
-                bytemuck::cast_slice::<u8, f32>(&row[..visible as usize])
-                    .iter()
-                    .copied()
-            })
-            .collect();
-        drop(mapped);
-        readback.unmap();
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        let mut batch_start = 0_u32;
+        while batch_start < height {
+            let rows = batch_rows.min(height - batch_start);
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("rime-native-preview-readback"),
+                });
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: output,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: batch_start,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &readback,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(row_bytes),
+                        rows_per_image: Some(rows),
+                    },
+                },
+                wgpu::Extent3d {
+                    width,
+                    height: rows,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.queue.submit([encoder.finish()]);
+            let slice = readback.slice(..);
+            let (sender, receiver) = mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            self.device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
+            receiver
+                .recv()
+                .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?
+                .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
+            let mapped = slice.get_mapped_range();
+            let batch_bytes = row_bytes as usize * rows as usize;
+            for row in mapped[..batch_bytes].chunks_exact(row_bytes as usize) {
+                pixels.extend_from_slice(
+                    bytemuck::cast_slice::<u8, f32>(&row[..visible as usize]),
+                );
+            }
+            drop(mapped);
+            readback.unmap();
+            batch_start += rows;
+        }
         Ok(pixels)
     }
 
@@ -888,37 +895,12 @@ impl WgpuReadbackExecutor {
     }
 }
 
-fn build_drc_cfa_gains(
-    frame: &DecodedRawFrame,
-    cfa_pattern: [u32; 4],
-) -> Result<[f32; 4], WgpuReadbackError> {
-    let metadata = WhiteBalanceMetadata {
-        as_shot_neutral: frame.metadata.as_shot_neutral,
-        as_shot_white_xy: frame.metadata.as_shot_white_xy,
-        color_matrix1: frame.metadata.color_matrix1,
-        color_matrix2: frame.metadata.color_matrix2,
-        analog_balance: frame.metadata.analog_balance,
-    };
-    let gains = match white_balance_gains(&metadata) {
-        Ok(gains) => [gains.red, gains.green, gains.blue],
-        Err(WhiteBalanceError::MissingSource) => [1.0; 3],
-        Err(error) => return Err(WgpuReadbackError::Resource(error.to_string())),
-    };
-    let mut cfa_gains = [1.0; 4];
-    for (output, channel) in cfa_gains.iter_mut().zip(cfa_pattern) {
-        *output = *gains.get(channel as usize).ok_or_else(|| {
-            WgpuReadbackError::Resource("invalid CFA channel for DRC statistics".to_owned())
-        })?;
-    }
-    Ok(cfa_gains)
-}
-
 fn build_drc_local_statistics(
     samples: &[u16],
     layout: &RawFrameLayout,
     black_level: f32,
     white_level: f32,
-    cfa_gains: [f32; 4],
+    analysis_cfa_gains: [f32; 4],
 ) -> Result<DrcLocalStatistics, WgpuReadbackError> {
     const TILES_X: u32 = 8;
     const TILES_Y: u32 = 6;
@@ -932,11 +914,16 @@ fn build_drc_local_statistics(
     let range = white_level - black_level;
     for y in 0..layout.height {
         for x in 0..layout.width {
-            let sample_index = (y * layout.row_stride_samples + x) as usize;
-            let cfa_index = ((y & 1) * 2 + (x & 1)) as usize;
-            let normalized = (((f32::from(samples[sample_index]) - black_level) / range)
-                * cfa_gains[cfa_index])
-                .clamp(0.0, 1.0);
+            let normalized = bayer_luma_3x3(
+                samples,
+                layout,
+                x,
+                y,
+                black_level,
+                range,
+                analysis_cfa_gains,
+            )
+            .clamp(0.0, 1.0);
             let tile_x = (x * TILES_X / layout.width).min(TILES_X - 1);
             let tile_y = (y * TILES_Y / layout.height).min(TILES_Y - 1);
             let bin = ((normalized * (BINS - 1) as f32).floor() as u32).min(BINS - 1);
@@ -946,6 +933,41 @@ fn build_drc_local_statistics(
     }
     DrcLocalStatistics::new(TILES_X, TILES_Y, BINS, histograms)
         .map_err(|error| WgpuReadbackError::Resource(error.to_string()))
+}
+
+
+fn bayer_luma_3x3(
+    samples: &[u16],
+    layout: &RawFrameLayout,
+    x: u32,
+    y: u32,
+    black_level: f32,
+    range: f32,
+    analysis_cfa_gains: [f32; 4],
+) -> f32 {
+    const WEIGHTS: [f32; 3] = [1.0, 2.0, 1.0];
+    let mut sum = 0.0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let sample_x = i64::from(x) + i64::from(dx);
+            let sample_y = i64::from(y) + i64::from(dy);
+            if sample_x < 0
+                || sample_y < 0
+                || sample_x >= i64::from(layout.width)
+                || sample_y >= i64::from(layout.height)
+            {
+                continue;
+            }
+            let index = (sample_y as u32 * layout.row_stride_samples + sample_x as u32) as usize;
+            let cfa_index = (((sample_y as u32) & 1) * 2 + ((sample_x as u32) & 1)) as usize;
+            let normalized = (f32::from(samples[index]) - black_level) / range;
+            sum += normalized
+                * analysis_cfa_gains[cfa_index]
+                * WEIGHTS[(dx + 1) as usize]
+                * WEIGHTS[(dy + 1) as usize];
+        }
+    }
+    sum / 16.0
 }
 
 fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {

@@ -56,10 +56,13 @@ export class WasmRuntimeAuthority {
   public changeMethod(): RuntimeEnvelope {
     return this.map(this.#runtime.change_method());
   }
+  public changeConfig(): RuntimeEnvelope {
+    const runtime = this.#runtime as NormalRuntime & { change_config(): string };
+    return this.map(runtime.change_config());
+  }
   public setQuantizationConfig(config: string): RuntimeEnvelope {
     return this.map(this.#runtime.set_quantization_config(config));
   }
-
   public quantizationConfig(): string {
     return this.#runtime.quantization_config_json();
   }

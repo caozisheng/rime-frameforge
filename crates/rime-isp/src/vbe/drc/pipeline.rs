@@ -41,23 +41,9 @@ const RECONSTRUCT: &[ShaderStageBinding] = &[
     read(3, "coarser_base", ShaderBindingKind::Texture),
     write(4, "candidate_base", ShaderBindingKind::StorageTexture),
 ];
-const GUIDED_STATS_HORIZONTAL: &[ShaderStageBinding] = &[
-    read(0, "scalars", ShaderBindingKind::UniformBuffer),
-    read(1, "candidate_base", ShaderBindingKind::Texture),
-    write(
-        5,
-        "guided_stats_horizontal",
-        ShaderBindingKind::StorageTexture,
-    ),
-];
-const GUIDED_STATS_VERTICAL: &[ShaderStageBinding] = &[
-    read(0, "scalars", ShaderBindingKind::UniformBuffer),
-    read(1, "guided_stats_horizontal", ShaderBindingKind::Texture),
-    write(5, "guided_stats", ShaderBindingKind::StorageTexture),
-];
 const GUIDED_COEFFICIENTS: &[ShaderStageBinding] = &[
     read(0, "scalars", ShaderBindingKind::UniformBuffer),
-    read(2, "guided_stats", ShaderBindingKind::Texture),
+    read(1, "candidate_base", ShaderBindingKind::Texture),
     write(5, "guided_coefficients", ShaderBindingKind::StorageTexture),
 ];
 const GUIDED_COEFFICIENTS_HORIZONTAL: &[ShaderStageBinding] = &[
@@ -97,7 +83,7 @@ const COMBINE_LOCAL: &[ShaderStageBinding] = &[
     read(7, "tone_lut_local", ShaderBindingKind::StorageBuffer),
 ];
 
-const COMMON_STAGES: [ShaderStageAsset; 8] = [
+const COMMON_STAGES: [ShaderStageAsset; 6] = [
     ShaderStageAsset {
         entry_point: "drc_prefilter_main",
         bindings: PREFILTER,
@@ -109,14 +95,6 @@ const COMMON_STAGES: [ShaderStageAsset; 8] = [
     ShaderStageAsset {
         entry_point: "pyramid_reconstruct_main",
         bindings: RECONSTRUCT,
-    },
-    ShaderStageAsset {
-        entry_point: "guided_stats_horizontal_main",
-        bindings: GUIDED_STATS_HORIZONTAL,
-    },
-    ShaderStageAsset {
-        entry_point: "guided_stats_vertical_main",
-        bindings: GUIDED_STATS_VERTICAL,
     },
     ShaderStageAsset {
         entry_point: "guided_coefficients_main",
@@ -139,8 +117,6 @@ pub const GLOBAL_STAGES: &[ShaderStageAsset] = &[
     COMMON_STAGES[3],
     COMMON_STAGES[4],
     COMMON_STAGES[5],
-    COMMON_STAGES[6],
-    COMMON_STAGES[7],
     ShaderStageAsset {
         entry_point: "drc_combine_global_main",
         bindings: COMBINE_GLOBAL,
@@ -154,8 +130,6 @@ pub const LOCAL_STAGES: &[ShaderStageAsset] = &[
     COMMON_STAGES[3],
     COMMON_STAGES[4],
     COMMON_STAGES[5],
-    COMMON_STAGES[6],
-    COMMON_STAGES[7],
     ShaderStageAsset {
         entry_point: "drc_combine_local_main",
         bindings: COMBINE_LOCAL,

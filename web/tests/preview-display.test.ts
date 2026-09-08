@@ -1,3 +1,5 @@
+import presentShader from '../../crates/rime-isp/src/shaders/present.wgsl?raw';
+
 import { describe, expect, it } from 'vitest';
 
 import { s0ToS8Display } from '../src/gpu/display.js';
@@ -13,4 +15,9 @@ describe('s0.Y preview display conversion', () => {
     expect(s0ToS8Display(-0.25)).toBe(0);
     expect(s0ToS8Display(1.5)).toBe(255);
   });
+});
+
+it('encodes linear raw-gray previews before presenting them', () => {
+  expect(presentShader).toContain('linear_to_srgb');
+  expect(presentShader).toContain('display_code(vec3<f32>(linear_to_srgb(value)))');
 });

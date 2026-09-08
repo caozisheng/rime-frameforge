@@ -71,6 +71,12 @@ export interface RuntimeLogEntry {
   readonly diagnosticCode?: string;
 }
 
+export interface DrcIqParameters {
+  readonly drc_gain_offset_ev: number;
+  readonly knee: number;
+  readonly amplifier: number;
+}
+
 export type RuntimeCommand =
   | { readonly type: 'initialize'; readonly canvas: OffscreenCanvas; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
   | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
@@ -78,6 +84,8 @@ export type RuntimeCommand =
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
   | { readonly type: 'set_lut'; readonly nodeId: string; readonly parameter: string; readonly values: readonly number[] }
   | { readonly type: 'set_quantization_config'; readonly config: string }
+  | { readonly type: 'set_drc_iq_parameters'; readonly config: string }
+  | { readonly type: 'set_bypass_config'; readonly config: string }
   | { readonly type: 'set_preview'; readonly nodeA: string; readonly nodeB: string | null; readonly curtain: number }
   | { readonly type: 'sample_preview'; readonly nodeId: string; readonly x: number; readonly y: number; readonly requestId: number }
   | { readonly type: 'run'; readonly frameIndex: number }

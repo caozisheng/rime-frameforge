@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DRC_PIPELINE_WGSL } from '../src/gpu/drc.js';
 import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from '../src/gpu/fused-normal-shader.js';
 
 const bypassIds = [
@@ -16,6 +17,8 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).not.toContain('texture_storage_2d<rgba32float');
     expect(shader).toContain('textureLoad(drc_input');
     expect(shader).toContain('textureStore(yuv_output');
+    expect(shader).toContain('vec4<f32>(shared_saturation_clip');
+    expect(shader).toContain('shared_saturation_clip(corrected.rgb)');
     const blc = compileBlcShader();
     expect(blc).toContain('textureStore(blc_output');
   });
@@ -69,7 +72,38 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).not.toContain('gain = 2.0');
     expect(shader).not.toContain('gain = 1.5');
     expect(shader).toContain('let q = clamp_source(p)');
-    expect(shader).toContain('quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q)');
+    expect(shader).toContain('clamp(quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q), 0.0, module_saturation(1u))');
+  });
+
+  it('applies WBC only while constructing the DRC gain-map guide', () => {
+    expect(DRC_PIPELINE_WGSL).toContain('analysis_wbc_gains');
+    expect(DRC_PIPELINE_WGSL).toContain('load_zero(input_a, position).x * cfa_gain(position)');
+    expect(DRC_PIPELINE_WGSL).toContain('raw * clamp(target_value / luma');
+  });
+
+  it('clips every module output at the Rime.Q saturation boundary', () => {
+    const shader = compileFusedNormalShader('00');
+    const blc = compileBlcShader();
+
+    const clipHelper = 'fn module_saturation(index: u32)';
+    expect(blc).toContain(clipHelper);
+    expect(shader).toContain(clipHelper);
+    expect(blc).toContain('clamp(quantize_scalar((sample_raw(q) - params.black_level) / (params.white_level - params.black_level), 0u, q), 0.0, module_saturation(0u))');
+    expect(shader).toContain('clamp(quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q), 0.0, module_saturation(1u))');
+    expect(DRC_PIPELINE_WGSL).toContain('clamp(raw * clamp(target_value / luma');
+  });
+
+  it('uses the gradient-guided DRC base path', () => {
+    expect(DRC_PIPELINE_WGSL).toContain('gradient_guided');
+    expect(DRC_PIPELINE_WGSL).toContain('gradient_chi');
+    expect(DRC_PIPELINE_WGSL).toContain('GRADIENT_GUIDED_RADIUS_1');
+    expect(DRC_PIPELINE_WGSL).toContain('gradient_weight');
+  });
+
+  it('selects saturation from quant_params qmax only when Rime.Q is enabled', () => {
+    const blc = compileBlcShader();
+
+    expect(blc).toContain('select(1.0, params.quant_params[index].qmax, quantization_enabled(index))');
   });
 
   it('embeds six inline Rime.Q output plans', () => {

@@ -162,6 +162,15 @@ impl NormalRuntime {
         self.quantization_config = config;
         snapshot_json(&self.runtime.snapshot())
     }
+    /// Invalidates output after a graph configuration update.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialized lifecycle diagnostic unless the graph is stopped or completed.
+    pub fn change_config(&mut self) -> Result<String, JsValue> {
+        self.runtime.change_config().map_err(to_js_error)?;
+        snapshot_json(&self.runtime.snapshot())
+    }
 
     #[must_use]
     pub fn fail(&mut self) -> String {

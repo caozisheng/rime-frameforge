@@ -1,3 +1,7 @@
+const GRADIENT_GUIDED_RADIUS_1: i32 = 1;
+const GRADIENT_GUIDED_RADIUS_3: i32 = 3;
+const GRADIENT_GUIDED_EPS_DYN: f32 = 1e-6;
+
 struct DrcParams {
   drc_gain: f32,
   knee: f32,
@@ -7,7 +11,7 @@ struct DrcParams {
   max_ratio: f32,
   level_count: u32,
   feature_flags: u32,
-  cfa_gains: vec4<f32>,
+  analysis_wbc_gains: vec4<f32>,
 }
 struct FloatBuffer { values: array<f32> }
 
@@ -16,14 +20,15 @@ struct FloatBuffer { values: array<f32> }
 @group(0) @binding(2) var input_b: texture_2d<f32>;
 @group(0) @binding(3) var input_c: texture_2d<f32>;
 @group(0) @binding(4) var output_r32: texture_storage_2d<r32float, write>;
-@group(0) @binding(5) var output_rgba: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(5) var output_rgba: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(6) var<storage, read> global_lut: FloatBuffer;
 @group(0) @binding(7) var<storage, read> local_lut: FloatBuffer;
 
 fn cfa_gain(position: vec2<i32>) -> f32 {
   let index = u32(position.y & 1) * 2u + u32(position.x & 1);
-  return params.cfa_gains[index];
+  return params.analysis_wbc_gains[index];
 }
+
 
 fn load_zero(texture: texture_2d<f32>, position: vec2<i32>) -> vec4<f32> {
   let size = textureDimensions(texture);
@@ -32,6 +37,7 @@ fn load_zero(texture: texture_2d<f32>, position: vec2<i32>) -> vec4<f32> {
   }
   return textureLoad(texture, position, 0);
 }
+
 
 fn cubic(value_in: f32) -> f32 {
   let value = abs(value_in);
@@ -80,8 +86,7 @@ fn drc_prefilter_main(@builtin(global_invocation_id) id: vec3<u32>) {
   for (var dy = -1; dy <= 1; dy += 1) {
     for (var dx = -1; dx <= 1; dx += 1) {
       let position = center + vec2<i32>(dx, dy);
-      sum += load_zero(input_a, position).x * cfa_gain(position)
-        * weights[u32(dx + 1)] * weights[u32(dy + 1)];
+      sum += load_zero(input_a, position).x * cfa_gain(position) * weights[u32(dx + 1)] * weights[u32(dy + 1)];
     }
   }
   textureStore(output_r32, center, vec4<f32>(sum / 16.0, 0.0, 0.0, 0.0));
@@ -105,49 +110,116 @@ fn pyramid_reconstruct_main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 @compute @workgroup_size(8, 8)
-fn guided_stats_horizontal_main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let size = textureDimensions(output_rgba);
-  if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
-  var sum = 0.0;
-  var sum_sq = 0.0;
-  var count = 0.0;
-  for (var dx = -3; dx <= 3; dx += 1) {
-    let x = i32(id.x) + dx;
-    if (x >= 0 && x < i32(size.x)) {
-      let value = textureLoad(input_a, vec2<i32>(x, i32(id.y)), 0).x;
-      sum += value;
-      sum_sq += value * value;
-      count += 1.0;
-    }
-  }
-  textureStore(output_rgba, vec2<i32>(id.xy), vec4<f32>(sum, sum_sq, count, 0.0));
-}
-
-@compute @workgroup_size(8, 8)
-fn guided_stats_vertical_main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let size = textureDimensions(output_rgba);
-  if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
-  var aggregate = vec3<f32>(0.0);
-  for (var dy = -3; dy <= 3; dy += 1) {
-    let y = i32(id.y) + dy;
-    if (y >= 0 && y < i32(size.y)) {
-      aggregate += textureLoad(input_a, vec2<i32>(i32(id.x), y), 0).xyz;
-    }
-  }
-  textureStore(output_rgba, vec2<i32>(id.xy), vec4<f32>(aggregate.x / aggregate.z, aggregate.y / aggregate.z, aggregate.z, 0.0));
-}
-
-@compute @workgroup_size(8, 8)
 fn guided_coefficients_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = textureDimensions(output_rgba);
   if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
-  let stats = textureLoad(input_b, vec2<i32>(id.xy), 0);
-  let variance = max(stats.y - stats.x * stats.x, 0.0);
-  let epsilon = max(params.knee * 1e-4, 1e-8);
-  let a = variance / (variance + epsilon);
-  let b = stats.x * (1.0 - a);
-  textureStore(output_rgba, vec2<i32>(id.xy), vec4<f32>(a, b, 0.0, 0.0));
+  let position = vec2<i32>(id.xy);
+  var sum = 0.0;
+  var sum_sq = 0.0;
+  var count = 0.0;
+  for (var dy = -3; dy <= 3; dy += 1) {
+    for (var dx = -3; dx <= 3; dx += 1) {
+      let sample_position = position + vec2<i32>(dx, dy);
+      if (sample_position.x >= 0 && sample_position.y >= 0 && sample_position.x < i32(size.x) && sample_position.y < i32(size.y)) {
+        let value = textureLoad(input_a, sample_position, 0).x;
+        sum += value;
+        sum_sq += value * value;
+        count += 1.0;
+      }
+    }
+  }
+  let mean = sum / max(count, 1.0);
+  let variance = max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
+  let weight = max(gradient_weight(input_a, position), 1e-6);
+  let regularization = 1.0 / weight;
+  let gamma = gradient_guided_gamma(input_a, position);
+  let a = (variance + regularization * gamma) / (variance + regularization);
+  let b = mean - a * mean;
+  textureStore(output_rgba, position, vec4<f32>(a, b, 0.0, 0.0));
 }
+
+fn local_variance(texture: texture_2d<f32>, center: vec2<i32>, radius: i32) -> f32 {
+  var sum = 0.0;
+  var sum_sq = 0.0;
+  var count = 0.0;
+  let size = vec2<i32>(textureDimensions(texture));
+  for (var dy = -radius; dy <= radius; dy += 1) {
+    for (var dx = -radius; dx <= radius; dx += 1) {
+      let position = center + vec2<i32>(dx, dy);
+      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
+        let value = textureLoad(texture, position, 0).x;
+        sum += value;
+        sum_sq += value * value;
+        count += 1.0;
+      }
+    }
+  }
+  let mean = sum / max(count, 1.0);
+  return max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
+}
+fn gradient_chi(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
+  return sqrt(abs(local_variance(texture, center, GRADIENT_GUIDED_RADIUS_1) * local_variance(texture, center, GRADIENT_GUIDED_RADIUS_3)));
+}
+
+fn dynamic_epsilon(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(texture));
+  var minimum = 1e30;
+  var maximum = -1e30;
+  for (var dy = -3; dy <= 3; dy += 1) {
+    for (var dx = -3; dx <= 3; dx += 1) {
+      let position = center + vec2<i32>(dx, dy);
+      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
+        let value = textureLoad(texture, position, 0).x;
+        minimum = min(minimum, value);
+        maximum = max(maximum, value);
+      }
+    }
+  }
+  let dynamic_range = max(maximum - minimum, 0.0);
+  return max((0.001 * dynamic_range) * (0.001 * dynamic_range), 1e-12);
+}
+
+fn gradient_weight(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
+  let size = vec2<i32>(textureDimensions(texture));
+  let chi = gradient_chi(texture, center);
+  let epsilon = dynamic_epsilon(texture, center);
+  var mean = 0.0;
+  var count = 0.0;
+  for (var dy = -3; dy <= 3; dy += 1) {
+    for (var dx = -3; dx <= 3; dx += 1) {
+      let position = center + vec2<i32>(dx, dy);
+      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
+        mean += gradient_chi(texture, position);
+        count += 1.0;
+      }
+    }
+  }
+  return (chi + epsilon) / (mean / max(count, 1.0) + epsilon);
+}
+
+fn gradient_guided_gamma(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
+  let chi = gradient_chi(texture, center);
+  let size = vec2<i32>(textureDimensions(texture));
+  var mean = 0.0;
+  var minimum = 1e30;
+  var count = 0.0;
+  for (var dy = -3; dy <= 3; dy += 1) {
+    for (var dx = -3; dx <= 3; dx += 1) {
+      let position = center + vec2<i32>(dx, dy);
+      if (position.x >= 0 && position.y >= 0 && position.x < size.x && position.y < size.y) {
+        let local_chi = gradient_chi(texture, position);
+        mean += local_chi;
+        minimum = min(minimum, local_chi);
+        count += 1.0;
+      }
+    }
+  }
+  let average = mean / max(count, 1.0);
+  let denominator = max(average - minimum, 1e-6);
+  let gamma = 1.0 - 1.0 / (1.0 + exp(4.0 * (chi - average) / denominator));
+  return clamp(gamma, 0.0, 1.0);
+}
+
 
 @compute @workgroup_size(8, 8)
 fn guided_coefficients_horizontal_main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -197,7 +269,7 @@ fn sobel_magnitude(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
     - load_clamped_r32(texture, position + vec2<i32>(-1, -1))
     - 2.0 * load_clamped_r32(texture, position + vec2<i32>(0, -1))
     - load_clamped_r32(texture, position + vec2<i32>(1, -1));
-  return sqrt(gx * gx + gy * gy);
+  return sqrt(gx * gx + gy * gy) / 8.0;
 }
 
 fn edge_mask_smoothed(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
@@ -302,15 +374,15 @@ fn combine(pixel: vec2<u32>, mapped: f32) -> f32 {
   let detail = luma - base;
   let luma_mask = luma_mask_smoothed(input_b, position);
   let target_value = mapped + params.amplifier * detail * luma_mask;
-  return raw * clamp(target_value / luma, params.min_ratio, params.max_ratio);
+  return clamp(raw * clamp(target_value / luma, params.min_ratio, params.max_ratio), 0.0, 1.0);
 }
 
 @compute @workgroup_size(8, 8)
 fn drc_combine_global_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = textureDimensions(output_r32);
   if (id.x >= size.x || id.y >= size.y) { return; }
-  let base = textureLoad(input_c, vec2<i32>(id.xy), 0).x;
-  textureStore(output_r32, vec2<i32>(id.xy), vec4<f32>(combine(id.xy, lookup_global(base)), 0.0, 0.0, 0.0));
+  let luma = textureLoad(input_b, vec2<i32>(id.xy), 0).x;
+  textureStore(output_r32, vec2<i32>(id.xy), vec4<f32>(combine(id.xy, lookup_global(luma)), 0.0, 0.0, 0.0));
 }
 
 @compute @workgroup_size(8, 8)

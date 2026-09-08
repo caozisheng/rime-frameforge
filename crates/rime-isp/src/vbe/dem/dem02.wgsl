@@ -57,6 +57,13 @@ fn diagonal_difference(p: vec2<i32>, extent: vec2<u32>, target_channel: u32) -> 
   return sum / max(count, 1.0);
 }
 
+fn shared_saturation_clip(rgb: vec3<f32>) -> vec3<f32> {
+  let peak = max(max(rgb.r, rgb.g), rgb.b);
+  let scaled = rgb / peak;
+  let clipped = select(scaled, vec3<f32>(1.0), min(min(scaled.r, scaled.g), scaled.b) >= 0.5);
+  return select(rgb, clipped, peak > 1.0);
+}
+
 @compute @workgroup_size(8, 8)
 fn demosaic_ppg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let extent = textureDimensions(input_tex);
@@ -81,5 +88,5 @@ fn demosaic_ppg_main(@builtin(global_invocation_id) gid: vec3<u32>) {
       rgb.r = green + cardinal_difference(p, extent, false);
     }
   }
-  textureStore(output_tex, p, vec4<f32>(rgb, 1.0));
+  textureStore(output_tex, p, vec4<f32>(shared_saturation_clip(rgb), 1.0));
 }

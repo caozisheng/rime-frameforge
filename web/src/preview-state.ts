@@ -1,3 +1,5 @@
+import type { PreviewDescriptor, RuntimeEnvelope } from './contracts.js';
+
 export const ZOOM_LEVELS = [0.25, 0.5, 1, 2, 4, 8] as const;
 
 export interface PreviewPoint {
@@ -80,4 +82,10 @@ export function previewIdentityMismatch(a: PreviewIdentity, b: PreviewIdentity):
   if (a.methodRevision !== b.methodRevision) return `method revision mismatch: ${a.methodRevision} vs ${b.methodRevision}`;
   if (a.gpuGeneration !== b.gpuGeneration) return `GPU generation mismatch: ${a.gpuGeneration} vs ${b.gpuGeneration}`;
   return null;
+}
+
+export function retainPreviewsForRuntimeSnapshot(previews: readonly PreviewDescriptor[], snapshot: RuntimeEnvelope): readonly PreviewDescriptor[] {
+  if (previews.length === 0) return previews;
+  const generation = previews[0]?.gpuGeneration;
+  return generation === snapshot.gpuGeneration ? previews : [];
 }

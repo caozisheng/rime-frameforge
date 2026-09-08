@@ -36,11 +36,15 @@ describe('validateGpuInput', () => {
     );
   });
 
+  it('accepts a 24MP frame after compacting DRC intermediate formats', () => {
+    expect(() => validateGpuInput({ ...gh5s, width: 6000, height: 4096, rowStrideSamples: 6000 }, 4096)).not.toThrow();
+  });
+
   it('accounts for retained Normal Graph and three-level DRC resources', () => {
     const full = 3744 * 2776;
     const half = Math.floor(3744 / 2) * Math.floor(2776 / 2);
     const quarter = Math.floor(3744 / 4) * Math.floor(2776 / 4);
-    const expected = full * 54 + (full + half + quarter) * 76 + 48 + 257 * 49 * 4;
+    const expected = full * 54 + (full + half + quarter) * 44 + 48 + 257 * 49 * 4;
     expect(estimateNormalGraphLivePeakBytes(gh5s)).toBe(expected);
     expect(estimateNormalGraphPoolBytes(gh5s)).toBe(expected);
   });

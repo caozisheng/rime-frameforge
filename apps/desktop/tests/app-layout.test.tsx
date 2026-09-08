@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { App } from '../src/App.js';
+import { App, DEFAULT_DRC_IQ_PARAMETERS, drcIqParametersFromValues, hasDrcIqDraft } from '../src/App.js';
 
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 class MemoryStorage implements Storage {
@@ -64,5 +64,11 @@ describe('desktop workspace layout', () => {
     expect(focusedShellRule).toContain('height: 100vh');
     expect(focusedShellRule).not.toContain('calc(100vw - 24px)');
     expect(focusedShellRule).not.toContain('calc(100vh - 24px)');
+  });
+  it('defines complete DRC IQ defaults and draft detection', () => {
+    expect(DEFAULT_DRC_IQ_PARAMETERS).toEqual({ drc_gain_offset_ev: 0, knee: 1, amplifier: 3 });
+    expect(drcIqParametersFromValues({})).toEqual(DEFAULT_DRC_IQ_PARAMETERS);
+    expect(drcIqParametersFromValues({ drc_gain_offset_ev: -2, knee: 3, amplifier: 4 })).toEqual({ drc_gain_offset_ev: -2, knee: 3, amplifier: 4 });
+    expect(hasDrcIqDraft({ drc_gain_offset_ev: 0, knee: 1, amplifier: 2 }, DEFAULT_DRC_IQ_PARAMETERS)).toBe(true);
   });
 });

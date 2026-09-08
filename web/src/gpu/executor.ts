@@ -3,8 +3,9 @@ import type { FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSn
 import type { ExecutionIdentity } from '../runtime-controller.js';
 import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
+import { validateGraphBypassConfig, type GraphBypassConfig } from './bypass.js';
 import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from './fused-normal-shader.js';
-import { WebDrcExecutor, type DrcMethod } from './drc.js';
+import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, type DrcIqParameters, WebDrcExecutor, type DrcMethod } from './drc.js';
 import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters, type GammaParameters } from './gamma.js';
 import { FUSED_UNIFORM_BYTES, packFusedUniforms } from './fused-uniforms.js';
 import { GpuPreviewPresenter, type PreviewView } from './presenter.js';
@@ -41,6 +42,7 @@ export class NormalGpuExecutor {
   #quantizationConfig: QuantizationConfig;
   #demMethod: DemMethod = '00';
   #drcMethod: DrcMethod = '00';
+  #drcBypassed = false;
   #blcPipeline: GPUComputePipeline | null = null;
   #blcBindGroup: GPUBindGroup | null = null;
   #fullPipeline: GPUComputePipeline | null = null;
@@ -57,7 +59,7 @@ export class NormalGpuExecutor {
   #sampleBuffer: GPUBuffer | null = null;
   #demosaicParameterValues = { vng_threshold: 1.5, ahd_l_threshold: 2.0, ahd_c_threshold_sq: 4.0 };
   #gammaParameters: GammaParameters = { gamma: DEFAULT_GAMMA_PARAMETERS.gamma, lut: [...DEFAULT_GAMMA_PARAMETERS.lut] };
-
+  #drcIqParameters: DrcIqParameters = { ...DEFAULT_DRC_IQ_PARAMETERS };
   public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, quantizationConfig: QuantizationConfig) {
     this.#gpu = gpu;
     this.#descriptor = descriptor;
@@ -105,8 +107,11 @@ export class NormalGpuExecutor {
 
   public prepare(identity: ExecutionIdentity): void {
     this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packFusedUniforms(this.#descriptor, identity.frameIndex, this.#demosaicParameterValues, this.#quantizationConfig, this.#gammaParameters));
-    this.#drc.setMethod(this.#drcMethod);
-    this.#drc.prepare();
+    if (!this.#drcBypassed) {
+      this.#drc.setMethod(this.#drcMethod);
+      this.#drc.setIqParameters(this.#drcIqParameters);
+      this.#drc.prepare();
+    }
     this.#blcPipeline ??= this.createPipeline(compileBlcShader(), 'blc_main');
     this.#blcBindGroup = this.#gpu.device.createBindGroup({
       layout: this.#blcPipeline.getBindGroupLayout(0),
@@ -121,7 +126,7 @@ export class NormalGpuExecutor {
       this.#fullBindGroup = this.#gpu.device.createBindGroup({
         layout: this.#fullPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: this.#drcTexture.createView() },
+          { binding: 0, resource: this.drcInputTexture().createView() },
           { binding: 1, resource: this.#wbcTexture.createView() },
           { binding: 2, resource: this.#demTexture.createView() },
           { binding: 3, resource: this.#colorTexture.createView() },
@@ -142,7 +147,7 @@ export class NormalGpuExecutor {
     resizePreviewCanvas(this.#gpu.canvas, this.#descriptor);
     const encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-fused-frame' });
     this.encodeCompute(encoder, this.#blcPipeline, this.#blcBindGroup, 'normal-blc');
-    this.#drc.encode(encoder, this.#blcTexture, this.#drcTexture);
+    if (!this.#drcBypassed) this.#drc.encode(encoder, this.#blcTexture, this.#drcTexture);
     if (this.#demMethod === '00') {
       this.encodeCompute(encoder, this.#fullPipeline!, this.#fullBindGroup!, 'normal-post-drc-fused');
     } else {
@@ -224,6 +229,12 @@ export class NormalGpuExecutor {
 
   public transferAudit(): TransferAuditSnapshot { return this.#audit.snapshot(); }
 
+  public setBypassConfig(config: GraphBypassConfig): void {
+    validateGraphBypassConfig(config);
+    this.#drcBypassed = config.modules.find((module) => module.module_id === 'drc')?.bypass === true;
+    this.invalidateBindings();
+  }
+
   public setMethod(nodeId: string, method: string): void {
     const node = normalManifest.nodes.find((candidate) => candidate.id === nodeId);
     if (node === undefined || !node.methods.some((candidate) => candidate.method === method)) throw new Error(`METHOD_INVALID: ${nodeId}.${method}`);
@@ -261,6 +272,11 @@ export class NormalGpuExecutor {
     }
     this.invalidateBindings();
   }
+  public setDrcIqParameters(parameters: DrcIqParameters): void {
+    validateDrcIqParameters(parameters);
+    this.#drcIqParameters = { ...parameters };
+    this.invalidateBindings();
+  }
 
   public setLut(parameter: string, values: readonly number[]): void {
     if (parameter !== 'gamma_lut') throw new Error(`PARAMETER_INVALID: ${parameter}`);
@@ -287,7 +303,7 @@ export class NormalGpuExecutor {
     view.setFloat32(24, this.#demosaicParameterValues.ahd_c_threshold_sq, true);
     this.#gpu.device.queue.writeBuffer(this.#demUniforms, 0, demParams);
     this.#preBindGroup = this.#gpu.device.createBindGroup({ layout: this.#prePipeline.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.#drcTexture.createView() },
+      { binding: 0, resource: this.drcInputTexture().createView() },
       { binding: 1, resource: this.#wbcTexture.createView() },
       { binding: 2, resource: { buffer: this.#uniforms } },
     ] });
@@ -314,13 +330,17 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = this.#previewTextures[cursor];
+      const texture = this.#drcBypassed && cursor === 'drc' ? this.#blcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
       const incoming = normalManifest.edges.find((edge) => edge.to.node_id === cursor);
       if (incoming === undefined) return null;
       cursor = incoming.from.node_id;
     }
     return null;
+  }
+
+  private drcInputTexture(): GPUTexture {
+    return this.#drcBypassed ? this.#blcTexture : this.#drcTexture;
   }
 
   private uploadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {

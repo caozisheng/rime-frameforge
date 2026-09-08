@@ -1,6 +1,13 @@
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 
+fn shared_saturation_clip(rgb: vec3<f32>) -> vec3<f32> {
+  let peak = max(max(rgb.r, rgb.g), rgb.b);
+  let scaled = rgb / peak;
+  let clipped = select(scaled, vec3<f32>(1.0), min(min(scaled.r, scaled.g), scaled.b) >= 0.5);
+  return select(rgb, clipped, peak > 1.0);
+}
+
 @compute @workgroup_size(8, 8)
 fn color_correction_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let extent = textureDimensions(input_tex);
@@ -11,5 +18,5 @@ fn color_correction_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b,
     -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b,
   );
-  textureStore(output_tex, vec2<i32>(gid.xy), vec4<f32>(corrected, 1.0));
+  textureStore(output_tex, vec2<i32>(gid.xy), vec4<f32>(shared_saturation_clip(corrected), 1.0));
 }

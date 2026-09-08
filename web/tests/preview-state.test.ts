@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { PreviewDescriptor, RuntimeEnvelope } from '../src/contracts.js';
 
 import {
   clampCurtain,
   clampPan,
   fitZoom,
   imagePointAt,
+  retainPreviewsForRuntimeSnapshot,
   resizePreviewCanvas,
   previewIdentityMismatch,
   zoomAroundPoint,
@@ -65,5 +67,12 @@ describe('preview interaction state', () => {
     const a = { frameIndex: 1, runRevision: 2, methodRevision: 3, gpuGeneration: 4 };
     expect(previewIdentityMismatch(a, { ...a })).toBeNull();
     expect(previewIdentityMismatch(a, { ...a, frameIndex: 2 })).toContain('frame');
+  });
+
+  it('keeps committed previews across same-generation parameter snapshots', () => {
+    const preview = { nodeId: 'rgb2yuv', portId: 'out', frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 2, width: 2, height: 2, format: 'rgba32_float', domain: 'yuv', range: 'normalized', channelLayout: 'yuv', presentation: 'yuv' } satisfies PreviewDescriptor;
+    const snapshot = (gpuGeneration: number): RuntimeEnvelope => ({ graphInstanceId: 1, runRevision: 2, configRevision: 1, methodRevision: 1, gpuGeneration, frameIndex: null, framePhase: null, visibleFrameCommitted: false, lifecycleState: 'stop' });
+    expect(retainPreviewsForRuntimeSnapshot([preview], snapshot(2))).toEqual([preview]);
+    expect(retainPreviewsForRuntimeSnapshot([preview], snapshot(3))).toEqual([]);
   });
 });

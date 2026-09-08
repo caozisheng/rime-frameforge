@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, usePanelRef, type Layout } from 'react-resizable-panels';
-
-import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry } from '../../../web/src/contracts.js';
+import { retainPreviewsForRuntimeSnapshot } from '../../../web/src/preview-state.js';
+import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry, DrcIqParameters } from '../../../web/src/contracts.js';
 import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js';
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import { normalManifest } from '../../../web/src/generated/normal_manifest.generated.js';
+import { defaultGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters } from '../../../web/src/gpu/gamma.js';
 import { LogConsole } from './components/LogConsole.js';
 import { NormalGraphCanvas } from './components/NormalGraphCanvas.js';
@@ -42,6 +43,25 @@ const PREVIEW_NODE_OPTIONS = normalManifest.nodes
   .filter((node) => node.outputs.length > 0)
   .map((node) => ({ id: node.id, label: node.display_name }));
 const PREVIEW_CAPABILITIES: Readonly<Record<string, true>> = Object.fromEntries(normalManifest.preview_outputs.map((port) => [port.node_id, true])) as Record<string, true>;
+export const DEFAULT_DRC_IQ_PARAMETERS: DrcIqParameters = { drc_gain_offset_ev: 0, knee: 1, amplifier: 3 };
+const DRC_IQ_PARAMETERS = ['drc_gain_offset_ev', 'knee', 'amplifier'] as const;
+type DrcIqParameter = (typeof DRC_IQ_PARAMETERS)[number];
+
+export function drcIqParametersFromValues(values: Readonly<Record<string, string | number>>): DrcIqParameters {
+  return {
+    drc_gain_offset_ev: typeof values.drc_gain_offset_ev === 'number' && Number.isFinite(values.drc_gain_offset_ev) ? values.drc_gain_offset_ev : DEFAULT_DRC_IQ_PARAMETERS.drc_gain_offset_ev,
+    knee: typeof values.knee === 'number' && Number.isFinite(values.knee) ? values.knee : DEFAULT_DRC_IQ_PARAMETERS.knee,
+    amplifier: typeof values.amplifier === 'number' && Number.isFinite(values.amplifier) ? values.amplifier : DEFAULT_DRC_IQ_PARAMETERS.amplifier,
+  };
+}
+
+export function hasDrcIqDraft(draft: DrcIqParameters, applied: DrcIqParameters): boolean {
+  return DRC_IQ_PARAMETERS.some((parameter) => draft[parameter] !== applied[parameter]);
+}
+
+function isDrcIqParameter(parameter: string): parameter is DrcIqParameter {
+  return DRC_IQ_PARAMETERS.includes(parameter as DrcIqParameter);
+}
 
 function persistedLayout(key: string, fallback: Layout): Layout {
   return readPaneLayout(window.localStorage, key, fallback);
@@ -58,6 +78,7 @@ export function App() {
   const [previewSample, setPreviewSample] = useState<PreviewSampleValue | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [quantization, setQuantization] = useState<GraphQuantizationConfig>(normalGraphQuantization);
+  const [bypassConfig, setBypassConfig] = useState<GraphBypassConfig>(() => defaultGraphBypassConfig());
   const [activeMethods, setActiveMethods] = useState<Record<string, string>>({ dem: '00' });
   const [parameterValues, setParameterValues] = useState<Record<string, string | number>>({
     cfa_pattern: 'rggb',
@@ -69,17 +90,14 @@ export function App() {
     ahd_c_threshold_sq: 4.0,
     gamma: 2.2,
     gamma_lut: '9-point Y LUT',
+    ...DEFAULT_DRC_IQ_PARAMETERS,
   });
   const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
     gamma: 2.2,
+    ...DEFAULT_DRC_IQ_PARAMETERS,
   });
-  const [tuningCurves, setTuningCurves] = useState<TuningCurveDraft>(FACTORY_TUNING_CURVES);
-  const [appliedGammaCurve, setAppliedGammaCurve] = useState(FACTORY_TUNING_CURVES.gammaCurve);
-  const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
-  const [loadedDng, setLoadedDng] = useState<DngFrameDescriptor | null>(null);
-  const [dngSequence, setDngSequence] = useState<DngSequenceDescriptor | null>(null);
   const [dngPaths, setDngPaths] = useState<readonly string[]>([]);
   const [dngFrameIndex, setDngFrameIndex] = useState(0);
   const [sequencePlaying, setSequencePlaying] = useState(false);
@@ -92,6 +110,11 @@ export function App() {
   const dngPathsRef = useRef<readonly string[]>([]);
   const [commandPending, setCommandPending] = useState(false);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
+  const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
+  const [loadedDng, setLoadedDng] = useState<DngFrameDescriptor | null>(null);
+  const [dngSequence, setDngSequence] = useState<DngSequenceDescriptor | null>(null);
+  const [tuningCurves, setTuningCurves] = useState<TuningCurveDraft>(FACTORY_TUNING_CURVES);
+  const [appliedGammaCurve, setAppliedGammaCurve] = useState(FACTORY_TUNING_CURVES.gammaCurve);
   const [fitGraphRequest, setFitGraphRequest] = useState(0);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [workspaceLayout] = useState(() => persistedLayout(WORKSPACE_LAYOUT_KEY, WORKSPACE_LAYOUT));
@@ -221,7 +244,7 @@ export function App() {
       if (event.type === 'ready' || event.type === 'snapshot') {
         setEnvelope(event.envelope);
         setCommandPending(false);
-        if (!event.envelope.visibleFrameCommitted && dngPathsRef.current.length <= 1) setPreviews([]);
+        if (!event.envelope.visibleFrameCommitted) setPreviews((current) => retainPreviewsForRuntimeSnapshot(current, event.envelope));
       }
       if (event.type === 'preview') {
         setEnvelope(event.envelope);
@@ -329,6 +352,15 @@ export function App() {
       try { validateGammaParameters({ ...DEFAULT_GAMMA_PARAMETERS, gamma: value }); } catch { return; }
     }
     const frameIndex = dngFrameIndexRef.current;
+    if (isDrcIqParameter(parameter)) {
+      const next = { ...drcIqParametersFromValues(parameterValues), [parameter]: value };
+      setParameterValues((current) => ({ ...current, ...next }));
+      setAppliedParameterValues((current) => ({ ...current, ...next }));
+      setCommandPending(true);
+      bridgeRef.current.setDrcIqParameters(JSON.stringify(next));
+      bridgeRef.current.run(frameIndex);
+      return;
+    }
     setParameterValues((current) => ({ ...current, [parameter]: value }));
     setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
     setCommandPending(true);
@@ -347,6 +379,10 @@ export function App() {
       setTuningCurves((current) => ({ ...current, gammaCurve: FACTORY_TUNING_CURVES.gammaCurve }));
       return;
     }
+    if (isDrcIqParameter(parameter)) {
+      setParameterValues((current) => ({ ...current, [parameter]: DEFAULT_DRC_IQ_PARAMETERS[parameter] }));
+      return;
+    }
     const value = parameter === 'ahd_l_threshold' ? 2.0 : 4.0;
     setParameterValues((current) => ({ ...current, [parameter]: value }));
     setTuningCurves((current) => parameter === 'ahd_l_threshold' ? { ...current, lCurve: FACTORY_TUNING_CURVES.lCurve } : { ...current, cCurve: FACTORY_TUNING_CURVES.cCurve });
@@ -358,12 +394,25 @@ export function App() {
     bridgeRef.current.setQuantizationConfig(JSON.stringify(next));
   };
 
+  const changeBypassConfig = (next: GraphBypassConfig): void => {
+    if (bridgeRef.current === null) return;
+    setCommandPending(true);
+    setBypassConfig(next);
+    bridgeRef.current.setBypassConfig(JSON.stringify(next));
+  };
+
   const changeModuleQuantization = (moduleId: string, preference: ModuleQuantizationPreference): void => {
     const next = { ...quantization, modules: quantization.modules.map((module) => module.module_id === moduleId ? preference : module) };
     changeGraphQuantization(next);
   };
   const flushParameterDrafts = (): void => {
     if (bridgeRef.current === null) return;
+    const drcDraft = drcIqParametersFromValues(parameterValues);
+    const drcApplied = drcIqParametersFromValues(appliedParameterValues);
+    if (hasDrcIqDraft(drcDraft, drcApplied)) {
+      bridgeRef.current.setDrcIqParameters(JSON.stringify(drcDraft));
+      setAppliedParameterValues((current) => ({ ...current, ...drcDraft }));
+    }
     for (const parameter of ['ahd_l_threshold', 'ahd_c_threshold_sq', 'gamma'] as const) {
       const value = parameterValues[parameter];
       const applied = appliedParameterValues[parameter];
@@ -494,12 +543,11 @@ export function App() {
         <Panel id="right" minSize="35%">
           <Group
             className="diagnostic-split"
-            id="right-split"
             orientation="vertical"
             defaultLayout={rightLayout}
             onLayoutChanged={(layout) => writePaneLayout(window.localStorage, RIGHT_LAYOUT_KEY, layout)}
           >
-            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} tuningCurves={tuningCurves} quantization={quantization} onTuningCurvesChange={setTuningCurves} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onLutApply={applyLutAndRerun} onParameterReset={resetParameterToFactory} /></div></Panel>
+            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} tuningCurves={tuningCurves} onTuningCurvesChange={setTuningCurves} quantization={quantization} bypassConfig={bypassConfig} onBypassConfigChange={changeBypassConfig} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onLutApply={applyLutAndRerun} onParameterReset={resetParameterToFactory} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
             <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} previews={previews} nativePreview={nativePreview === null ? null : { dataUrl: nativePreview.previewDataUrl, width: nativePreview.previewWidth, height: nativePreview.previewHeight, outputWidth: nativePreview.width, outputHeight: nativePreview.height, nodeId: nativePreview.nodeId, portId: nativePreview.portId, frameIndex: nativePreview.frameIndex }} fileName={nativePreview === null ? loadedDng?.fileName ?? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} sample={previewSample} mode={previewMode} selectedNode={selectedNode} nodeOptions={PREVIEW_NODE_OPTIONS} previewCapabilities={PREVIEW_CAPABILITIES} compareA={compareA} compareB={compareB} focused={previewFocused} onModeChange={setPreviewMode} onCompareAChange={setCompareA} onCompareBChange={setCompareB} onFocusedChange={setPreviewFocused} onPresentationChange={changePreviewPresentation} onSampleRequest={requestPreviewSample} /></div></Panel>
           </Group>

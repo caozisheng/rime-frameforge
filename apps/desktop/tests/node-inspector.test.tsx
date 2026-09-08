@@ -44,6 +44,24 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('pass-3');
     expect(html).toContain('Rime.Q');
   });
+
+  it('shows bypass controls only for non-excluded operator modules', () => {
+    const bypassConfig = {
+      graph_id: 'normal',
+      modules: [
+        { module_id: 'drc', bypass: false },
+        { module_id: 'blc', bypass: false },
+      ],
+    };
+    const graphHtml = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} bypassConfig={bypassConfig} />);
+    expect(graphHtml).toContain('DRC bypass');
+
+    const blcHtml = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} bypassConfig={bypassConfig} />);
+    expect(blcHtml).not.toContain('BLC bypass');
+
+    const drcHtml = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="drc" bypassConfig={bypassConfig} />);
+    expect(drcHtml).toContain('DRC bypass');
+  });
   it('renders Overall Rime.Q as a visual switch control', () => {
     const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId={null} />);
     expect(html).toContain('role="switch"');
@@ -118,6 +136,31 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('>1<');
     expect(html).toContain('blue_gain');
     expect(html).toContain('>1.5<');
+  });
+
+  it('shows resolved DRC preprocess parameters instead of placeholders', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="drc"
+        activeMethod="01"
+        dngFrame={{
+          cfa: 'rggb',
+          whiteBalanceGains: [2, 1, 4],
+          metadata: { baselineExposure: 1 },
+        } as DngFrameDescriptor}
+      />,
+    );
+
+    expect(html).toContain('drc_gain');
+    expect(html).toContain('>2<');
+    expect(html).toContain('knee');
+    expect(html).toContain('level_count');
+    expect(html).toContain('>3<');
+    expect(html).toContain('global_tone_lut');
+    expect(html).toContain('257 samples · CPU preprocess');
+    expect(html).toContain('local_tone_lut');
+    expect(html).toContain('8×6×257 · CPU preprocess');
   });
 });
 
@@ -280,5 +323,40 @@ describe('NodeInspector DEM controls', () => {
 
     expect(html).not.toContain('<dl');
     expect(html).toContain('No DNG frame loaded');
+  });
+});
+
+describe('NodeInspector DRC IQ controls', () => {
+  it('shows tuning entry points only for DRC scalar inputs', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="drc"
+        activeMethod="00"
+        parameterValues={{ drc_gain_offset_ev: 0, knee: 1, amplifier: 1 }}
+      />,
+    );
+
+    expect(html).toContain('Tune drc_gain_offset_ev');
+    expect(html).toContain('Tune knee');
+    expect(html).toContain('Tune amplifier');
+    expect(html).not.toContain('aria-label="Tune drc_gain"');
+    expect(html).not.toContain('aria-label="Tune global_tone_lut"');
+  });
+
+  it('renders DRC scalar units, legal ranges, values, and controls', () => {
+    const offset = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="drc_gain_offset_ev" controlKind="scalar" baseValues={{ drc_gain_offset_ev: 0 }} onApply={() => undefined} />);
+    const knee = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="knee" controlKind="scalar" baseValues={{ knee: 1 }} onApply={() => undefined} />);
+    const amplifier = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="amplifier" controlKind="scalar" baseValues={{ amplifier: 1 }} onApply={() => undefined} />);
+
+    expect(offset).toContain('aria-label="drc_gain_offset_ev current value"');
+    expect(offset).toContain('<span>Unit</span><strong>EV</strong>');
+    expect(offset).toContain('<span>Range</span><strong>-4 to 4 EV</strong>');
+    expect(offset).toContain('Base value');
+    expect(offset).toContain('Current value');
+    expect(offset).toContain('aria-label="Reset tuning to factory"');
+    expect(offset).toContain('aria-label="Apply tuning"');
+    expect(knee).toContain('<span>Range</span><strong>&gt; 0 normalized</strong>');
+    expect(amplifier).toContain('<span>Range</span><strong>≥ 0</strong>');
   });
 });

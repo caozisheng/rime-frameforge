@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { generateGlobalToneLut } from '../src/gpu/drc.js';
+import type { BayerCfa, RawFrameDescriptor } from '../src/contracts.js';
+import { DEFAULT_DRC_IQ_PARAMETERS, generateGlobalToneLut, packDrcUniforms, validateDrcIqParameters } from '../src/gpu/drc.js';
+
+const descriptor: Pick<RawFrameDescriptor, 'baselineExposure' | 'whiteBalanceGains' | 'cfa'> = { baselineExposure: 1.5, whiteBalanceGains: [2, 1, 4], cfa: 'rggb' satisfies BayerCfa };
 
 describe('WebGPU DRC preprocessing', () => {
   it('generates an identity global LUT at unity gain', () => {
@@ -20,5 +23,24 @@ describe('WebGPU DRC preprocessing', () => {
   it('rejects non-positive and non-finite gain', () => {
     expect(() => generateGlobalToneLut(0)).toThrow('DRC_TONE_INVALID');
     expect(() => generateGlobalToneLut(Number.NaN)).toThrow('DRC_TONE_INVALID');
+  });
+
+  it('validates DRC IQ parameters and packs final gain from metadata exposure and offset', () => {
+    expect(DEFAULT_DRC_IQ_PARAMETERS).toEqual({ drc_gain_offset_ev: 0, knee: 1, amplifier: 3 });
+    validateDrcIqParameters({ drc_gain_offset_ev: 2, knee: 0.5, amplifier: 0 });
+    expect(() => validateDrcIqParameters({ drc_gain_offset_ev: 4.1, knee: 1, amplifier: 1 })).toThrow('DRC_IQ_INVALID');
+    expect(() => validateDrcIqParameters({ drc_gain_offset_ev: 0, knee: 0, amplifier: 1 })).toThrow('DRC_IQ_INVALID');
+    expect(() => validateDrcIqParameters({ drc_gain_offset_ev: 0, knee: 1, amplifier: -1 })).toThrow('DRC_IQ_INVALID');
+    expect(() => validateDrcIqParameters({ drc_gain_offset_ev: Number.NaN, knee: 1, amplifier: 1 })).toThrow('DRC_IQ_INVALID');
+
+    const packed = new DataView(packDrcUniforms(descriptor, { drc_gain_offset_ev: 0.5, knee: 0.25, amplifier: 2 }));
+    expect(packed.getFloat32(0, true)).toBeCloseTo(2 ** 2);
+    expect(packed.getFloat32(4, true)).toBeCloseTo(0.25);
+    expect(packed.getFloat32(8, true)).toBeCloseTo(2);
+  });
+
+  it('packs CFA-normalized white-balance gains for the analysis-only gain-map branch', () => {
+    const packed = new DataView(packDrcUniforms(descriptor, DEFAULT_DRC_IQ_PARAMETERS));
+    expect([packed.getFloat32(32, true), packed.getFloat32(36, true), packed.getFloat32(40, true), packed.getFloat32(44, true)]).toEqual([1, 0.5, 0.5, 2]);
   });
 });

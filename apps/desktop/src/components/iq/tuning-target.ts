@@ -20,5 +20,8 @@ export function tuningDescriptor(moduleId: string, method: string, parameter: st
   if (moduleId === 'gamma' && method === '00' && parameter === 'gamma_lut') {
     return { parameter, controlKind: 'lut_1d' };
   }
+  if (moduleId === 'drc' && (method === '00' || method === '01') && (parameter === 'drc_gain_offset_ev' || parameter === 'knee' || parameter === 'amplifier')) {
+    return { parameter, controlKind: 'scalar' };
+  }
   return null;
 }

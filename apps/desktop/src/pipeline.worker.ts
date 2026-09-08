@@ -3,10 +3,11 @@ import { validateGpuInput } from '../../../web/src/gpu/capability.js';
 import { NormalGpuExecutor } from '../../../web/src/gpu/executor.js';
 import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
+import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, type DrcIqParameters } from '../../../web/src/gpu/drc.js';
 import type { RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
+import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
 import { canLoadNextDngFrame } from './runtime/dng-sequence.js';
-
 let executor: NormalGpuExecutor | null = null;
 let gpu: GpuContext | null = null;
 let controller: RuntimeController | null = null;
@@ -17,12 +18,14 @@ let rawByteOffset = 0;
 let descriptor: RawFrameDescriptor | null = null;
 let deviceWasLost = false;
 const selectedMethods: Record<string, string> = { dem: '00' };
+let bypassConfig: GraphBypassConfig = defaultGraphBypassConfig();
 const parameterValues: Record<string, number> = {
   vng_threshold: 1.5,
   ahd_l_threshold: 2.0,
   ahd_c_threshold_sq: 4.0,
   gamma: 2.2,
 };
+let drcIqParameters: DrcIqParameters = { ...DEFAULT_DRC_IQ_PARAMETERS };
 const lutValues: Record<string, readonly number[]> = {
   gamma_lut: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1],
 };
@@ -73,14 +76,19 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     if (!canLoadNextDngFrame(envelope.lifecycleState)) {
       throw new Error('INVALID_STATE_TRANSITION: DNG frame can only load while stopped or completed');
     }
+    const previousExecutor = executor;
+    const canReuseExecutor = previousExecutor?.canReplaceFrame(command.descriptor) === true;
     rawAsset = command.raw;
     rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
     envelope = authority.reset();
-    if (executor?.canReplaceFrame(descriptor) === true) {
+    if (canReuseExecutor && previousExecutor !== null) {
+      executor = previousExecutor;
       executor.replaceFrame(rawAsset, rawByteOffset, descriptor);
     } else {
-      executor?.dispose();
+      executor = null;
+      controller = null;
+      previousExecutor?.dispose();
       if (gpu === null) throw new Error('INVALID_STATE_TRANSITION: GPU context is unavailable');
       validateGpuInput(descriptor, 4096, gpu.device.limits.maxTextureDimension2D);
       createExecutor(envelope.gpuGeneration);
@@ -90,7 +98,27 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
   if (command.type === 'set_quantization_config') {
     envelope = authority.setQuantizationConfig(command.config);
-    executor?.setQuantizationConfig(JSON.parse(command.config) as Parameters<typeof executor.setQuantizationConfig>[0]);
+    executor?.setQuantizationConfig(JSON.parse(command.config) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0]);
+    self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
+    return;
+  }
+  if (command.type === 'set_bypass_config') {
+    const next = JSON.parse(command.config) as GraphBypassConfig;
+    validateGraphBypassConfig(next);
+    envelope = authority.changeConfig();
+    bypassConfig = next;
+    if (executor !== null && 'setBypassConfig' in executor) {
+      (executor as NormalGpuExecutor & { setBypassConfig(config: GraphBypassConfig): void }).setBypassConfig(next);
+    }
+    self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
+    return;
+  }
+  if (command.type === 'set_drc_iq_parameters') {
+    const next = JSON.parse(command.config) as DrcIqParameters;
+    validateDrcIqParameters(next);
+    envelope = authority.changeConfig();
+    drcIqParameters = { ...next };
+    executor?.setDrcIqParameters(next);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -166,7 +194,11 @@ function createExecutor(generation: number): void {
   const quantization = JSON.parse(authority.quantizationConfig()) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0];
   executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, quantization);
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
+  if ('setBypassConfig' in executor) {
+    (executor as NormalGpuExecutor & { setBypassConfig(config: GraphBypassConfig): void }).setBypassConfig(bypassConfig);
+  }
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
+  executor.setDrcIqParameters(drcIqParameters);
   for (const [parameter, values] of Object.entries(lutValues)) executor.setLut(parameter, values);
   controller = new RuntimeController(
     executor,

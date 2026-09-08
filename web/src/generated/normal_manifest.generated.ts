@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "83aa4235e7f2950870cabe3f369544ddada1b966c0c895b59997377f222695fc",
+  "manifest_hash": "54d5c73d32b0b4c98ef3b8bd7f2fe106fd3d9af513b50bdd4afd184adacdcf3b",
   "nodes": [
     {
       "id": "raw_source",
@@ -325,7 +325,7 @@ export const normalManifest = {
             "max_ratio",
             "level_count",
             "feature_flags",
-            "cfa",
+            "analysis_wbc_gains",
             "global_tone_lut"
           ]
         },
@@ -341,7 +341,7 @@ export const normalManifest = {
             "max_ratio",
             "level_count",
             "feature_flags",
-            "cfa",
+            "analysis_wbc_gains",
             "global_tone_lut",
             "local_tone_lut"
           ]
