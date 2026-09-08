@@ -5,7 +5,7 @@ import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
 import { validateGraphBypassConfig, type GraphBypassConfig } from './bypass.js';
 import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from './fused-normal-shader.js';
-import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, type DrcIqParameters, WebDrcExecutor, type DrcMethod } from './drc.js';
+import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, validateModulationCurves, type DrcIqParameters, type DrcModulationCurves, WebDrcExecutor, type DrcMethod } from './drc.js';
 import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters, type GammaParameters } from './gamma.js';
 import { FUSED_UNIFORM_BYTES, packFusedUniforms } from './fused-uniforms.js';
 import { GpuPreviewPresenter, type PreviewView } from './presenter.js';
@@ -272,9 +272,11 @@ export class NormalGpuExecutor {
     }
     this.invalidateBindings();
   }
-  public setDrcIqParameters(parameters: DrcIqParameters): void {
+  public setDrcIqParameters(parameters: DrcIqParameters, curves?: DrcModulationCurves): void {
     validateDrcIqParameters(parameters);
     this.#drcIqParameters = { ...parameters };
+    if (curves !== undefined) this.#drc.setIqParameters(parameters, curves);
+    else this.#drc.setIqParameters(parameters);
     this.invalidateBindings();
   }
 

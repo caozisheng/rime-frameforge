@@ -23,6 +23,7 @@ struct FloatBuffer { values: array<f32> }
 @group(0) @binding(5) var output_rgba: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(6) var<storage, read> global_lut: FloatBuffer;
 @group(0) @binding(7) var<storage, read> local_lut: FloatBuffer;
+@group(0) @binding(8) var<storage, read> modulation_luts: FloatBuffer;
 
 fn cfa_gain(position: vec2<i32>) -> f32 {
   let index = u32(position.y & 1) * 2u + u32(position.x & 1);
@@ -242,18 +243,15 @@ fn load_clamped_r32(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
   return textureLoad(texture, clamp(position, vec2<i32>(0), size - vec2<i32>(1)), 0).x;
 }
 
-fn linear_segment(value: f32, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
-  return mix(y0, y1, clamp((value - x0) / (x1 - x0), 0.0, 1.0));
+fn lookup_modulation(base: u32, count: u32, value: f32) -> f32 {
+  let position = clamp(value, 0.0, 1.0) * f32(count - 1u);
+  let lower = min(u32(floor(position)), count - 1u);
+  let upper = min(lower + 1u, count - 1u);
+  return mix(modulation_luts.values[base + lower], modulation_luts.values[base + upper], position - f32(lower));
 }
 
 fn edge_curve(value: f32) -> f32 {
-  if (value < 0.1) { return linear_segment(value, 0.0, 1.0, 0.1, 0.9); }
-  if (value < 0.2) { return linear_segment(value, 0.1, 0.9, 0.2, 0.7); }
-  if (value < 0.3) { return linear_segment(value, 0.2, 0.7, 0.3, 0.5); }
-  if (value < 0.4) { return linear_segment(value, 0.3, 0.5, 0.4, 0.3); }
-  if (value < 0.5) { return linear_segment(value, 0.4, 0.3, 0.5, 0.2); }
-  if (value < 0.8) { return linear_segment(value, 0.5, 0.2, 0.8, 0.0); }
-  return 0.0;
+  return lookup_modulation(0u, 64u, value);
 }
 
 fn sobel_magnitude(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
@@ -288,12 +286,7 @@ fn edge_mask_smoothed(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
 }
 
 fn luma_curve(value: f32) -> f32 {
-  if (value < 0.2) { return linear_segment(value, 0.0, 0.0, 0.2, 0.3); }
-  if (value < 0.3) { return linear_segment(value, 0.2, 0.3, 0.3, 0.6); }
-  if (value < 0.5) { return linear_segment(value, 0.3, 0.6, 0.5, 0.7); }
-  if (value < 0.7) { return linear_segment(value, 0.5, 0.7, 0.7, 0.8); }
-  if (value < 1.0) { return linear_segment(value, 0.7, 0.8, 1.0, 1.0); }
-  return 1.0;
+  return lookup_modulation(64u, 64u, value);
 }
 
 fn luma_mask_smoothed(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {

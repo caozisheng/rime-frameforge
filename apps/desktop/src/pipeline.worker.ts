@@ -3,8 +3,8 @@ import { validateGpuInput } from '../../../web/src/gpu/capability.js';
 import { NormalGpuExecutor } from '../../../web/src/gpu/executor.js';
 import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
-import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, type DrcIqParameters } from '../../../web/src/gpu/drc.js';
-import type { RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
+import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters } from '../../../web/src/gpu/drc.js';
+import type { DrcIqParameters, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
 import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
 import { canLoadNextDngFrame } from './runtime/dng-sequence.js';
@@ -118,7 +118,10 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     validateDrcIqParameters(next);
     envelope = authority.changeConfig();
     drcIqParameters = { ...next };
-    executor?.setDrcIqParameters(next);
+    const curves = next.edge_curve !== undefined && next.luma_curve !== undefined
+      ? { edge: next.edge_curve, luma: next.luma_curve }
+      : undefined;
+    executor?.setDrcIqParameters(next, curves);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -197,8 +200,8 @@ function createExecutor(generation: number): void {
   if ('setBypassConfig' in executor) {
     (executor as NormalGpuExecutor & { setBypassConfig(config: GraphBypassConfig): void }).setBypassConfig(bypassConfig);
   }
+  executor.setDrcIqParameters(drcIqParameters, drcIqParameters.edge_curve !== undefined && drcIqParameters.luma_curve !== undefined ? { edge: drcIqParameters.edge_curve, luma: drcIqParameters.luma_curve } : undefined);
   for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
-  executor.setDrcIqParameters(drcIqParameters);
   for (const [parameter, values] of Object.entries(lutValues)) executor.setLut(parameter, values);
   controller = new RuntimeController(
     executor,

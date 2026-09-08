@@ -1,5 +1,6 @@
 #![expect(
     clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
     reason = "validated exposure gains and fixed LUT extents are narrowed to the GPU f32/u32 contract"
 )]
 
@@ -14,12 +15,33 @@ use super::{
 use crate::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 
 const TONE_SAMPLES: usize = 257;
+const MODULATION_SAMPLES: usize = 64;
 const DEFAULT_KNEE: f32 = 1.0;
 const DEFAULT_AMPLIFIER: f32 = 3.0;
 const MAX_GAIN_OFFSET_EV: f32 = 4.0;
 const DEFAULT_MIN_RATIO: f32 = 1.0 / 256.0;
 const DEFAULT_LUMA_GUARD: f32 = 1.0 / 65_536.0;
 const DEFAULT_LEVEL_COUNT: u32 = 3;
+
+const REFERENCE_EDGE_CURVE: [(f64, f64); 9] = [
+    (0.0, 1.0),
+    (0.1, 0.9),
+    (0.2, 0.7),
+    (0.3, 0.5),
+    (0.4, 0.3),
+    (0.5, 0.2),
+    (0.8, 0.0),
+    (1.0, 0.0),
+    (10.0, 0.0),
+];
+const REFERENCE_LUMA_CURVE: [(f64, f64); 6] = [
+    (0.0, 0.0),
+    (0.2, 0.3),
+    (0.3, 0.6),
+    (0.5, 0.7),
+    (0.7, 0.8),
+    (1.0, 1.0),
+];
 
 pub(crate) fn run(
     context: &PreprocessContext,
@@ -98,11 +120,17 @@ fn prepare(
     {
         write_f32(&mut uniform, 32 + index * 4, gain);
     }
+    let modulation_luts = bake_modulation_luts();
     let mut packet = ModuleParameterPacket::new(module_id, method, context.identity, &uniform)?;
     packet.push_resource(ModuleParameterResource::new(
         "tone_lut_global",
         [TONE_SAMPLES as u32, 1, 1],
         encode_f32(global.values()),
+    ))?;
+    packet.push_resource(ModuleParameterResource::new(
+        "modulation_luts",
+        [MODULATION_SAMPLES as u32, 2, 1],
+        encode_f32(&modulation_luts),
     ))?;
     if let Some(local_field) = local_field {
         packet.push_resource(ModuleParameterResource::new(
@@ -116,6 +144,33 @@ fn prepare(
         ))?;
     }
     Ok(packet)
+}
+
+fn bake_modulation_luts() -> Vec<f32> {
+    let mut luts = Vec::with_capacity(MODULATION_SAMPLES * 2);
+    let scale = 1.0_f64 / (MODULATION_SAMPLES as f64 - 1.0);
+    for sample in 0..MODULATION_SAMPLES {
+        luts.push(interpolate_reference_curve(&REFERENCE_EDGE_CURVE, sample as f64 * scale) as f32);
+    }
+    for sample in 0..MODULATION_SAMPLES {
+        luts.push(interpolate_reference_curve(&REFERENCE_LUMA_CURVE, sample as f64 * scale) as f32);
+    }
+    luts
+}
+
+fn interpolate_reference_curve(curve: &[(f64, f64)], x: f64) -> f64 {
+    if x <= curve[0].0 {
+        return curve[0].1;
+    }
+    for window in curve.windows(2) {
+        let (x0, y0) = window[0];
+        let (x1, y1) = window[1];
+        if x < x1 {
+            let t = (x - x0) / (x1 - x0);
+            return y0 + t * (y1 - y0);
+        }
+    }
+    curve[curve.len() - 1].1
 }
 fn resolve_gain(
     context: &PreprocessContext,

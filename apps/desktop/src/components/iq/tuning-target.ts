@@ -23,5 +23,8 @@ export function tuningDescriptor(moduleId: string, method: string, parameter: st
   if (moduleId === 'drc' && (method === '00' || method === '01') && (parameter === 'drc_gain_offset_ev' || parameter === 'knee' || parameter === 'amplifier')) {
     return { parameter, controlKind: 'scalar' };
   }
+  if (moduleId === 'drc' && (method === '00' || method === '01') && (parameter === 'drc_edge_curve' || parameter === 'drc_luma_curve')) {
+    return { parameter, controlKind: 'curve' };
+  }
   return null;
 }

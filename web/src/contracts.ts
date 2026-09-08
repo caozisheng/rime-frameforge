@@ -75,6 +75,8 @@ export interface DrcIqParameters {
   readonly drc_gain_offset_ev: number;
   readonly knee: number;
   readonly amplifier: number;
+  readonly edge_curve?: readonly (readonly [number, number])[];
+  readonly luma_curve?: readonly (readonly [number, number])[];
 }
 
 export type RuntimeCommand =

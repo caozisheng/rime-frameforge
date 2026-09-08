@@ -5,8 +5,41 @@ const LUT_SAMPLES = 257;
 const TILES_X = 8;
 const TILES_Y = 6;
 const HISTOGRAM_BINS = 64;
+const MODULATION_SAMPLES = 64;
 const LEVEL_COUNT = 3;
 export const DRC_PIPELINE_WGSL = drcPipelineWgsl;
+
+export interface DrcModulationCurves {
+  readonly edge: readonly (readonly [number, number])[];
+  readonly luma: readonly (readonly [number, number])[];
+}
+
+export const REFERENCE_EDGE_CURVE: readonly (readonly [number, number])[] = [[0, 1], [0.1, 0.9], [0.2, 0.7], [0.3, 0.5], [0.4, 0.3], [0.5, 0.2], [0.8, 0], [1, 0]];
+export const REFERENCE_LUMA_CURVE: readonly (readonly [number, number])[] = [[0, 0], [0.2, 0.3], [0.3, 0.6], [0.5, 0.7], [0.7, 0.8], [1, 1]];
+export const DEFAULT_MODULATION_CURVES: Readonly<DrcModulationCurves> = Object.freeze({ edge: REFERENCE_EDGE_CURVE, luma: REFERENCE_LUMA_CURVE });
+
+export function validateModulationCurves(curves: DrcModulationCurves): void {
+  for (const curve of [curves.edge, curves.luma]) {
+    if (curve.length < 2 || curve.some(([x, y]) => !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1)
+      || curve.some((point, index) => index > 0 && curve[index - 1]![0] >= point[0])) {
+      throw new Error('DRC_MODULATION_CURVE_INVALID: knots must be finite, x in [0,1] strictly ascending, y in [0,1]');
+    }
+  }
+}
+
+export function bakeModulationLuts(curves: DrcModulationCurves = DEFAULT_MODULATION_CURVES): Float32Array<ArrayBuffer> {
+  validateModulationCurves(curves);
+  const bake = (curve: readonly (readonly [number, number])[]): number[] => Array.from({ length: MODULATION_SAMPLES }, (_, index) => {
+    const x = index / (MODULATION_SAMPLES - 1);
+    let upper = curve.findIndex((point) => point[0] >= x);
+    if (upper <= 0) return curve[upper === -1 ? curve.length - 1 : 0]![1];
+    const [x0, y0] = curve[upper - 1]!;
+    const [x1, y1] = curve[upper]!;
+    const t = x1 === x0 ? 1 : (x - x0) / (x1 - x0);
+    return y0 + t * (y1 - y0);
+  });
+  return new Float32Array([...bake(curves.edge), ...bake(curves.luma)]);
+}
 
 export type DrcMethod = '00' | '01';
 
@@ -72,11 +105,13 @@ export class WebDrcExecutor {
   readonly #uniform: GPUBuffer;
   readonly #globalLut: GPUBuffer;
   readonly #localLut: GPUBuffer;
+  readonly #modulationLuts: GPUBuffer;
   readonly #pipelines: Readonly<Record<DrcPipelineKey, GPUComputePipeline>>;
   readonly #levels: readonly DrcLevelResources[];
   #descriptor: RawFrameDescriptor;
   #raw: Uint16Array;
   #method: DrcMethod = '00';
+  #modulationCurves: DrcModulationCurves = DEFAULT_MODULATION_CURVES;
 
   public constructor(device: GPUDevice, raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor) {
     this.#device = device;
@@ -85,6 +120,7 @@ export class WebDrcExecutor {
     this.#uniform = device.createBuffer({ label: 'drc-web-scalars', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#globalLut = device.createBuffer({ label: 'drc-web-global-lut', size: LUT_SAMPLES * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.#localLut = device.createBuffer({ label: 'drc-web-local-lut', size: LUT_SAMPLES * TILES_X * TILES_Y * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.#modulationLuts = device.createBuffer({ label: 'drc-web-modulation-luts', size: MODULATION_SAMPLES * 2 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     const module = device.createShaderModule({ label: 'drc-web-pipeline', code: drcPipelineWgsl });
     const pipeline = (entryPoint: DrcPipelineKey): GPUComputePipeline => device.createComputePipeline({ label: entryPoint, layout: 'auto', compute: { module, entryPoint } });
     this.#pipelines = {
@@ -104,14 +140,15 @@ export class WebDrcExecutor {
 
   #iqParameters: DrcIqParameters = DEFAULT_DRC_IQ_PARAMETERS;
 
-  public setIqParameters(parameters: DrcIqParameters): void {
-    validateDrcIqParameters(parameters);
-    this.#iqParameters = { ...parameters };
-  }
-
   public replaceFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {
     this.#descriptor = descriptor;
     this.#raw = rawView(raw, rawByteOffset, descriptor);
+  }
+  public setIqParameters(parameters: DrcIqParameters, curves: DrcModulationCurves = this.#modulationCurves): void {
+    validateDrcIqParameters(parameters);
+    validateModulationCurves(curves);
+    this.#iqParameters = { ...parameters };
+    this.#modulationCurves = { edge: curves.edge.map(([x, y]) => [x, y]), luma: curves.luma.map(([x, y]) => [x, y]) };
   }
 
   public setMethod(method: DrcMethod): void {
@@ -125,6 +162,7 @@ export class WebDrcExecutor {
     this.#device.queue.writeBuffer(this.#uniform, 0, packDrcUniforms(this.#descriptor, this.#iqParameters));
     this.#device.queue.writeBuffer(this.#globalLut, 0, global.buffer as ArrayBuffer, global.byteOffset, global.byteLength);
     if (local !== null) this.#device.queue.writeBuffer(this.#localLut, 0, local.buffer as ArrayBuffer, local.byteOffset, local.byteLength);
+    this.#device.queue.writeBuffer(this.#modulationLuts, 0, bakeModulationLuts(this.#modulationCurves));
   }
 
 
@@ -140,14 +178,15 @@ export class WebDrcExecutor {
       this.encodePass(encoder, 'pyramid_reconstruct_main', [[1, current.level], [2, this.#levels[index + 1]!.level], [3, base]], 4, current.candidate, []);
       base = this.encodeGuided(encoder, index, current.candidate);
     }
+    const buffers: readonly [number, GPUBuffer][] = this.#method === '01' ? [[6, this.#globalLut], [7, this.#localLut], [8, this.#modulationLuts]] : [[6, this.#globalLut], [8, this.#modulationLuts]];
     const combine = this.#method === '01' ? 'drc_combine_local_main' : 'drc_combine_global_main';
-    const buffers: readonly [number, GPUBuffer][] = this.#method === '01' ? [[6, this.#globalLut], [7, this.#localLut]] : [[6, this.#globalLut]];
     this.encodePass(encoder, combine, [[1, input], [2, first.level], [3, base]], 4, output, buffers);
   }
   public dispose(): void {
     this.#uniform.destroy();
     this.#globalLut.destroy();
     this.#localLut.destroy();
+    this.#modulationLuts.destroy();
     for (const level of this.#levels) {
       level.level.destroy();
       level.candidate.destroy();
@@ -161,7 +200,7 @@ export class WebDrcExecutor {
     const resources = this.#levels[index]!;
     this.encodePass(encoder, 'guided_coefficients_main', [[1, input]], 5, resources.coefficients, []);
     this.encodePass(encoder, 'guided_coefficients_horizontal_main', [[1, resources.coefficients]], 5, resources.coefficientsHorizontal, []);
-    this.encodePass(encoder, 'guided_apply_vertical_main', [[1, resources.coefficientsHorizontal], [2, input]], 4, resources.base, []);
+    this.encodePass(encoder, 'guided_apply_vertical_main', [[1, resources.coefficientsHorizontal], [2, input]], 4, resources.base, [[8, this.#modulationLuts]]);
     return resources.base;
   }
 

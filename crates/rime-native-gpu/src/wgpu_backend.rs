@@ -432,9 +432,19 @@ impl WgpuReadbackExecutor {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(resource.id()),
                     contents: resource.bytes(),
-                    usage: wgpu::BufferUsages::STORAGE,
-                })
+                usage: wgpu::BufferUsages::STORAGE,
+            })
         });
+        let modulation_resource = packet.resource("modulation_luts").ok_or_else(|| {
+            WgpuReadbackError::Resource("DRC modulation LUTs are missing".to_owned())
+        })?;
+        let modulation_luts = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(modulation_resource.id()),
+                contents: modulation_resource.bytes(),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
         let level_count = u32::from_ne_bytes(
             packet.bytes()[24..28]
                 .try_into()
@@ -471,8 +481,11 @@ impl WgpuReadbackExecutor {
             levels.push(next);
         }
 
-        let mut base =
-            self.dispatch_guided_base(levels.last().expect("DRC pyramid is non-empty"), &uniform);
+        let mut base = self.dispatch_guided_base(
+            levels.last().expect("DRC pyramid is non-empty"),
+            &uniform,
+            &modulation_luts,
+        );
         for index in (0..levels.len().saturating_sub(1)).rev() {
             let candidate = self.create_drc_texture(
                 wgpu::TextureFormat::R32Float,
@@ -487,10 +500,9 @@ impl WgpuReadbackExecutor {
                 &candidate,
                 &[],
             );
-            base = self.dispatch_guided_base(&candidate, &uniform);
+            base = self.dispatch_guided_base(&candidate, &uniform, &modulation_luts);
         }
-
-        let mut tone_buffers = vec![(6, &global_lut)];
+        let mut tone_buffers = vec![(6, &global_lut), (8, &modulation_luts)];
         let combine = if packet.method() == "01" {
             let local = local_lut.as_ref().ok_or_else(|| {
                 WgpuReadbackError::Resource("DRC01 local tone LUT is missing".to_owned())
@@ -513,8 +525,7 @@ impl WgpuReadbackExecutor {
             .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
         Ok(())
     }
-
-    fn dispatch_guided_base(&self, input: &wgpu::Texture, uniform: &wgpu::Buffer) -> wgpu::Texture {
+    fn dispatch_guided_base(&self, input: &wgpu::Texture, uniform: &wgpu::Buffer, modulation_luts: &wgpu::Buffer) -> wgpu::Texture {
         let width = input.width();
         let height = input.height();
         let coefficients =
@@ -544,7 +555,7 @@ impl WgpuReadbackExecutor {
             &[(1, &coefficients_horizontal), (2, input)],
             4,
             &output,
-            &[],
+            &[(8, modulation_luts)],
         );
         output
     }

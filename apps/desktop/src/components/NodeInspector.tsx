@@ -104,6 +104,8 @@ function parameterValue(moduleId: string | undefined, method: string | undefined
       max_ratio: drcGain * 4,
       level_count: 3,
       feature_flags: method === '01' ? 'detail | local tiles 8×6' : 'detail | global tone',
+      drc_edge_curve: '8 knots · 64-pt LUT',
+      drc_luma_curve: '6 knots · 64-pt LUT',
       global_tone_lut: '257 samples · CPU preprocess',
       local_tone_lut: '8×6×257 · CPU preprocess',
     };
@@ -130,7 +132,7 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
   const methodControl = executionNode === undefined || executionNode.methods.length === 0 ? undefined : <select aria-label={`${executionNode.id} method`} disabled={!canConfigure} value={selectedMethod?.method ?? executionNode.default_method} onChange={(event) => onMethodChange(executionNode.id, event.target.value)}>{executionNode.methods.map((method) => <option key={method.method} value={method.method}>{method.method} · {method.shader_entry.replace(/^demosaic_|_main$/g, '')}</option>)}</select>;
   if (treeNode.id === 'raw_source') return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Node inspector</span><h2 id="inspector-heading">{treeNode.label}</h2></div><span className={`tree-mode-badge mode-${treeNode.mode}`}>{treeNode.mode}</span></div>{dngFrame === null ? <div className="dng-empty-state"><strong>No DNG frame loaded</strong><span>Load a DNG to inspect the active frame metadata.</span></div> : <DngMetadataTree descriptor={dngFrame} sequence={dngSequence} lifecycleState={envelope.lifecycleState} frameIndex={envelope.frameIndex} frameCount={frameCount} />}</aside>;
   const preference = executionNode === undefined ? undefined : quantization.modules.find((module) => module.module_id === executionNode.id);
-  const parameters = selectedMethod === undefined ? [] : executionNode?.id === 'drc' ? ['drc_gain_offset_ev', ...selectedMethod.parameters] : selectedMethod.parameters;
+    const parameters = selectedMethod === undefined ? [] : executionNode?.id === 'drc' ? ['drc_gain_offset_ev', 'drc_edge_curve', 'drc_luma_curve', ...selectedMethod.parameters] : selectedMethod.parameters;
   const parameterChildren = selectedMethod === undefined ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }] : parameters.map((parameter) => {
     const value = parameterValue(executionNode?.id, selectedMethod.method, parameter, parameterValues, dngFrame);
     const appliedValue = appliedParameterValues[parameter];

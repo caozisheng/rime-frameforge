@@ -64,6 +64,7 @@ const GUIDED_APPLY_VERTICAL: &[ShaderStageBinding] = &[
     ),
     read(2, "candidate_base", ShaderBindingKind::Texture),
     write(4, "filtered_base", ShaderBindingKind::StorageTexture),
+    read(8, "modulation_luts", ShaderBindingKind::StorageBuffer),
 ];
 const COMBINE_GLOBAL: &[ShaderStageBinding] = &[
     read(0, "scalars", ShaderBindingKind::UniformBuffer),
@@ -72,6 +73,7 @@ const COMBINE_GLOBAL: &[ShaderStageBinding] = &[
     read(3, "filtered_base", ShaderBindingKind::Texture),
     write(4, "output_raw", ShaderBindingKind::StorageTexture),
     read(6, "tone_lut_global", ShaderBindingKind::StorageBuffer),
+    read(8, "modulation_luts", ShaderBindingKind::StorageBuffer),
 ];
 const COMBINE_LOCAL: &[ShaderStageBinding] = &[
     read(0, "scalars", ShaderBindingKind::UniformBuffer),
@@ -81,6 +83,7 @@ const COMBINE_LOCAL: &[ShaderStageBinding] = &[
     write(4, "output_raw", ShaderBindingKind::StorageTexture),
     read(6, "tone_lut_global", ShaderBindingKind::StorageBuffer),
     read(7, "tone_lut_local", ShaderBindingKind::StorageBuffer),
+    read(8, "modulation_luts", ShaderBindingKind::StorageBuffer),
 ];
 
 const COMMON_STAGES: [ShaderStageAsset; 6] = [

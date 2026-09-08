@@ -5,18 +5,22 @@ import { interpolateCurve, type CurvePoint } from './curve-model.js';
 import { parseTuningProfile, serializeTuningProfile } from './profile-yaml.js';
 import type { TuningControlKind } from './tuning-target.js';
 
-export type TuningParameter = 'ahd_l_threshold' | 'ahd_c_threshold_sq' | 'gamma_lut' | 'drc_gain_offset_ev' | 'knee' | 'amplifier';
+export type TuningParameter = 'ahd_l_threshold' | 'ahd_c_threshold_sq' | 'gamma_lut' | 'drc_gain_offset_ev' | 'knee' | 'amplifier' | 'drc_edge_curve' | 'drc_luma_curve';
 
 export interface TuningCurveDraft {
   readonly lCurve: readonly CurvePoint[];
   readonly cCurve: readonly CurvePoint[];
   readonly gammaCurve: readonly CurvePoint[];
+  readonly drcEdgeCurve: readonly CurvePoint[];
+  readonly drcLumaCurve: readonly CurvePoint[];
 }
 
 export const FACTORY_TUNING_CURVES: TuningCurveDraft = {
   lCurve: [{ x: -4, y: 1.0 }, { x: 0, y: 1.05 }, { x: 4, y: 1.10 }, { x: 8, y: 1.16 }, { x: 12, y: 1.22 }, { x: 16, y: 1.28 }],
   cCurve: [{ x: -4, y: 3.0 }, { x: 0, y: 3.15 }, { x: 4, y: 3.30 }, { x: 8, y: 3.48 }, { x: 12, y: 3.66 }, { x: 16, y: 3.84 }],
   gammaCurve: Array.from({ length: 9 }, (_, index) => ({ x: index / 8, y: index / 8 })),
+  drcEdgeCurve: [{ x: 0, y: 1.0 }, { x: 0.1, y: 0.9 }, { x: 0.2, y: 0.7 }, { x: 0.3, y: 0.5 }, { x: 0.4, y: 0.3 }, { x: 0.5, y: 0.2 }, { x: 0.8, y: 0.0 }, { x: 1, y: 0.0 }],
+  drcLumaCurve: [{ x: 0, y: 0.0 }, { x: 0.2, y: 0.3 }, { x: 0.3, y: 0.6 }, { x: 0.5, y: 0.7 }, { x: 0.7, y: 0.8 }, { x: 1, y: 1.0 }],
 };
 
 interface TuningProfilePanelProps {
@@ -32,30 +36,32 @@ interface TuningProfilePanelProps {
   readonly onGammaLoad?: (gamma: number) => void;
 }
 
-export function resolveTuningParameterValue(_base: number, points: readonly CurvePoint[], x: number, interpolation: 'linear' | 'bezier' = 'linear'): number {
-  return interpolateCurve(points, x, interpolation);
-}
-
 function curveForParameter(curves: TuningCurveDraft, parameter: TuningParameter): readonly CurvePoint[] {
   if (parameter === 'ahd_l_threshold') return curves.lCurve;
   if (parameter === 'ahd_c_threshold_sq') return curves.cCurve;
+  if (parameter === 'drc_edge_curve') return curves.drcEdgeCurve;
+  if (parameter === 'drc_luma_curve') return curves.drcLumaCurve;
   return curves.gammaCurve;
 }
 
 function replaceCurve(curves: TuningCurveDraft, parameter: TuningParameter, points: readonly CurvePoint[]): TuningCurveDraft {
   if (parameter === 'ahd_l_threshold') return { ...curves, lCurve: points };
   if (parameter === 'ahd_c_threshold_sq') return { ...curves, cCurve: points };
+  if (parameter === 'drc_edge_curve') return { ...curves, drcEdgeCurve: points };
+  if (parameter === 'drc_luma_curve') return { ...curves, drcLumaCurve: points };
   return { ...curves, gammaCurve: points };
 }
 
 function monotoneGammaCurve(previous: readonly CurvePoint[], next: readonly CurvePoint[]): readonly CurvePoint[] {
   const changed = next.findIndex((point, index) => point.y !== previous[index]?.y);
-  if (changed <= 0 || changed >= next.length - 1) return previous;
   const minimum = previous[changed - 1]!.y;
   const maximum = previous[changed + 1]!.y;
   return next.map((point, index) => index === changed ? { ...point, y: Math.max(minimum, Math.min(maximum, point.y)) } : point);
 }
 
+export function resolveTuningParameterValue(_base: number, points: readonly CurvePoint[], x: number, interpolation: 'linear' | 'bezier' = 'linear'): number {
+  return interpolateCurve(points, x, interpolation);
+}
 export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseValues, curves = FACTORY_TUNING_CURVES, onCurvesChange = () => undefined, onApply, onLutApply = () => undefined, onReset = () => undefined, onGammaLoad = () => undefined }: TuningProfilePanelProps): ReactNode {
   const scalarDefault = parameter === 'drc_gain_offset_ev' ? 0 : 1;
   const [scalarDraft, setScalarDraft] = useState(() => Number.isFinite(Number(baseValues[parameter])) ? Number(baseValues[parameter]) : scalarDefault);
@@ -64,6 +70,7 @@ export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseV
   const [revision, setRevision] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const isDrcCurve = parameter === 'drc_edge_curve' || parameter === 'drc_luma_curve';
   const isGammaLut = parameter === 'gamma_lut';
   const scalar = controlKind === 'scalar';
   const scalarConfig = parameter === 'drc_gain_offset_ev' ? { unit: 'EV', min: -4, max: 4, step: 0.1, range: '-4 to 4 EV' } : parameter === 'knee' ? { unit: 'normalized tone knee', min: 0, max: undefined, step: 0.01, range: '> 0 normalized' } : { unit: 'normalized amplifier', min: 0, max: undefined, step: 0.01, range: '≥ 0' };
@@ -94,10 +101,10 @@ export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseV
   </section>;
   const points = curveForParameter(curves, parameter);
   const interpolation = isGammaLut ? 'bezier' : 'linear';
-  const currentCoordinate = isGammaLut ? 0.5 : 4;
-  const base = isGammaLut ? 0.5 : Number(baseValues[parameter]);
+  const currentCoordinate = isGammaLut || isDrcCurve ? 0.5 : 4;
+  const base = isGammaLut || isDrcCurve ? 0.5 : Number(baseValues[parameter]);
   const resolvedValue = Number.isFinite(base) ? resolveTuningParameterValue(base, points, currentCoordinate, interpolation) : null;
-  const range = isGammaLut ? { min: 0, max: 1 } : { min: Math.min(...points.map((point) => point.y)), max: Math.max(...points.map((point) => point.y)) };
+  const range = isGammaLut || isDrcCurve ? { min: 0, max: 1 } : { min: Math.min(...points.map((point) => point.y)), max: Math.max(...points.map((point) => point.y)) };
   const onCurveChange = (next: readonly CurvePoint[]): void => {
     const constrained = isGammaLut ? monotoneGammaCurve(points, next) : next;
     onCurvesChange(replaceCurve(curves, parameter, constrained));
@@ -133,15 +140,14 @@ export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseV
     if (file === undefined) return;
     try {
       const loaded = parseTuningProfile(await file.text());
-      setProfileId(loaded.id); setProfileName(loaded.name); setRevision(loaded.revision);
-      onCurvesChange({ lCurve: loaded.lCurve, cCurve: loaded.cCurve, gammaCurve: loaded.gammaCurve ?? FACTORY_TUNING_CURVES.gammaCurve });
+      onCurvesChange({ lCurve: loaded.lCurve, cCurve: loaded.cCurve, gammaCurve: loaded.gammaCurve ?? FACTORY_TUNING_CURVES.gammaCurve, drcEdgeCurve: curves.drcEdgeCurve, drcLumaCurve: curves.drcLumaCurve });
       if (loaded.gamma !== undefined) onGammaLoad(loaded.gamma);
       setError(null);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'IQ_PROFILE_LOAD_FAILED'); }
   };
   const valueText = resolvedValue === null ? '—' : resolvedValue.toFixed(4);
   const baseText = Number.isFinite(base) ? base.toFixed(4) : '—';
-  const axisText = isGammaLut ? 'linear_luminance_y · normalized' : 'scene_brightness_ev · EV100_scene';
+  const axisText = isGammaLut ? 'linear_luminance_y · normalized' : isDrcCurve ? (parameter === 'drc_edge_curve' ? 'sobel_gradient_magnitude · normalized' : 'analysis_luma · normalized') : 'scene_brightness_ev · EV100_scene';
   const interpolationText = isGammaLut ? 'monotone Bézier' : 'linear';
   return <section className="iq-tuning-panel" aria-label="IQ Tuning" data-iq-parameter={parameter}>
     <div className="iq-tuning-heading"><div><span className="section-label">IQ Tuning</span><strong>{parameter}</strong><small>{controlKind} · {profileId}</small></div><span className="tree-mode-badge mode-enabled">revision {revision}</span></div>
@@ -150,7 +156,7 @@ export function TuningProfilePanel({ canConfigure, parameter, controlKind, baseV
       <div className="iq-parameter-values" aria-label={`${parameter} values`}><div><span>Base LUT value</span><strong>{baseText}</strong></div><div><span>Current LUT value</span><strong>{valueText}</strong></div><div><span>Effect value</span><strong>{valueText}</strong></div></div>
       <label>Profile name<input disabled={!canConfigure} value={profileName} onChange={(event) => setProfileName(event.target.value)} /></label>
       <div className="iq-tuning-actions"><button aria-label="Reset tuning to factory" disabled={!canConfigure} type="button" onClick={reset}>↺</button><button aria-label="Apply tuning" disabled={!canConfigure || resolvedValue === null} type="button" onClick={apply}>✓</button><button aria-label="Save profile" disabled={!canConfigure || profileName.trim().length === 0} type="button" onClick={save}>⇩</button><button aria-label="Load profile" disabled={!canConfigure} type="button" onClick={() => fileInput.current?.click()}>⇧</button></div>
-    </div><div className="iq-tuning-curve"><h3>{parameter} · indexed LUT</h3><CurveEditor ariaLabel={`${parameter} curve`} disabled={!canConfigure} points={points} range={range} interpolation={interpolation} axisLabel={isGammaLut ? 'index / linear Y knot' : 'index / EV knot'} valueLabel={isGammaLut ? 'mapped luminance Y' : 'parameter value'} currentCoordinate={currentCoordinate} lockedPointIndices={isGammaLut ? [0, points.length - 1] : []} onChange={onCurveChange} /></div></div>
+    </div><div className="iq-tuning-curve"><h3>{parameter} · indexed LUT</h3><CurveEditor ariaLabel={`${parameter} curve`} disabled={!canConfigure} points={points} range={range} interpolation={interpolation} axisLabel={isGammaLut ? 'index / linear Y knot' : isDrcCurve ? 'normalized input' : 'index / EV knot'} valueLabel={isGammaLut ? 'mapped luminance Y' : isDrcCurve ? 'modulation weight' : 'parameter value'} currentCoordinate={currentCoordinate} lockedPointIndices={isGammaLut ? [0, points.length - 1] : []} onChange={onCurveChange} /></div></div>
     {error === null ? null : <output className="iq-tuning-error">{error}</output>}<input accept=".yaml,.yml" hidden onChange={(event) => { void load(event); }} ref={fileInput} type="file" />
   </section>;
 }

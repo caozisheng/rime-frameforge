@@ -160,6 +160,10 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('global_tone_lut');
     expect(html).toContain('257 samples · CPU preprocess');
     expect(html).toContain('local_tone_lut');
+    expect(html).toContain('drc_edge_curve');
+    expect(html).toContain('8 knots · 64-pt LUT');
+    expect(html).toContain('drc_luma_curve');
+    expect(html).toContain('6 knots · 64-pt LUT');
     expect(html).toContain('8×6×257 · CPU preprocess');
   });
 });

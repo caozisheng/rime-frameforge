@@ -90,13 +90,17 @@ export function App() {
     ahd_c_threshold_sq: 4.0,
     gamma: 2.2,
     gamma_lut: '9-point Y LUT',
-    ...DEFAULT_DRC_IQ_PARAMETERS,
+    drc_gain_offset_ev: DEFAULT_DRC_IQ_PARAMETERS.drc_gain_offset_ev,
+    knee: DEFAULT_DRC_IQ_PARAMETERS.knee,
+    amplifier: DEFAULT_DRC_IQ_PARAMETERS.amplifier,
   });
   const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
     gamma: 2.2,
-    ...DEFAULT_DRC_IQ_PARAMETERS,
+    drc_gain_offset_ev: DEFAULT_DRC_IQ_PARAMETERS.drc_gain_offset_ev,
+    knee: DEFAULT_DRC_IQ_PARAMETERS.knee,
+    amplifier: DEFAULT_DRC_IQ_PARAMETERS.amplifier,
   });
   const [dngPaths, setDngPaths] = useState<readonly string[]>([]);
   const [dngFrameIndex, setDngFrameIndex] = useState(0);
@@ -352,12 +356,21 @@ export function App() {
       try { validateGammaParameters({ ...DEFAULT_GAMMA_PARAMETERS, gamma: value }); } catch { return; }
     }
     const frameIndex = dngFrameIndexRef.current;
-    if (isDrcIqParameter(parameter)) {
-      const next = { ...drcIqParametersFromValues(parameterValues), [parameter]: value };
-      setParameterValues((current) => ({ ...current, ...next }));
-      setAppliedParameterValues((current) => ({ ...current, ...next }));
+    if (parameter === 'drc_edge_curve' || parameter === 'drc_luma_curve') {
+      const edge = tuningCurves.drcEdgeCurve.map((point) => [point.x, point.y] as const);
+      const luma = tuningCurves.drcLumaCurve.map((point) => [point.x, point.y] as const);
+      const next = { ...drcIqParametersFromValues(parameterValues), edge_curve: edge, luma_curve: luma };
       setCommandPending(true);
       bridgeRef.current.setDrcIqParameters(JSON.stringify(next));
+      bridgeRef.current.run(frameIndex);
+      return;
+    }
+    if (isDrcIqParameter(parameter)) {
+      const updated = { ...drcIqParametersFromValues(parameterValues), [parameter]: value };
+      setParameterValues((current) => ({ ...current, [parameter]: value }));
+      setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
+      setCommandPending(true);
+      bridgeRef.current.setDrcIqParameters(JSON.stringify(updated));
       bridgeRef.current.run(frameIndex);
       return;
     }
@@ -377,6 +390,14 @@ export function App() {
   const resetParameterToFactory = (_nodeId: string, parameter: string): void => {
     if (parameter === 'gamma_lut') {
       setTuningCurves((current) => ({ ...current, gammaCurve: FACTORY_TUNING_CURVES.gammaCurve }));
+      return;
+    }
+    if (parameter === 'drc_edge_curve') {
+      setTuningCurves((current) => ({ ...current, drcEdgeCurve: FACTORY_TUNING_CURVES.drcEdgeCurve }));
+      return;
+    }
+    if (parameter === 'drc_luma_curve') {
+      setTuningCurves((current) => ({ ...current, drcLumaCurve: FACTORY_TUNING_CURVES.drcLumaCurve }));
       return;
     }
     if (isDrcIqParameter(parameter)) {
@@ -411,7 +432,9 @@ export function App() {
     const drcApplied = drcIqParametersFromValues(appliedParameterValues);
     if (hasDrcIqDraft(drcDraft, drcApplied)) {
       bridgeRef.current.setDrcIqParameters(JSON.stringify(drcDraft));
-      setAppliedParameterValues((current) => ({ ...current, ...drcDraft }));
+      for (const key of DRC_IQ_PARAMETERS) {
+        setAppliedParameterValues((current) => ({ ...current, [key]: drcDraft[key] }));
+      }
     }
     for (const parameter of ['ahd_l_threshold', 'ahd_c_threshold_sq', 'gamma'] as const) {
       const value = parameterValues[parameter];
