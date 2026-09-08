@@ -87,17 +87,15 @@ type DrcPipelineKey =
   | 'pyramid_downsample_main'
   | 'pyramid_reconstruct_main'
   | 'guided_coefficients_main'
-  | 'guided_coefficients_horizontal_main'
   | 'guided_apply_vertical_main'
   | 'drc_combine_global_main'
   | 'drc_combine_local_main';
 
 interface DrcLevelResources {
   readonly level: GPUTexture;
-  readonly candidate: GPUTexture;
+  readonly candidate: GPUTexture | null;
   readonly base: GPUTexture;
   readonly coefficients: GPUTexture;
-  readonly coefficientsHorizontal: GPUTexture;
 }
 
 export class WebDrcExecutor {
@@ -126,15 +124,14 @@ export class WebDrcExecutor {
     this.#pipelines = {
       drc_prefilter_main: pipeline('drc_prefilter_main'), pyramid_downsample_main: pipeline('pyramid_downsample_main'), pyramid_reconstruct_main: pipeline('pyramid_reconstruct_main'),
       guided_coefficients_main: pipeline('guided_coefficients_main'),
-      guided_coefficients_horizontal_main: pipeline('guided_coefficients_horizontal_main'), guided_apply_vertical_main: pipeline('guided_apply_vertical_main'),
+      guided_apply_vertical_main: pipeline('guided_apply_vertical_main'),
       drc_combine_global_main: pipeline('drc_combine_global_main'), drc_combine_local_main: pipeline('drc_combine_local_main'),
     };
-    this.#levels = levelExtents(descriptor.width, descriptor.height).map(([width, height], index) => ({
+    this.#levels = levelExtents(descriptor.width, descriptor.height).map(([width, height], index, extents) => ({
       level: createTexture(device, `drc-web-level-${index}`, 'r32float', width, height),
-      candidate: createTexture(device, `drc-web-candidate-${index}`, 'r32float', width, height),
+      candidate: index === extents.length - 1 ? null : createTexture(device, `drc-web-candidate-${index}`, 'r32float', width, height),
       base: createTexture(device, `drc-web-base-${index}`, 'r32float', width, height),
       coefficients: createTexture(device, `drc-web-coeff-${index}`, 'rgba16float', width, height),
-      coefficientsHorizontal: createTexture(device, `drc-web-coeff-h-${index}`, 'rgba16float', width, height),
     }));
   }
 
@@ -175,8 +172,8 @@ export class WebDrcExecutor {
     let base = this.encodeGuided(encoder, this.#levels.length - 1, this.#levels.at(-1)!.level);
     for (let index = this.#levels.length - 2; index >= 0; index -= 1) {
       const current = this.#levels[index]!;
-      this.encodePass(encoder, 'pyramid_reconstruct_main', [[1, current.level], [2, this.#levels[index + 1]!.level], [3, base]], 4, current.candidate, []);
-      base = this.encodeGuided(encoder, index, current.candidate);
+      this.encodePass(encoder, 'pyramid_reconstruct_main', [[1, current.level], [2, this.#levels[index + 1]!.level], [3, base]], 4, current.candidate!, []);
+      base = this.encodeGuided(encoder, index, current.candidate!);
     }
     const buffers: readonly [number, GPUBuffer][] = this.#method === '01' ? [[6, this.#globalLut], [7, this.#localLut], [8, this.#modulationLuts]] : [[6, this.#globalLut], [8, this.#modulationLuts]];
     const combine = this.#method === '01' ? 'drc_combine_local_main' : 'drc_combine_global_main';
@@ -189,18 +186,16 @@ export class WebDrcExecutor {
     this.#modulationLuts.destroy();
     for (const level of this.#levels) {
       level.level.destroy();
-      level.candidate.destroy();
+      level.candidate?.destroy();
       level.base.destroy();
       level.coefficients.destroy();
-      level.coefficientsHorizontal.destroy();
     }
   }
 
   private encodeGuided(encoder: GPUCommandEncoder, index: number, input: GPUTexture): GPUTexture {
     const resources = this.#levels[index]!;
     this.encodePass(encoder, 'guided_coefficients_main', [[1, input]], 5, resources.coefficients, []);
-    this.encodePass(encoder, 'guided_coefficients_horizontal_main', [[1, resources.coefficients]], 5, resources.coefficientsHorizontal, []);
-    this.encodePass(encoder, 'guided_apply_vertical_main', [[1, resources.coefficientsHorizontal], [2, input]], 4, resources.base, [[8, this.#modulationLuts]]);
+    this.encodePass(encoder, 'guided_apply_vertical_main', [[1, resources.coefficients], [2, input]], 4, resources.base, [[8, this.#modulationLuts]]);
     return resources.base;
   }
 

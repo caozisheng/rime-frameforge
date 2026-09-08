@@ -110,34 +110,6 @@ fn pyramid_reconstruct_main(@builtin(global_invocation_id) id: vec3<u32>) {
   textureStore(output_r32, vec2<i32>(id.xy), vec4<f32>(base + fine - coarse, 0.0, 0.0, 0.0));
 }
 
-@compute @workgroup_size(8, 8)
-fn guided_coefficients_main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let size = textureDimensions(output_rgba);
-  if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
-  let position = vec2<i32>(id.xy);
-  var sum = 0.0;
-  var sum_sq = 0.0;
-  var count = 0.0;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    for (var dx = -3; dx <= 3; dx += 1) {
-      let sample_position = position + vec2<i32>(dx, dy);
-      if (sample_position.x >= 0 && sample_position.y >= 0 && sample_position.x < i32(size.x) && sample_position.y < i32(size.y)) {
-        let value = textureLoad(input_a, sample_position, 0).x;
-        sum += value;
-        sum_sq += value * value;
-        count += 1.0;
-      }
-    }
-  }
-  let mean = sum / max(count, 1.0);
-  let variance = max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
-  let weight = max(gradient_weight(input_a, position), 1e-6);
-  let regularization = 1.0 / weight;
-  let gamma = gradient_guided_gamma(input_a, position);
-  let a = (variance + regularization * gamma) / (variance + regularization);
-  let b = mean - a * mean;
-  textureStore(output_rgba, position, vec4<f32>(a, b, 0.0, 0.0));
-}
 
 fn local_variance(texture: texture_2d<f32>, center: vec2<i32>, radius: i32) -> f32 {
   var sum = 0.0;
@@ -223,19 +195,32 @@ fn gradient_guided_gamma(texture: texture_2d<f32>, center: vec2<i32>) -> f32 {
 
 
 @compute @workgroup_size(8, 8)
-fn guided_coefficients_horizontal_main(@builtin(global_invocation_id) id: vec3<u32>) {
+fn guided_coefficients_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = textureDimensions(output_rgba);
   if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
-  var sum = vec2<f32>(0.0);
+  let position = vec2<i32>(id.xy);
+  var sum = 0.0;
+  var sum_sq = 0.0;
   var count = 0.0;
-  for (var dx = -3; dx <= 3; dx += 1) {
-    let x = i32(id.x) + dx;
-    if (x >= 0 && x < i32(size.x)) {
-      sum += textureLoad(input_a, vec2<i32>(x, i32(id.y)), 0).xy;
-      count += 1.0;
+  for (var dy = -3; dy <= 3; dy += 1) {
+    for (var dx = -3; dx <= 3; dx += 1) {
+      let sample_position = position + vec2<i32>(dx, dy);
+      if (sample_position.x >= 0 && sample_position.y >= 0 && sample_position.x < i32(size.x) && sample_position.y < i32(size.y)) {
+        let value = textureLoad(input_a, sample_position, 0).x;
+        sum += value;
+        sum_sq += value * value;
+        count += 1.0;
+      }
     }
   }
-  textureStore(output_rgba, vec2<i32>(id.xy), vec4<f32>(sum, count, 0.0));
+  let mean = sum / max(count, 1.0);
+  let variance = max(sum_sq / max(count, 1.0) - mean * mean, 0.0);
+  let weight = max(gradient_weight(input_a, position), 1e-6);
+  let regularization = 1.0 / weight;
+  let gamma = gradient_guided_gamma(input_a, position);
+  let a = (variance + regularization * gamma) / (variance + regularization);
+  let b = mean - a * mean;
+  textureStore(output_rgba, position, vec4<f32>(a, b, 0.0, 0.0));
 }
 
 fn load_clamped_r32(texture: texture_2d<f32>, position: vec2<i32>) -> f32 {
@@ -309,15 +294,16 @@ fn guided_apply_vertical_main(@builtin(global_invocation_id) id: vec3<u32>) {
   let size = textureDimensions(output_r32);
   if (params.level_count == 0u || id.x >= size.x || id.y >= size.y) { return; }
   var sum = vec2<f32>(0.0);
-  var count = 0.0;
-  for (var dy = -3; dy <= 3; dy += 1) {
-    let y = i32(id.y) + dy;
-    if (y >= 0 && y < i32(size.y)) {
-      let value = textureLoad(input_a, vec2<i32>(i32(id.x), y), 0);
-      sum += value.xy;
-      count += value.z;
+  let x_lo = max(i32(id.x) - 3, 0);
+  let x_hi = min(i32(id.x) + 3, i32(size.x) - 1);
+  let y_lo = max(i32(id.y) - 3, 0);
+  let y_hi = min(i32(id.y) + 3, i32(size.y) - 1);
+  for (var y = y_lo; y <= y_hi; y += 1) {
+    for (var x = x_lo; x <= x_hi; x += 1) {
+      sum += textureLoad(input_a, vec2<i32>(x, y), 0).rg;
     }
   }
+  let count = f32((x_hi - x_lo + 1) * (y_hi - y_lo + 1));
   let position = vec2<i32>(id.xy);
   let guide = textureLoad(input_b, position, 0).x;
   let guided_value = sum.x / count * guide + sum.y / count;

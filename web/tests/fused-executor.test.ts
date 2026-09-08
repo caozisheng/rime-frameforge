@@ -67,8 +67,7 @@ describe('fused Normal GPU executor', () => {
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-
-    expect(fake.counts).toMatchObject({ computePasses: 17, renderPasses: 1, submits: 1, waits: 1, dispatches: 17, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 14, renderPasses: 1, submits: 1, waits: 1, dispatches: 14, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('encodes bounded complex DEM segments in one submission and one frame fence', async () => {
@@ -79,8 +78,7 @@ describe('fused Normal GPU executor', () => {
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-
-    expect(fake.counts).toMatchObject({ computePasses: 20, renderPasses: 1, submits: 1, waits: 1, dispatches: 20, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 17, renderPasses: 1, submits: 1, waits: 1, dispatches: 17, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('rebinds two committed outputs for Compare without recomputing the graph', async () => {
@@ -91,8 +89,7 @@ describe('fused Normal GPU executor', () => {
     await executor.execute('output', identity);
 
     await executor.present('blc', 'dem', 0.4);
-
-    expect(fake.counts.computePasses).toBe(17);
+    expect(fake.counts.computePasses).toBe(14);
     expect(fake.counts.renderPasses).toBe(2);
     expect(fake.counts.draws).toBe(3);
     expect(fake.counts.scissors).toEqual([1]);
@@ -130,11 +127,10 @@ describe('fused Normal GPU executor', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
     await executor.present('drc', null, 0.5);
-
-    expect(normal.counts.computePasses).toBe(17);
-    expect(bypassed.counts.computePasses).toBe(19);
+    expect(normal.counts.computePasses).toBe(14);
+    expect(bypassed.counts.computePasses).toBe(16);
     expect(bypassed.counts.computePasses - normal.counts.computePasses).toBe(2);
-    expect(bypassed.counts).toMatchObject({ dispatches: 19, renderPasses: 3, submits: 3, waits: 3, draws: 3 });
+    expect(bypassed.counts).toMatchObject({ dispatches: 16, renderPasses: 3, submits: 3, waits: 3, draws: 3 });
   });
 });
 

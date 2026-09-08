@@ -482,7 +482,6 @@ fn drc_gpu_plan_declares_pyramid_guided_filter_and_tone_passes() {
         "pyramid_downsample_main",
         "pyramid_reconstruct_main",
         "guided_coefficients_main",
-        "guided_coefficients_horizontal_main",
         "guided_apply_vertical_main",
         "drc_combine_global_main",
         "drc_combine_local_main",

@@ -49,7 +49,6 @@ struct DrcPipelines {
     downsample: wgpu::ComputePipeline,
     reconstruct: wgpu::ComputePipeline,
     guided_coefficients: wgpu::ComputePipeline,
-    guided_coefficients_horizontal: wgpu::ComputePipeline,
     guided_apply_vertical: wgpu::ComputePipeline,
     combine_global: wgpu::ComputePipeline,
     combine_local: wgpu::ComputePipeline,
@@ -76,7 +75,6 @@ impl DrcPipelines {
             downsample: pipeline("pyramid_downsample_main"),
             reconstruct: pipeline("pyramid_reconstruct_main"),
             guided_coefficients: pipeline("guided_coefficients_main"),
-            guided_coefficients_horizontal: pipeline("guided_coefficients_horizontal_main"),
             guided_apply_vertical: pipeline("guided_apply_vertical_main"),
             combine_global: pipeline("drc_combine_global_main"),
             combine_local: pipeline("drc_combine_local_main"),
@@ -538,21 +536,11 @@ impl WgpuReadbackExecutor {
             &coefficients,
             &[],
         );
-        let coefficients_horizontal =
-            self.create_drc_texture(wgpu::TextureFormat::Rgba16Float, width, height);
-        self.dispatch_drc_pass(
-            &self.drc_pipelines.guided_coefficients_horizontal,
-            uniform,
-            &[(1, &coefficients)],
-            5,
-            &coefficients_horizontal,
-            &[],
-        );
         let output = self.create_drc_texture(wgpu::TextureFormat::R32Float, width, height);
         self.dispatch_drc_pass(
             &self.drc_pipelines.guided_apply_vertical,
             uniform,
-            &[(1, &coefficients_horizontal), (2, input)],
+            &[(1, &coefficients), (2, input)],
             4,
             &output,
             &[(8, modulation_luts)],

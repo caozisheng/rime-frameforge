@@ -46,22 +46,9 @@ const GUIDED_COEFFICIENTS: &[ShaderStageBinding] = &[
     read(1, "candidate_base", ShaderBindingKind::Texture),
     write(5, "guided_coefficients", ShaderBindingKind::StorageTexture),
 ];
-const GUIDED_COEFFICIENTS_HORIZONTAL: &[ShaderStageBinding] = &[
+const GUIDED_APPLY: &[ShaderStageBinding] = &[
     read(0, "scalars", ShaderBindingKind::UniformBuffer),
     read(1, "guided_coefficients", ShaderBindingKind::Texture),
-    write(
-        5,
-        "guided_coefficients_horizontal",
-        ShaderBindingKind::StorageTexture,
-    ),
-];
-const GUIDED_APPLY_VERTICAL: &[ShaderStageBinding] = &[
-    read(0, "scalars", ShaderBindingKind::UniformBuffer),
-    read(
-        1,
-        "guided_coefficients_horizontal",
-        ShaderBindingKind::Texture,
-    ),
     read(2, "candidate_base", ShaderBindingKind::Texture),
     write(4, "filtered_base", ShaderBindingKind::StorageTexture),
     read(8, "modulation_luts", ShaderBindingKind::StorageBuffer),
@@ -86,7 +73,7 @@ const COMBINE_LOCAL: &[ShaderStageBinding] = &[
     read(8, "modulation_luts", ShaderBindingKind::StorageBuffer),
 ];
 
-const COMMON_STAGES: [ShaderStageAsset; 6] = [
+const COMMON_STAGES: [ShaderStageAsset; 5] = [
     ShaderStageAsset {
         entry_point: "drc_prefilter_main",
         bindings: PREFILTER,
@@ -104,12 +91,8 @@ const COMMON_STAGES: [ShaderStageAsset; 6] = [
         bindings: GUIDED_COEFFICIENTS,
     },
     ShaderStageAsset {
-        entry_point: "guided_coefficients_horizontal_main",
-        bindings: GUIDED_COEFFICIENTS_HORIZONTAL,
-    },
-    ShaderStageAsset {
         entry_point: "guided_apply_vertical_main",
-        bindings: GUIDED_APPLY_VERTICAL,
+        bindings: GUIDED_APPLY,
     },
 ];
 
@@ -119,7 +102,6 @@ pub const GLOBAL_STAGES: &[ShaderStageAsset] = &[
     COMMON_STAGES[2],
     COMMON_STAGES[3],
     COMMON_STAGES[4],
-    COMMON_STAGES[5],
     ShaderStageAsset {
         entry_point: "drc_combine_global_main",
         bindings: COMBINE_GLOBAL,
@@ -132,7 +114,6 @@ pub const LOCAL_STAGES: &[ShaderStageAsset] = &[
     COMMON_STAGES[2],
     COMMON_STAGES[3],
     COMMON_STAGES[4],
-    COMMON_STAGES[5],
     ShaderStageAsset {
         entry_point: "drc_combine_local_main",
         bindings: COMBINE_LOCAL,
