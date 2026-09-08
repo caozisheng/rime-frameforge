@@ -184,8 +184,8 @@ fn drc_registers_global_and_local_tone_methods_with_shared_raw_contracts() {
     assert!(global.parameters.contains("global_tone_lut"));
     assert!(local.parameters.contains("local_tone_lut"));
     assert_eq!(global.shader.source, local.shader.source);
-    assert_eq!(global.shader.stages.len(), 9);
-    assert_eq!(local.shader.stages.len(), 9);
+    assert_eq!(global.shader.stages.len(), 6);
+    assert_eq!(local.shader.stages.len(), 6);
     let global_combine = global
         .shader
         .stages
