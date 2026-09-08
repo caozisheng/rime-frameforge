@@ -20,13 +20,12 @@ fn normal_manifest_contains_the_explicit_main_chain() {
             "sbpc_horizontal",
             "dbpc",
             "sbpc",
+            "raw_nr",
             "tintless",
             "lsc",
-            "hr",
-            "drc",
-            "cac",
-            "raw_nr",
             "wbc",
+            "cac",
+            "drc",
             "dem",
             "pfr",
             "color_correction",
@@ -224,11 +223,10 @@ fn presentation_and_manifest_share_executable_nodes() {
         "sbpc_horizontal",
         "dbpc",
         "sbpc",
+        "raw_nr",
         "tintless",
         "lsc",
-        "hr",
         "cac",
-        "raw_nr",
         "three_d_lut",
     ] {
         assert_eq!(
@@ -269,13 +267,7 @@ fn presentation_uses_dem_then_pfr_without_compound_node() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "wbc" && edge.to == "dem")
-    );
-    assert!(
-        presentation
-            .edges
-            .iter()
-            .any(|edge| edge.from == "dem" && edge.to == "pfr")
+            .any(|edge| edge.from == "drc" && edge.to == "dem")
     );
     assert!(
         presentation
@@ -307,7 +299,13 @@ fn presentation_uses_split_vfe_modules_without_legacy_ids() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "sbpc" && edge.to == "tintless")
+            .any(|edge| edge.from == "sbpc" && edge.to == "raw_nr")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "raw_nr" && edge.to == "tintless")
     );
     assert!(
         presentation
@@ -319,10 +317,21 @@ fn presentation_uses_split_vfe_modules_without_legacy_ids() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "lsc" && edge.to == "hr")
+            .any(|edge| edge.from == "lsc" && edge.to == "wbc")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "wbc" && edge.to == "cac")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "cac" && edge.to == "drc")
     );
 }
-
 #[test]
 fn mctf_instances_share_one_module_with_two_graph_iq_overrides() {
     let presentation = build_normal_graph_presentation();

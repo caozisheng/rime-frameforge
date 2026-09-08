@@ -62,11 +62,11 @@ export function validateDrcIqParameters(parameters: DrcIqParameters): void {
     throw new Error('DRC_IQ_INVALID: offset must be finite in [-4, 4], knee must be finite and positive, and amplifier must be finite and non-negative');
   }
 }
-export function packDrcUniforms(descriptor: Pick<RawFrameDescriptor, 'baselineExposure' | 'cfa' | 'whiteBalanceGains'>, parameters: DrcIqParameters): ArrayBuffer {
+export function packDrcUniforms(descriptor: Pick<RawFrameDescriptor, 'baselineExposure'>, parameters: DrcIqParameters): ArrayBuffer {
   validateDrcIqParameters(parameters);
   const metadataGain = 2 ** Math.max(0, descriptor.baselineExposure ?? 0);
   const finalGain = Math.max(1, metadataGain * 2 ** parameters.drc_gain_offset_ev);
-  const packed = new ArrayBuffer(48);
+  const packed = new ArrayBuffer(32);
   const view = new DataView(packed);
   view.setFloat32(0, finalGain, true);
   view.setFloat32(4, parameters.knee, true);
@@ -76,10 +76,6 @@ export function packDrcUniforms(descriptor: Pick<RawFrameDescriptor, 'baselineEx
   view.setFloat32(20, finalGain * 4, true);
   view.setUint32(24, LEVEL_COUNT, true);
   view.setUint32(28, 1 | (TILES_X << 8) | (TILES_Y << 16), true);
-  const cfa = cfaPattern(descriptor.cfa);
-  const cfaGains = cfa.map((channel) => descriptor.whiteBalanceGains[channel] ?? 1);
-  const cfaGainAvg = cfaGains.reduce((sum, gain) => sum + gain, 0) / cfaGains.length;
-  cfaGains.forEach((gain, index) => view.setFloat32(32 + index * 4, gain / cfaGainAvg, true));
   return packed;
 }
 type DrcPipelineKey =
@@ -115,7 +111,7 @@ export class WebDrcExecutor {
     this.#device = device;
     this.#descriptor = descriptor;
     this.#raw = rawView(raw, rawByteOffset, descriptor);
-    this.#uniform = device.createBuffer({ label: 'drc-web-scalars', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#uniform = device.createBuffer({ label: 'drc-web-scalars', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#globalLut = device.createBuffer({ label: 'drc-web-global-lut', size: LUT_SAMPLES * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.#localLut = device.createBuffer({ label: 'drc-web-local-lut', size: LUT_SAMPLES * TILES_X * TILES_Y * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.#modulationLuts = device.createBuffer({ label: 'drc-web-modulation-luts', size: MODULATION_SAMPLES * 2 * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });

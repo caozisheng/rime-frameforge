@@ -4,7 +4,7 @@ use rime_isp::{normal_operators, operator_by_id};
 fn normal_registry_exposes_complete_executable_operator_assets() {
     let operators = normal_operators();
 
-    assert_eq!(operators.len(), 17);
+    assert_eq!(operators.len(), 16);
     for operator in operators {
         let definition = operator.definition();
         let shader = operator

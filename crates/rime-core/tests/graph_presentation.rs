@@ -44,6 +44,7 @@ fn top_graph_compute_nodes_are_enabled() {
             "raw_source",
             "blc",
             "wbc",
+            "drc",
             "dem",
             "color_correction",
             "gamma",
@@ -61,14 +62,16 @@ fn compatible_unimplemented_image_nodes_are_bypass() {
 }
 
 #[test]
-fn top_graph_uses_hr_and_same_extent_cac_terminology() {
+fn top_graph_merges_hr_into_wbc_and_keeps_same_extent_cac() {
     let graph = build_top_graph_presentation();
-    let hr = graph.node("hr").expect("HR node");
+    let wbc = graph.node("wbc").expect("WBC node");
     let cac = graph.node("cac").expect("CAC node");
 
-    assert_eq!(hr.label, "highlight recovery");
+    assert_eq!(wbc.label, "white balance");
+    assert_eq!(wbc.parent_id.as_deref(), Some("sensor_correction"));
     assert_eq!(cac.label, "chromatic aberration correction");
     assert_eq!(cac.mode, NodeExecutionMode::Bypass);
+    assert!(graph.node("hr").is_none());
     assert!(graph.node("highlight_recovery").is_none());
     assert!(graph.node("raw_downscale_cac").is_none());
 }

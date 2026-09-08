@@ -135,6 +135,24 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "raw_noise_reduction",
+      "label": "raw noise reduction",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "bypass",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "not implemented; compatible bayer identity",
+      "default_expanded": false
+    },
+    {
       "id": "tintless",
       "label": "color shading correction",
       "parent_id": "sensor_correction",
@@ -171,6 +189,42 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "wbc",
+      "label": "white balance",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "enabled",
+      "execution_node_id": "wbc",
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": null,
+      "default_expanded": false
+    },
+    {
+      "id": "cac",
+      "label": "chromatic aberration correction",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "bypass",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "not implemented; compatible bayer identity",
+      "default_expanded": false
+    },
+    {
       "id": "video_back_end",
       "label": "video back end",
       "parent_id": "isp_pipeline",
@@ -185,98 +239,12 @@ export const topGraphPresentation = {
       "default_expanded": true
     },
     {
-      "id": "raw_processing",
-      "label": "raw processing",
-      "parent_id": "video_back_end",
-      "kind": "group",
-      "mode": "enabled",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [],
-      "outputs": [],
-      "reason": null,
-      "default_expanded": true
-    },
-    {
-      "id": "hr",
-      "label": "highlight recovery",
-      "parent_id": "raw_processing",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
-      "id": "dynamic_range_compression",
+      "id": "drc",
       "label": "dynamic range compression",
-      "parent_id": "raw_processing",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
-      "id": "cac",
-      "label": "chromatic aberration correction",
-      "parent_id": "raw_processing",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
-      "id": "raw_noise_reduction",
-      "label": "raw noise reduction",
-      "parent_id": "raw_processing",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
-      "id": "wbc",
-      "label": "white balance",
       "parent_id": "video_back_end",
       "kind": "operator",
       "mode": "enabled",
-      "execution_node_id": "wbc",
+      "execution_node_id": "drc",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [

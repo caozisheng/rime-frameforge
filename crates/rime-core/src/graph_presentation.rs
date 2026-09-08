@@ -413,6 +413,14 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             Some("not implemented; compatible bayer identity"),
         ),
         operator(
+            "raw_noise_reduction",
+            "raw noise reduction",
+            "sensor_correction",
+            NodeExecutionMode::Bypass,
+            None,
+            Some("not implemented; compatible bayer identity"),
+        ),
+        operator(
             "tintless",
             "color shading correction",
             "sensor_correction",
@@ -428,76 +436,45 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             None,
             Some("not implemented; compatible bayer identity"),
         ),
-    ]
-}
-
-fn vbe_nodes() -> Vec<GraphTreeNode> {
-    let mut nodes = vec![
-        group(
-            "video_back_end",
-            "video back end",
-            Some("isp_pipeline"),
-            NodeExecutionMode::Enabled,
-            true,
-        ),
-        group(
-            "raw_processing",
-            "raw processing",
-            Some("video_back_end"),
-            NodeExecutionMode::Enabled,
-            true,
-        ),
-    ];
-    nodes.extend(vbe_raw_nodes());
-    nodes.extend(vbe_color_nodes());
-    nodes
-}
-
-fn vbe_raw_nodes() -> Vec<GraphTreeNode> {
-    vec![
         operator(
-            "hr",
-            "highlight recovery",
-            "raw_processing",
-            NodeExecutionMode::Bypass,
+            "wbc",
+            "white balance",
+            "sensor_correction",
+            NodeExecutionMode::Enabled,
+            Some("wbc"),
             None,
-            Some("not implemented; compatible bayer identity"),
-        ),
-        operator(
-            "dynamic_range_compression",
-            "dynamic range compression",
-            "raw_processing",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
         ),
         operator(
             "cac",
             "chromatic aberration correction",
-            "raw_processing",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
-        ),
-        operator(
-            "raw_noise_reduction",
-            "raw noise reduction",
-            "raw_processing",
+            "sensor_correction",
             NodeExecutionMode::Bypass,
             None,
             Some("not implemented; compatible bayer identity"),
         ),
     ]
+}
+
+fn vbe_nodes() -> Vec<GraphTreeNode> {
+    let mut nodes = vec![group(
+        "video_back_end",
+        "video back end",
+        Some("isp_pipeline"),
+        NodeExecutionMode::Enabled,
+        true,
+    )];
+    nodes.extend(vbe_color_nodes());
+    nodes
 }
 
 fn vbe_color_nodes() -> Vec<GraphTreeNode> {
     vec![
         operator(
-            "wbc",
-            "white balance",
+            "drc",
+            "dynamic range compression",
             "video_back_end",
             NodeExecutionMode::Enabled,
-            Some("wbc"),
+            Some("drc"),
             None,
         ),
         operator(

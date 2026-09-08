@@ -13,9 +13,8 @@ export interface TuningProfileDraft {
 }
 
 const ALL_MODULES: readonly [string, string][] = [
-  ['vfe.blc', 'blc'], ['vfe.sbpc[0]', 'sbpc'], ['vfe.dbpc', 'dbpc'], ['vfe.sbpc[1]', 'sbpc'], ['vfe.tintless', 'tintless'], ['vfe.lsc', 'lsc'],
-  ['vbe.hr', 'hr'], ['vbe.drc', 'drc'], ['vbe.cac', 'cac'], ['vbe.raw_nr', 'raw_nr'], ['vbe.wbc', 'wbc'], ['vbe.pfr', 'pfr'], ['vbe.ccm', 'ccm'], ['vbe.gamma', 'gamma'], ['vbe.3dlut', '3dlut'], ['vbe.rgb2yuv', 'rgb2yuv'],
-  ['vpe.mctf[1]', 'mctf'], ['vpe.lce', 'lce'], ['vpe.ce', 'ce'], ['vpe.mctf[2]', 'mctf'], ['vpe.sharpen', 'sharpen'],
+  ['vfe.blc', 'blc'], ['vfe.sbpc[0]', 'sbpc'], ['vfe.dbpc', 'dbpc'], ['vfe.sbpc[1]', 'sbpc'], ['vfe.raw_nr', 'raw_nr'], ['vfe.tintless', 'tintless'], ['vfe.lsc', 'lsc'], ['vfe.wbc', 'wbc'], ['vfe.cac', 'cac'],
+  ['vbe.drc', 'drc'], ['vbe.pfr', 'pfr'], ['vbe.ccm', 'ccm'], ['vbe.gamma', 'gamma'], ['vbe.3dlut', '3dlut'], ['vbe.rgb2yuv', 'rgb2yuv'],
 ];
 
 export function serializeTuningProfile(draft: TuningProfileDraft): string {

@@ -12,7 +12,6 @@ use super::{
     DrcExposureInputs, LocalToneConfig, generate_global_tone_lut, generate_local_tone_lut,
     resolve_drc_exposure,
 };
-use crate::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 
 const TONE_SAMPLES: usize = 257;
 const MODULATION_SAMPLES: usize = 64;
@@ -81,7 +80,7 @@ fn prepare(
     let tiles_y = local_field
         .as_ref()
         .map_or(0, super::LocalToneLutField::tiles_y);
-    let mut uniform = [0_u8; 48];
+    let mut uniform = [0_u8; 32];
     write_f32(&mut uniform, 0, drc_gain);
     write_f32(&mut uniform, 4, knee);
     write_f32(&mut uniform, 8, amplifier);
@@ -91,35 +90,6 @@ fn prepare(
     write_u32(&mut uniform, 24, DEFAULT_LEVEL_COUNT);
     let feature_flags = 1 | ((tiles_x & 0xff) << 8) | ((tiles_y & 0xff) << 16);
     write_u32(&mut uniform, 28, feature_flags);
-    let white_balance = white_balance_gains(&WhiteBalanceMetadata {
-        as_shot_neutral: context.as_shot_neutral,
-        as_shot_white_xy: context.as_shot_white_xy,
-        color_matrix1: context.color_matrix1,
-        color_matrix2: context.color_matrix2,
-        analog_balance: context.analog_balance,
-    })
-    .map_err(|_| OperatorError::Preprocess {
-        module_id,
-        reason: "invalid white-balance metadata for DRC analysis",
-    })?;
-    let rgb_gains = [white_balance.red, white_balance.green, white_balance.blue];
-    let cfa_gains_raw = context
-        .cfa_pattern
-        .map(|channel| rgb_gains[channel as usize]);
-    let cfa_gain_avg = cfa_gains_raw.iter().sum::<f32>() / 4.0;
-    if !cfa_gain_avg.is_finite() || cfa_gain_avg <= 0.0 {
-        return Err(OperatorError::Preprocess {
-            module_id,
-            reason: "invalid CFA gain average for DRC analysis",
-        });
-    }
-    for (index, gain) in cfa_gains_raw
-        .iter()
-        .map(|gain| gain / cfa_gain_avg)
-        .enumerate()
-    {
-        write_f32(&mut uniform, 32 + index * 4, gain);
-    }
     let modulation_luts = bake_modulation_luts();
     let mut packet = ModuleParameterPacket::new(module_id, method, context.identity, &uniform)?;
     packet.push_resource(ModuleParameterResource::new(

@@ -27,6 +27,12 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
+      "module_id": "raw_nr",
+      "output_enabled": false,
+      "output_profile": "s0.10",
+      "clip_type": "truncate"
+    },
+    {
       "module_id": "tintless",
       "output_enabled": false,
       "output_profile": "s0.10",
@@ -39,15 +45,9 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
-      "module_id": "hr",
-      "output_enabled": false,
-      "output_profile": "s0.10",
-      "clip_type": "truncate"
-    },
-    {
-      "module_id": "drc",
+      "module_id": "wbc",
       "output_enabled": true,
-      "output_profile": "s0.10",
+      "output_profile": "s0.12",
       "clip_type": "truncate"
     },
     {
@@ -57,15 +57,9 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
-      "module_id": "raw_nr",
-      "output_enabled": false,
-      "output_profile": "s0.10",
-      "clip_type": "truncate"
-    },
-    {
-      "module_id": "wbc",
+      "module_id": "drc",
       "output_enabled": true,
-      "output_profile": "s0.12",
+      "output_profile": "s0.10",
       "clip_type": "truncate"
     },
     {

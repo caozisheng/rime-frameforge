@@ -99,14 +99,14 @@ describe('layoutNormalContainers', () => {
     expect(normalLayoutConfig('vpe').rankdir).toBe('TB');
   });
 
-  it('places PFR on the second VBE row before CCM', () => {
+  it('places Gamma on the second VBE row after CCM', () => {
     const projected = projectNormalGraph(normalGraphPresentation, expanded);
     const layout = layoutNormalContainers(projected.nodes, projected.edges);
     const byId = new Map(layout.nodes.map((node) => [node.id, node]));
 
-    expect(byId.get('pfr')!.position.y).toBe(byId.get('color_correction')!.position.y);
-    expect(byId.get('pfr')!.position.x).toBeLessThan(byId.get('color_correction')!.position.x);
-    expect(byId.get('pfr')!.position.y).toBeGreaterThan(byId.get('wbc')!.position.y);
+    expect(byId.get('gamma')!.position.y).toBe(byId.get('three_d_lut')!.position.y);
+    expect(byId.get('gamma')!.position.x).toBeLessThan(byId.get('three_d_lut')!.position.x);
+    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('color_correction')!.position.y);
   });
 
   it('keeps all VBE to VPE scale labels at routed bends', () => {
@@ -129,12 +129,14 @@ describe('layoutNormalContainers', () => {
     expect(stageY(labeled, 'vpe') - stageY(labeled, 'vbe')).toBe(stageY(unlabeled, 'vpe') - stageY(unlabeled, 'vbe'));
   });
 
-  it('wraps VBE after DEM/PFR into a second horizontal row', () => {
+  it('wraps VBE after CCM and VFE after SBPC into second horizontal rows', () => {
     const projected = projectNormalGraph(normalGraphPresentation, expanded);
     const layout = layoutNormalContainers(projected.nodes, projected.edges);
     const byId = new Map(layout.nodes.map((node) => [node.id, node]));
 
-    expect(byId.get('color_correction')!.position.y).toBeGreaterThan(byId.get('wbc')!.position.y);
+    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('drc')!.position.y);
     expect(byId.get('rgb2yuv')!.position.y).toBeGreaterThan(byId.get('dem')!.position.y);
+    expect(byId.get('raw_nr')!.position.y).toBeGreaterThan(byId.get('sbpc')!.position.y);
+    expect(byId.get('cac')!.position.y).toBeGreaterThan(byId.get('blc')!.position.y);
   });
 });

@@ -18,16 +18,16 @@ describe('projectNormalGraph', () => {
     expect(graph.nodes.some((node) => node.id === 'vpe_full_sharpen')).toBe(true);
   });
 
-  it('uses HR and CAC in the VBE image chain', () => {
+  it('merges HR into WBC and keeps CAC in the VFE chain', () => {
     const graph = projectNormalGraph(normalGraphPresentation, expanded);
 
-    expect(graph.nodes.find((node) => node.id === 'hr')?.label).toBe('HR');
+    expect(graph.nodes.find((node) => node.id === 'wbc')?.label).toBe('WBC');
     expect(graph.nodes.find((node) => node.id === 'cac')?.label).toBe('CAC');
-    expect(graph.nodes.some((node) => node.id === 'hlr' || node.id === 'raw_ds_cac')).toBe(false);
+    expect(graph.nodes.some((node) => node.id === 'hr' || node.id === 'hlr' || node.id === 'raw_ds_cac')).toBe(false);
     expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'lsc', target: 'hr' }),
-      expect.objectContaining({ source: 'drc', target: 'cac' }),
-      expect.objectContaining({ source: 'cac', target: 'raw_nr' }),
+      expect.objectContaining({ source: 'lsc', target: 'wbc' }),
+      expect.objectContaining({ source: 'wbc', target: 'cac' }),
+      expect.objectContaining({ source: 'cac', target: 'drc' }),
     ]));
   });
 
@@ -40,9 +40,10 @@ describe('projectNormalGraph', () => {
     expect(graph.nodes.some((node) => node.id === 'sbpc_pdpc' || node.id === 'lsc_tintless')).toBe(false);
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'dbpc', target: 'sbpc' }),
-      expect.objectContaining({ source: 'sbpc', target: 'tintless' }),
+      expect.objectContaining({ source: 'sbpc', target: 'raw_nr' }),
+      expect.objectContaining({ source: 'raw_nr', target: 'tintless' }),
       expect.objectContaining({ source: 'tintless', target: 'lsc' }),
-      expect.objectContaining({ source: 'lsc', target: 'hr' }),
+      expect.objectContaining({ source: 'lsc', target: 'wbc' }),
     ]));
   });
 
@@ -77,7 +78,7 @@ describe('projectNormalGraph', () => {
     expect(graph.nodes.find((node) => node.id === 'pfr')?.label).toBe('PFR');
     expect(graph.nodes.some((node) => node.id === 'demosaic')).toBe(false);
     expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'wbc', target: 'dem' }),
+      expect.objectContaining({ source: 'drc', target: 'dem' }),
       expect.objectContaining({ source: 'dem', target: 'pfr' }),
       expect.objectContaining({ source: 'pfr', target: 'color_correction' }),
     ]));
@@ -105,7 +106,7 @@ describe('projectNormalGraph', () => {
 
     expect(graph.nodes.some((node) => node.id === 'blc')).toBe(false);
     expect(graph.nodes.some((node) => node.id === 'vfe')).toBe(true);
-    expect(graph.edges.some((edge) => edge.source === 'vfe' && edge.target === 'hr')).toBe(true);
+    expect(graph.edges.some((edge) => edge.source === 'vfe' && edge.target === 'drc')).toBe(true);
     expect(graph.edges.every((edge) => edge.source !== edge.target)).toBe(true);
   });
 

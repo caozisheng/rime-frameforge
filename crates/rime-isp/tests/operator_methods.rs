@@ -32,13 +32,12 @@ fn normal_graph_registers_every_explicit_main_chain_operator() {
             "sbpc_horizontal",
             "dbpc",
             "sbpc",
+            "raw_nr",
             "tintless",
             "lsc",
-            "hr",
-            "drc",
-            "cac",
-            "raw_nr",
             "wbc",
+            "cac",
+            "drc",
             "dem",
             "pfr",
             "color_correction",
@@ -50,18 +49,25 @@ fn normal_graph_registers_every_explicit_main_chain_operator() {
 }
 
 #[test]
-fn hr_and_cac_use_industry_names_and_same_extent_bayer_contracts() {
+fn wbc_owns_highlight_recovery_and_cac_uses_industry_name() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
         .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
-    let hr = operators.get("hr").expect("HR operator");
+    let wbc = operators.get("wbc").expect("WBC operator");
     let cac = operators.get("cac").expect("CAC operator");
 
-    assert_eq!(hr.label, "HR");
+    assert_eq!(wbc.label, "WBC");
+    assert!(
+        wbc.methods[0]
+            .parameters
+            .split_whitespace()
+            .any(|parameter| parameter == "highlight_recovery")
+    );
     assert_eq!(cac.label, "CAC");
     let cac_method = cac.methods.first().expect("CAC method");
     assert_eq!(cac_method.input, cac_method.output);
+    assert!(!operators.contains_key("hr"));
     assert!(!operators.contains_key("hlr"));
     assert!(!operators.contains_key("raw_ds_cac"));
 }
@@ -118,11 +124,12 @@ fn dem_and_pfr_have_separate_operator_contracts() {
 
 #[test]
 fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
-    let shader = include_str!("../src/vbe/white_balance/wbc00.wgsl");
+    let shader = include_str!("../src/vfe/white_balance/wbc00.wgsl");
 
     assert!(shader.contains("gains: vec4<f32>"));
     assert!(shader.contains("params.cfa_pattern"));
     assert!(shader.contains("params.gains[channel]"));
+    assert!(shader.contains("highlight_recovery"));
     assert!(!shader.contains("gain = 2.0"));
     assert!(!shader.contains("gain = 1.5"));
 }

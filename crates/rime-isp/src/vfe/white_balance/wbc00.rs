@@ -26,7 +26,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "red_gain green_gain blue_gain",
+    "red_gain green_gain blue_gain highlight_recovery",
     Some("s0.12"),
     shader(
         "00",

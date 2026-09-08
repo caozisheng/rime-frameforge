@@ -10,7 +10,6 @@
 use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
 use rime_isp::vbe::drc::{DrcExposurePolicy, DrcLocalStatistics};
-use rime_isp::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 use rime_isp::{
     FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
 };
@@ -230,26 +229,11 @@ impl WgpuReadbackExecutor {
             .first()
             .copied()
             .unwrap_or(4095.0) as f32;
-        let analysis_wbc = white_balance_gains(&WhiteBalanceMetadata {
-            as_shot_neutral: frame.metadata.as_shot_neutral,
-            as_shot_white_xy: frame.metadata.as_shot_white_xy,
-            color_matrix1: frame.metadata.color_matrix1,
-            color_matrix2: frame.metadata.color_matrix2,
-            analog_balance: frame.metadata.analog_balance,
-        })
-        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
-        let analysis_rgb_gains = [analysis_wbc.red, analysis_wbc.green, analysis_wbc.blue];
-        let analysis_cfa_raw = cfa_pattern.map(|channel| analysis_rgb_gains[channel as usize]);
-        let analysis_avg =
-            analysis_cfa_raw.iter().sum::<f32>() / analysis_cfa_raw.len() as f32;
-        let analysis_cfa_gains: [f32; 4] =
-            analysis_cfa_raw.map(|gain| gain / analysis_avg);
         let drc_local_statistics = build_drc_local_statistics(
             frame.samples(),
             &frame.layout,
             black_level,
             white_level,
-            analysis_cfa_gains,
         )?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
@@ -282,6 +266,7 @@ impl WgpuReadbackExecutor {
             drc_gain_offset_ev: None,
             drc_knee: None,
             drc_amplifier: None,
+            wbc_highlight_recovery: true,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan
@@ -403,7 +388,7 @@ impl WgpuReadbackExecutor {
         input: &wgpu::Texture,
         output: &wgpu::Texture,
     ) -> Result<(), WgpuReadbackError> {
-        if packet.bytes().len() < 48 {
+        if packet.bytes().len() < 32 {
             return Err(WgpuReadbackError::Resource(
                 "DRC scalar packet is incomplete".to_owned(),
             ));
@@ -899,7 +884,6 @@ fn build_drc_local_statistics(
     layout: &RawFrameLayout,
     black_level: f32,
     white_level: f32,
-    analysis_cfa_gains: [f32; 4],
 ) -> Result<DrcLocalStatistics, WgpuReadbackError> {
     const TILES_X: u32 = 8;
     const TILES_Y: u32 = 6;
@@ -920,7 +904,6 @@ fn build_drc_local_statistics(
                 y,
                 black_level,
                 range,
-                analysis_cfa_gains,
             )
             .clamp(0.0, 1.0);
             let tile_x = (x * TILES_X / layout.width).min(TILES_X - 1);
@@ -942,7 +925,6 @@ fn bayer_luma_3x3(
     y: u32,
     black_level: f32,
     range: f32,
-    analysis_cfa_gains: [f32; 4],
 ) -> f32 {
     const WEIGHTS: [f32; 3] = [1.0, 2.0, 1.0];
     let mut sum = 0.0;
@@ -958,16 +940,16 @@ fn bayer_luma_3x3(
                 continue;
             }
             let index = (sample_y as u32 * layout.row_stride_samples + sample_x as u32) as usize;
-            let cfa_index = (((sample_y as u32) & 1) * 2 + ((sample_x as u32) & 1)) as usize;
             let normalized = (f32::from(samples[index]) - black_level) / range;
             sum += normalized
-                * analysis_cfa_gains[cfa_index]
                 * WEIGHTS[(dx + 1) as usize]
                 * WEIGHTS[(dy + 1) as usize];
         }
     }
     sum / 16.0
 }
+
+
 
 fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {
     value.and_then(|(numerator, denominator)| {

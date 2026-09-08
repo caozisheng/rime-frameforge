@@ -4,7 +4,7 @@ import { DRC_PIPELINE_WGSL } from '../src/gpu/drc.js';
 import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from '../src/gpu/fused-normal-shader.js';
 
 const bypassIds = [
-  'sbpc_horizontal', 'dbpc', 'sbpc', 'tintless', 'lsc', 'hr', 'cac', 'raw_nr', 'pfr', 'three_d_lut',
+  'sbpc_horizontal', 'dbpc', 'sbpc', 'raw_nr', 'tintless', 'lsc', 'cac', 'pfr', 'three_d_lut',
 ];
 
 describe('fused Normal Graph WGSL compiler', () => {
@@ -75,9 +75,10 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).toContain('clamp(quantize_scalar(textureLoad(drc_input, q, 0).x * gain, 1u, q), 0.0, module_saturation(1u))');
   });
 
-  it('applies WBC only while constructing the DRC gain-map guide', () => {
-    expect(DRC_PIPELINE_WGSL).toContain('analysis_wbc_gains');
-    expect(DRC_PIPELINE_WGSL).toContain('load_zero(input_a, position).x * cfa_gain(position)');
+  it('consumes the already white-balanced VFE input without analysis WBC', () => {
+    expect(DRC_PIPELINE_WGSL).not.toContain('analysis_wbc_gains');
+    expect(DRC_PIPELINE_WGSL).not.toContain('cfa_gain(position)');
+    expect(DRC_PIPELINE_WGSL).toContain('load_zero(input_a, position).x * weights');
     expect(DRC_PIPELINE_WGSL).toContain('raw * clamp(target_value / luma');
   });
 

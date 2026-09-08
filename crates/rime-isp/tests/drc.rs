@@ -275,6 +275,7 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        wbc_highlight_recovery: false,
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -284,23 +285,16 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
     assert_eq!(gain, 2.0);
     let amplifier = f32::from_ne_bytes(packet.bytes()[8..12].try_into().expect("amplifier bytes"));
     assert_eq!(amplifier, 3.0, "Sony A7 reference uses amplifier=3.0");
-    assert_eq!(packet.bytes().len(), 48);
+    assert_eq!(packet.bytes().len(), 32);
     let mut different_white_balance = context.clone();
     different_white_balance.as_shot_neutral = Some([1.0, 0.5, 2.0]);
     let adjusted_packet = rime_isp::vbe::drc::OPERATOR
         .preprocess("00", &different_white_balance)
-        .expect("DRC analysis uses WBC metadata");
-    assert_eq!(&packet.bytes()[..32], &adjusted_packet.bytes()[..32]);
-    assert_ne!(&packet.bytes()[32..48], &adjusted_packet.bytes()[32..48]);
+        .expect("DRC consumes the already balanced VFE output");
     assert_eq!(
-        packet
-            .resource("tone_lut_global")
-            .expect("global LUT")
-            .bytes(),
-        adjusted_packet
-            .resource("tone_lut_global")
-            .expect("adjusted global LUT")
-            .bytes()
+        packet.bytes(),
+        adjusted_packet.bytes(),
+        "WBC now runs upstream in VFE; DRC must not re-apply white-balance gains"
     );
 
     let mut additive = context.clone();
@@ -359,6 +353,7 @@ fn drc01_preprocess_freezes_local_lut_field() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        wbc_highlight_recovery: false,
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -414,6 +409,7 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         drc_gain_offset_ev: Some(1.0),
         drc_knee: Some(0.5),
         drc_amplifier: Some(2.5),
+         wbc_highlight_recovery: false,
     };
     let packet = rime_isp::vbe::drc::OPERATOR.preprocess("00", &context).expect("DRC00");
     let scalar = |offset| f32::from_ne_bytes(packet.bytes()[offset..offset + 4].try_into().unwrap());
@@ -463,6 +459,7 @@ fn drc_iq_rejects_non_finite_and_out_of_range_values() {
         drc_exposure_policy: DrcExposurePolicy::Baseline, drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0, drc_gain_offset_ev: None, drc_knee: None,
         drc_amplifier: None,
+        wbc_highlight_recovery: false,
     };
     for (name, context) in [
         ("offset", PreprocessContext { drc_gain_offset_ev: Some(f32::NAN), ..base.clone() }),

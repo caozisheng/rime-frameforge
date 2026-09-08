@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::path::Path;
 
 use rime_dng::DngReader;
-use rime_isp::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::vfe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 use serde::Serialize;
 use tauri::ipc::Response;
 

@@ -120,7 +120,8 @@ function layoutSiblings(
   nodeById: ReadonlyMap<string, VisibleNormalNode>,
 ): PositionedNode[] {
   if (nodes.length === 0) return [];
-  if (parentId === 'vbe') return layoutVbeRows(nodes, edges);
+  const firstRowEnd: string | null = parentId === 'vfe' ? 'sbpc' : parentId === 'vbe' ? 'color_correction' : null;
+  if (firstRowEnd !== null && parentId !== null) return layoutTwoRows(nodes, edges, parentId, firstRowEnd);
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   graph.setGraph(normalLayoutConfig(parentId));
   for (const node of nodes) graph.setNode(node.id, { width: node.width, height: node.height });
@@ -157,23 +158,25 @@ function layoutSiblings(
   }));
 }
 
-function layoutVbeRows(nodes: readonly SizedNode[], edges: readonly VisibleNormalEdge[]): PositionedNode[] {
-  const secondRowById: Record<string, true> = { pfr: true, color_correction: true, gamma: true, three_d_lut: true, rgb2yuv: true, pyrd: true };
-  const firstRow = nodes.filter((node) => secondRowById[node.id] !== true);
-  const secondRow = nodes.filter((node) => secondRowById[node.id] === true);
-  const first = layoutVbeRow(firstRow, edges, FRAME_HEADER_HEIGHT);
+function layoutTwoRows(nodes: readonly SizedNode[], edges: readonly VisibleNormalEdge[], parentId: string, firstRowEnd: string): PositionedNode[] {
+  const endIndex = nodes.findIndex((node) => node.id === firstRowEnd);
+  if (endIndex < 0) return layoutRow(nodes, edges, parentId, FRAME_HEADER_HEIGHT);
+  const firstRow = nodes.slice(0, endIndex + 1);
+  const secondRow = nodes.slice(endIndex + 1);
+  const first = layoutRow(firstRow, edges, parentId, FRAME_HEADER_HEIGHT);
   const firstHeight = Math.max(...first.map((node) => node.height), NODE_HEIGHT);
-  const second = layoutVbeRow(secondRow, edges, FRAME_HEADER_HEIGHT + firstHeight + 56);
+  const second = layoutRow(secondRow, edges, parentId, FRAME_HEADER_HEIGHT + firstHeight + 56);
   return [...first, ...second];
 }
 
-function layoutVbeRow(
+function layoutRow(
   nodes: readonly SizedNode[],
   edges: readonly VisibleNormalEdge[],
+  parentId: string,
   y: number,
 ): PositionedNode[] {
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  graph.setGraph(normalLayoutConfig('vbe'));
+  graph.setGraph(normalLayoutConfig(parentId));
   const ids = new Set(nodes.map((node) => node.id));
   for (const node of nodes) graph.setNode(node.id, { width: node.width, height: node.height });
   for (const edge of edges) {

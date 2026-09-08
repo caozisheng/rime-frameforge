@@ -141,6 +141,8 @@ pub struct PreprocessContext {
     pub drc_knee: Option<f32>,
     /// Optional DRC detail amplifier; omitted means the Sony reference default of three.
     pub drc_amplifier: Option<f32>,
+    /// WBC internal highlight-recovery switch (wbc00); default off.
+    pub wbc_highlight_recovery: bool,
 }
 
 #[derive(Debug)]

@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "54d5c73d32b0b4c98ef3b8bd7f2fe106fd3d9af513b50bdd4afd184adacdcf3b",
+  "manifest_hash": "eeef95842f6785d3f8861f92f0bc60d810777bcfe088da785750fc3e7d64c9fb",
   "nodes": [
     {
       "id": "raw_source",
@@ -175,6 +175,43 @@ export const normalManifest = {
       ]
     },
     {
+      "id": "raw_nr",
+      "display_name": "RAW-NR",
+      "shader_entry": "identity_r32_main",
+      "inputs": [
+        {
+          "id": "in",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "default_method": "00",
+      "methods": [
+        {
+          "method": "00",
+          "shader_entry": "identity_r32_main",
+          "parameters": [
+            "identity"
+          ]
+        }
+      ]
+    },
+    {
       "id": "tintless",
       "display_name": "TINTLESS",
       "shader_entry": "identity_r32_main",
@@ -249,8 +286,48 @@ export const normalManifest = {
       ]
     },
     {
-      "id": "hr",
-      "display_name": "HR",
+      "id": "wbc",
+      "display_name": "WBC",
+      "shader_entry": "wbc_main",
+      "inputs": [
+        {
+          "id": "in",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "default_method": "00",
+      "methods": [
+        {
+          "method": "00",
+          "shader_entry": "wbc_main",
+          "parameters": [
+            "red_gain",
+            "green_gain",
+            "blue_gain",
+            "highlight_recovery"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cac",
+      "display_name": "CAC",
       "shader_entry": "identity_r32_main",
       "inputs": [
         {
@@ -344,119 +421,6 @@ export const normalManifest = {
             "analysis_wbc_gains",
             "global_tone_lut",
             "local_tone_lut"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "cac",
-      "display_name": "CAC",
-      "shader_entry": "identity_r32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_r32_main",
-          "parameters": [
-            "identity"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "raw_nr",
-      "display_name": "RAW-NR",
-      "shader_entry": "identity_r32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_r32_main",
-          "parameters": [
-            "identity"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "wbc",
-      "display_name": "WBC",
-      "shader_entry": "wbc_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "wbc_main",
-          "parameters": [
-            "red_gain",
-            "green_gain",
-            "blue_gain"
           ]
         }
       ]
@@ -772,7 +736,7 @@ export const normalManifest = {
         "port_id": "out"
       },
       "to": {
-        "node_id": "tintless",
+        "node_id": "raw_nr",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -780,6 +744,18 @@ export const normalManifest = {
     {
       "id": "normal_edge_5",
       "from": {
+        "node_id": "raw_nr",
+        "port_id": "out"
+      },
+      "to": {
+        "node_id": "tintless",
+        "port_id": "in"
+      },
+      "frame_delay": 0
+    },
+    {
+      "id": "normal_edge_6",
+      "from": {
         "node_id": "tintless",
         "port_id": "out"
       },
@@ -790,25 +766,13 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_6",
+      "id": "normal_edge_7",
       "from": {
         "node_id": "lsc",
         "port_id": "out"
       },
       "to": {
-        "node_id": "hr",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_7",
-      "from": {
-        "node_id": "hr",
-        "port_id": "out"
-      },
-      "to": {
-        "node_id": "drc",
+        "node_id": "wbc",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -816,7 +780,7 @@ export const normalManifest = {
     {
       "id": "normal_edge_8",
       "from": {
-        "node_id": "drc",
+        "node_id": "wbc",
         "port_id": "out"
       },
       "to": {
@@ -832,7 +796,7 @@ export const normalManifest = {
         "port_id": "out"
       },
       "to": {
-        "node_id": "raw_nr",
+        "node_id": "drc",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -840,19 +804,7 @@ export const normalManifest = {
     {
       "id": "normal_edge_10",
       "from": {
-        "node_id": "raw_nr",
-        "port_id": "out"
-      },
-      "to": {
-        "node_id": "wbc",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_11",
-      "from": {
-        "node_id": "wbc",
+        "node_id": "drc",
         "port_id": "out"
       },
       "to": {
@@ -862,7 +814,7 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_12",
+      "id": "normal_edge_11",
       "from": {
         "node_id": "dem",
         "port_id": "out"
@@ -874,7 +826,7 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_13",
+      "id": "normal_edge_12",
       "from": {
         "node_id": "pfr",
         "port_id": "out"
@@ -886,7 +838,7 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_14",
+      "id": "normal_edge_13",
       "from": {
         "node_id": "color_correction",
         "port_id": "out"
@@ -898,7 +850,7 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_15",
+      "id": "normal_edge_14",
       "from": {
         "node_id": "gamma",
         "port_id": "out"
@@ -910,7 +862,7 @@ export const normalManifest = {
       "frame_delay": 0
     },
     {
-      "id": "normal_edge_16",
+      "id": "normal_edge_15",
       "from": {
         "node_id": "three_d_lut",
         "port_id": "out"
@@ -1002,20 +954,7 @@ export const normalManifest = {
       "presentation": "rgb"
     },
     {
-      "node_id": "wbc",
-      "port_id": "out",
-      "domain": "raw_bayer_rime_q",
-      "format": "r32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "scalar",
-      "presentation": "raw_gray"
-    },
-    {
-      "node_id": "raw_nr",
+      "node_id": "drc",
       "port_id": "out",
       "domain": "raw_bayer_rime_q",
       "format": "r32_float",
@@ -1041,20 +980,7 @@ export const normalManifest = {
       "presentation": "raw_gray"
     },
     {
-      "node_id": "drc",
-      "port_id": "out",
-      "domain": "raw_bayer_rime_q",
-      "format": "r32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "scalar",
-      "presentation": "raw_gray"
-    },
-    {
-      "node_id": "hr",
+      "node_id": "wbc",
       "port_id": "out",
       "domain": "raw_bayer_rime_q",
       "format": "r32_float",
@@ -1081,6 +1007,19 @@ export const normalManifest = {
     },
     {
       "node_id": "tintless",
+      "port_id": "out",
+      "domain": "raw_bayer_rime_q",
+      "format": "r32_float",
+      "extent": {
+        "width": 32,
+        "height": 24
+      },
+      "range": "normalized",
+      "channel_layout": "scalar",
+      "presentation": "raw_gray"
+    },
+    {
+      "node_id": "raw_nr",
       "port_id": "out",
       "domain": "raw_bayer_rime_q",
       "format": "r32_float",

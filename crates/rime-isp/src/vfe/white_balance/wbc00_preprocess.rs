@@ -91,7 +91,7 @@ pub(crate) fn preprocess(
         module_id,
         reason: error.reason(),
     })?;
-    let mut uniform = [0_u8; 32];
+    let mut uniform = [0_u8; 48];
     uniform[0..4].copy_from_slice(&gains.red.to_ne_bytes());
     uniform[4..8].copy_from_slice(&gains.green.to_ne_bytes());
     uniform[8..12].copy_from_slice(&gains.blue.to_ne_bytes());
@@ -99,6 +99,8 @@ pub(crate) fn preprocess(
         let start = 16 + index * 4;
         uniform[start..start + 4].copy_from_slice(&value.to_ne_bytes());
     }
+    let highlight_recovery: u32 = u32::from(context.wbc_highlight_recovery);
+    uniform[32..36].copy_from_slice(&highlight_recovery.to_ne_bytes());
     ModuleParameterPacket::new(module_id, method, context.identity, &uniform)
 }
 

@@ -39,8 +39,8 @@ describe('WebGPU DRC preprocessing', () => {
     expect(packed.getFloat32(8, true)).toBeCloseTo(2);
   });
 
-  it('packs CFA-normalized white-balance gains for the analysis-only gain-map branch', () => {
+  it('packs no white-balance fields; DRC consumes the balanced input', () => {
     const packed = new DataView(packDrcUniforms(descriptor, DEFAULT_DRC_IQ_PARAMETERS));
-    expect([packed.getFloat32(32, true), packed.getFloat32(36, true), packed.getFloat32(40, true), packed.getFloat32(44, true)]).toEqual([1, 0.5, 0.5, 2]);
+    expect(packed.byteLength).toBe(32);
   });
 });

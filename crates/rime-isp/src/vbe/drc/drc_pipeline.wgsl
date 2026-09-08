@@ -11,7 +11,6 @@ struct DrcParams {
   max_ratio: f32,
   level_count: u32,
   feature_flags: u32,
-  analysis_wbc_gains: vec4<f32>,
 }
 struct FloatBuffer { values: array<f32> }
 
@@ -24,11 +23,6 @@ struct FloatBuffer { values: array<f32> }
 @group(0) @binding(6) var<storage, read> global_lut: FloatBuffer;
 @group(0) @binding(7) var<storage, read> local_lut: FloatBuffer;
 @group(0) @binding(8) var<storage, read> modulation_luts: FloatBuffer;
-
-fn cfa_gain(position: vec2<i32>) -> f32 {
-  let index = u32(position.y & 1) * 2u + u32(position.x & 1);
-  return params.analysis_wbc_gains[index];
-}
 
 
 fn load_zero(texture: texture_2d<f32>, position: vec2<i32>) -> vec4<f32> {
@@ -87,7 +81,7 @@ fn drc_prefilter_main(@builtin(global_invocation_id) id: vec3<u32>) {
   for (var dy = -1; dy <= 1; dy += 1) {
     for (var dx = -1; dx <= 1; dx += 1) {
       let position = center + vec2<i32>(dx, dy);
-      sum += load_zero(input_a, position).x * cfa_gain(position) * weights[u32(dx + 1)] * weights[u32(dy + 1)];
+      sum += load_zero(input_a, position).x * weights[u32(dx + 1)] * weights[u32(dy + 1)];
     }
   }
   textureStore(output_r32, center, vec4<f32>(sum / 16.0, 0.0, 0.0, 0.0));
