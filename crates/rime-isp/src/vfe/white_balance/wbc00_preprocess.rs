@@ -75,6 +75,30 @@ pub fn white_balance_gains(
     Ok(gains)
 }
 
+/// Derives the camera neutral from `AsShotWhiteXY` when `AsShotNeutral` is
+/// absent. Shared by WBC gains and the color-reproduce matrix solver so both
+/// consume the identical neutral (white-closure invariant).
+///
+/// # Errors
+///
+/// Returns a stable validation error when neither source is present or the
+/// derived neutral is not finite and strictly positive.
+pub fn neutral_from_metadata(
+    as_shot_neutral: Option<[f64; 3]>,
+    as_shot_white_xy: Option<[f64; 2]>,
+    color_matrix: [f64; 9],
+    analog_balance: Option<[f64; 3]>,
+) -> Result<[f64; 3], WhiteBalanceError> {
+    match as_shot_neutral {
+        Some(neutral) => validate_neutral(neutral),
+        None => neutral_from_white_xy(
+            as_shot_white_xy.ok_or(WhiteBalanceError::MissingSource)?,
+            color_matrix,
+            analog_balance,
+        ),
+    }
+}
+
 pub(crate) fn preprocess(
     context: &PreprocessContext,
     module_id: &'static str,

@@ -106,7 +106,7 @@ describe('layoutNormalContainers', () => {
 
     expect(byId.get('gamma')!.position.y).toBe(byId.get('three_d_lut')!.position.y);
     expect(byId.get('gamma')!.position.x).toBeLessThan(byId.get('three_d_lut')!.position.x);
-    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('color_correction')!.position.y);
+    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('color_reproduce')!.position.y);
   });
 
   it('keeps all VBE to VPE scale labels at routed bends', () => {

@@ -293,12 +293,12 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "color_correction",
-      "label": "color correction",
+      "id": "color_reproduce",
+      "label": "color reproduce",
       "parent_id": "video_back_end",
       "kind": "operator",
       "mode": "enabled",
-      "execution_node_id": "color_correction",
+      "execution_node_id": "color_reproduce",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [

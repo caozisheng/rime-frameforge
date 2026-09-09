@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canLoadNextDngFrame, commitPendingDngFrame, dngFrameForStep, isCurrentDngPrefetch, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
+import { canLoadNextDngFrame, commitPendingDngFrame, dngFrameForStep, frameLoadInvalidatesRuntime, isCurrentDngPrefetch, nextDngRunFrame, nextDngSequenceFrame, shouldCommitDngDescriptor, shouldResumeDngSequence, visibleDngFrameIndex } from '../src/runtime/dng-sequence.js';
 
 describe('DNG sequence playback', () => {
   it('advances to the next frame only while playback is active', () => {
@@ -73,5 +73,10 @@ describe('DNG sequence playback', () => {
   it('matches a prefetch promise to its frame and sequence generation', () => {
     expect(isCurrentDngPrefetch({ index: 3, generation: 7 }, 3, 7)).toBe(true);
     expect(isCurrentDngPrefetch({ index: 3, generation: 7 }, 4, 7)).toBe(false);
+  });
+
+  it('invalidates the runtime only when the executor cannot be reused', () => {
+    expect(frameLoadInvalidatesRuntime(true)).toBe(false);
+    expect(frameLoadInvalidatesRuntime(false)).toBe(true);
   });
 });

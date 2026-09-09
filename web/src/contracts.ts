@@ -24,6 +24,14 @@ export interface RuntimeEnvelope {
 
 export type BayerCfa = 'rggb' | 'grbg' | 'gbrg' | 'bggr';
 
+export interface ColorReproduceAssets {
+  readonly sensorToProphoto: readonly number[];
+  readonly prophotoToSrgb: readonly number[];
+  readonly hsvDims: readonly [number, number, number];
+  readonly hsvEnable: boolean;
+  readonly hsvLut?: readonly number[] | null;
+}
+
 export interface RawFrameDescriptor {
   readonly width: number;
   readonly height: number;
@@ -34,6 +42,7 @@ export interface RawFrameDescriptor {
   readonly whiteLevel: number;
   readonly whiteBalanceGains: readonly [number, number, number];
   readonly baselineExposure?: number | null;
+  readonly colorReproduce?: ColorReproduceAssets | null;
 }
 export interface TransferAuditSnapshot {
   readonly hostReadBytes: number;

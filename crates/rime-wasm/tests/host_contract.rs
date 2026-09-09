@@ -44,6 +44,8 @@ fn wasm_runtime_accepts_quantization_config_and_increments_revision() {
 fn wasm_runtime_exposes_generic_config_revision_change() {
     let mut runtime = NormalRuntime::new();
     runtime.load().expect("built-in manifest must load");
-    let snapshot = runtime.change_config().expect("config change may start from stop");
+    let snapshot = runtime
+        .change_config()
+        .expect("config change may start from stop");
     assert!(snapshot.contains("\"config_revision\":1"));
 }

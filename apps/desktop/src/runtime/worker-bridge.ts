@@ -1,4 +1,4 @@
-import type { RawFrameDescriptor, RuntimeCommand, RuntimeEvent } from '../../../../web/src/contracts.js';
+import type { ColorReproduceAssets, RawFrameDescriptor, RuntimeCommand, RuntimeEvent } from '../../../../web/src/contracts.js';
 import rawAssetUrl from '../../../../pipeline/normal/frame0.raw?url';
 
 export interface DngRawTagDescriptor {
@@ -62,6 +62,7 @@ export interface DngFrameDescriptor {
   readonly metadataHash: string;
   readonly rawDigest: string;
   readonly whiteBalanceGains: readonly [number, number, number];
+  readonly colorReproduce?: ColorReproduceAssets | null;
   readonly metadata: DngMetadataDescriptor;
 }
 

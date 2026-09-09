@@ -11,5 +11,10 @@ rime-quant = { path = "../rime-quant" }
 serde_json.workspace = true
 thiserror.workspace = true
 
+
+[dev-dependencies]
+naga = { version = "29", features = ["wgsl-in"] }
+
 [lints]
 workspace = true
+

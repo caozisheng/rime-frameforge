@@ -28,7 +28,7 @@ fn normal_manifest_contains_the_explicit_main_chain() {
             "drc",
             "dem",
             "pfr",
-            "color_correction",
+            "color_reproduce",
             "gamma",
             "three_d_lut",
             "rgb2yuv",
@@ -203,7 +203,7 @@ fn pfr_is_separate_from_dem_in_the_manifest() {
         manifest
             .edges
             .iter()
-            .any(|edge| edge.from.node_id == "pfr" && edge.to.node_id == "color_correction")
+            .any(|edge| edge.from.node_id == "pfr" && edge.to.node_id == "color_reproduce")
     );
 }
 
@@ -273,7 +273,7 @@ fn presentation_uses_dem_then_pfr_without_compound_node() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "pfr" && edge.to == "color_correction")
+            .any(|edge| edge.from == "pfr" && edge.to == "color_reproduce")
     );
 }
 

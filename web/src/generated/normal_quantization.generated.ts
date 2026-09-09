@@ -75,7 +75,7 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
-      "module_id": "color_correction",
+      "module_id": "color_reproduce",
       "output_enabled": true,
       "output_profile": "s0.10",
       "clip_type": "truncate"

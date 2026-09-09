@@ -11,7 +11,7 @@ describe('fused Normal Graph plan', () => {
       'wbc',
       'drc',
       'dem',
-      'color_correction',
+      'color_reproduce',
       'gamma',
       'rgb2yuv',
     ]);

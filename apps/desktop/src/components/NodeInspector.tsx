@@ -111,6 +111,15 @@ function parameterValue(moduleId: string | undefined, method: string | undefined
     };
     return values[parameter] ?? parameterValues[parameter] ?? '—';
   }
+  if (moduleId === 'color_reproduce' && dngFrame !== null) {
+    const assets = dngFrame.colorReproduce;
+    const values: Readonly<Record<string, string | number>> = {
+      sensor_to_prophoto: assets === null || assets === undefined ? 'identity fallback' : '9×f32 · preprocess solved',
+      prophoto_to_srgb: assets === null || assets === undefined ? 'identity fallback' : '9×f32 · preprocess solved',
+      hsv_lut: assets !== null && assets !== undefined && assets.hsvEnable ? `${assets.hsvDims[0]}×${assets.hsvDims[1]}×${assets.hsvDims[2]} · dual-illuminant blend` : 'disabled (no profile map)',
+    };
+    return values[parameter] ?? parameterValues[parameter] ?? '—';
+  }
   if (dngFrame !== null) {
     if (parameter === 'cfa_pattern' || parameter === 'cfa') return dngFrame.cfa;
     const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];

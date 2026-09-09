@@ -68,6 +68,7 @@ export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedD
     whiteLevel: descriptor.whiteLevel,
     whiteBalanceGains: descriptor.whiteBalanceGains,
     baselineExposure: descriptor.metadata.baselineExposure,
+    ...(descriptor.colorReproduce === undefined ? {} : { colorReproduce: descriptor.colorReproduce }),
   });
 }
 

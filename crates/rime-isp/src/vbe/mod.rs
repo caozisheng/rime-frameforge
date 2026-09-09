@@ -1,4 +1,4 @@
-pub mod color_correction;
+pub mod color_reproduce;
 pub mod dem;
 pub mod drc;
 pub mod gamma;
@@ -12,7 +12,7 @@ pub const OPERATORS: &[&dyn Operator] = &[
     &drc::OPERATOR,
     &dem::OPERATOR,
     &pfr::OPERATOR,
-    &color_correction::OPERATOR,
+    &color_reproduce::OPERATOR,
     &gamma::OPERATOR,
     &three_d_lut::OPERATOR,
     &rgb_to_yuv::OPERATOR,

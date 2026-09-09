@@ -19,7 +19,6 @@ pub const GUIDED_FILTER_WGSL: &str = GUIDED_FILTER_WGSL_SOURCE;
 /// duplicating the kernels per consumer.
 pub const GUIDED_FILTER_SHARED_FUNCTIONS: &str = GUIDED_FILTER_SHARED_WGSL;
 
-
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum GuidedFilterError {
     #[error("guided-filter images are incompatible")]
@@ -168,7 +167,9 @@ pub fn gradient_guided_filter(
         (sum_sq / area - mean * mean).max(0.0)
     };
     let chi = |cx: usize, cy: usize| -> f64 {
-        (local_variance(cx, cy, 1) * local_variance(cx, cy, radius)).abs().sqrt()
+        (local_variance(cx, cy, 1) * local_variance(cx, cy, radius))
+            .abs()
+            .sqrt()
     };
     let local_range = |cx: usize, cy: usize| -> f64 {
         let x0 = cx.saturating_sub(3);
@@ -214,8 +215,9 @@ pub fn gradient_guided_filter(
             let dynamic_range = local_range(x, y);
             let epsilon_dyn = (0.001 * dynamic_range) * (0.001 * dynamic_range);
             let (chi_mean, chi_min, count) = chi_neighborhood(x, y);
-            let weight = ((center_chi + epsilon_dyn.max(1e-12)) / (chi_mean + epsilon_dyn.max(1e-12)))
-                .max(1e-6);
+            let weight = ((center_chi + epsilon_dyn.max(1e-12))
+                / (chi_mean + epsilon_dyn.max(1e-12)))
+            .max(1e-6);
             let regularization = epsilon / weight;
             let denominator = (chi_mean - chi_min).max(1e-6);
             let gamma = 1.0 - 1.0 / (1.0 + (4.0 * (center_chi - chi_mean) / denominator).exp());

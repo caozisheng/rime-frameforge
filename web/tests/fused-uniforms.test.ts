@@ -35,4 +35,33 @@ describe('fused uniform ABI', () => {
     const view = new DataView(bytes);
     expect([view.getUint32(448, true), view.getUint32(452, true), view.getUint32(456, true), view.getUint32(460, true), view.getUint32(464, true), view.getUint32(468, true)]).toEqual([0, 0, 0, 0, 0, 0]);
   });
+
+  it('packs color reproduce matrices and dims into the uniform tail', () => {
+    const sensorToProphoto = new Array<number>(9).fill(0).map((_, index) => 0.1 + index * 0.01);
+    const prophotoToSrgb = new Array<number>(9).fill(0).map((_, index) => 1.0 + index * 0.01);
+    const bytes = packFusedUniforms(
+      { ...descriptor, colorReproduce: { sensorToProphoto, prophotoToSrgb, hsvDims: [90, 30, 1], hsvEnable: true } },
+      7,
+      { vng_threshold: 1.5, ahd_l_threshold: 2, ahd_c_threshold_sq: 4 },
+      normalGraphQuantization,
+    );
+    const view = new DataView(bytes);
+    // Matrices land after the gamma LUT (496 + 9*4 = 532) at the tail block.
+    for (let row = 0; row < 3; row += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        expect(view.getFloat32(544 + row * 16 + col * 4, true)).toBeCloseTo(sensorToProphoto[row * 3 + col]!, 6);
+        expect(view.getFloat32(592 + row * 16 + col * 4, true)).toBeCloseTo(prophotoToSrgb[row * 3 + col]!, 6);
+      }
+    }
+    expect([view.getUint32(640, true), view.getUint32(644, true), view.getUint32(648, true)]).toEqual([90, 30, 1]);
+    expect(view.getUint32(652, true)).toBe(1);
+  });
+
+  it('defaults color reproduce to identity matrices when absent', () => {
+    const bytes = packFusedUniforms(descriptor, 7, { vng_threshold: 1.5, ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }, normalGraphQuantization);
+    const view = new DataView(bytes);
+    expect(view.getFloat32(544, true)).toBe(1);
+    expect(view.getUint32(652, true)).toBe(0);
+
+  });
 });

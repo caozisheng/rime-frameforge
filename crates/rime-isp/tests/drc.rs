@@ -259,6 +259,16 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
         as_shot_white_xy: None,
         color_matrix1: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+
         analog_balance: None,
         scene_brightness_ev: None,
         exposure_deviation_ev: None,
@@ -335,6 +345,16 @@ fn drc01_preprocess_freezes_local_lut_field() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+
         analog_balance: None,
         scene_brightness_ev: None,
         exposure_deviation_ev: None,
@@ -383,7 +403,11 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
     use rime_isp::{FrameIdentity, Operator as _, PreprocessContext};
 
     let context = PreprocessContext {
-        identity: FrameIdentity { frame_index: 10, run_revision: 1, method_revision: 1 },
+        identity: FrameIdentity {
+            frame_index: 10,
+            run_revision: 1,
+            method_revision: 1,
+        },
         width: 1,
         height: 1,
         black_level: 0.0,
@@ -393,6 +417,16 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         as_shot_white_xy: None,
         color_matrix1: [1.0; 9],
         color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+
         analog_balance: None,
         scene_brightness_ev: None,
         exposure_deviation_ev: None,
@@ -409,10 +443,13 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         drc_gain_offset_ev: Some(1.0),
         drc_knee: Some(0.5),
         drc_amplifier: Some(2.5),
-         wbc_highlight_recovery: false,
+        wbc_highlight_recovery: false,
     };
-    let packet = rime_isp::vbe::drc::OPERATOR.preprocess("00", &context).expect("DRC00");
-    let scalar = |offset| f32::from_ne_bytes(packet.bytes()[offset..offset + 4].try_into().unwrap());
+    let packet = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &context)
+        .expect("DRC00");
+    let scalar =
+        |offset| f32::from_ne_bytes(packet.bytes()[offset..offset + 4].try_into().unwrap());
     assert_eq!(scalar(0), 4.0);
     assert_eq!(scalar(4), 0.5);
     assert_eq!(scalar(8), 2.5);
@@ -449,24 +486,73 @@ fn drc_iq_rejects_non_finite_and_out_of_range_values() {
     use rime_isp::{FrameIdentity, Operator as _, PreprocessContext};
 
     let base = PreprocessContext {
-        identity: FrameIdentity { frame_index: 11, run_revision: 1, method_revision: 1 },
-        width: 1, height: 1, black_level: 0.0, white_level: 4095.0,
-        cfa_pattern: [0, 1, 1, 2], as_shot_neutral: Some([1.0, 1.0, 1.0]), as_shot_white_xy: None,
-        color_matrix1: [1.0; 9], color_matrix2: None, analog_balance: None,
-        scene_brightness_ev: None, exposure_deviation_ev: None, iso: None,
-        analog_gain: None, digital_gain: None, baseline_exposure_ev: Some(1.0),
-        exposure_time_seconds: None, f_number: None, drc_local_statistics: None,
-        drc_exposure_policy: DrcExposurePolicy::Baseline, drc_metered_target_ev100: None,
-        drc_profile_adjustment_ev: 0.0, drc_gain_offset_ev: None, drc_knee: None,
+        identity: FrameIdentity {
+            frame_index: 11,
+            run_revision: 1,
+            method_revision: 1,
+        },
+        width: 1,
+        height: 1,
+        black_level: 0.0,
+        white_level: 4095.0,
+        cfa_pattern: [0, 1, 1, 2],
+        as_shot_neutral: Some([1.0, 1.0, 1.0]),
+        as_shot_white_xy: None,
+        color_matrix1: [1.0; 9],
+        color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+        analog_balance: None,
+        scene_brightness_ev: None,
+        exposure_deviation_ev: None,
+        iso: None,
+        analog_gain: None,
+        digital_gain: None,
+        baseline_exposure_ev: Some(1.0),
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
+        drc_gain_offset_ev: None,
+        drc_knee: None,
         drc_amplifier: None,
         wbc_highlight_recovery: false,
     };
     for (name, context) in [
-        ("offset", PreprocessContext { drc_gain_offset_ev: Some(f32::NAN), ..base.clone() }),
-        ("knee", PreprocessContext { drc_knee: Some(1.1), ..base.clone() }),
-        ("amplifier", PreprocessContext { drc_amplifier: Some(-1.0), ..base.clone() }),
+        (
+            "offset",
+            PreprocessContext {
+                drc_gain_offset_ev: Some(f32::NAN),
+                ..base.clone()
+            },
+        ),
+        (
+            "knee",
+            PreprocessContext {
+                drc_knee: Some(1.1),
+                ..base.clone()
+            },
+        ),
+        (
+            "amplifier",
+            PreprocessContext {
+                drc_amplifier: Some(-1.0),
+                ..base.clone()
+            },
+        ),
     ] {
-        let error = rime_isp::vbe::drc::OPERATOR.preprocess("00", &context).expect_err(name);
+        let error = rime_isp::vbe::drc::OPERATOR
+            .preprocess("00", &context)
+            .expect_err(name);
         assert!(error.to_string().contains("DRC IQ"), "{name}: {error}");
     }
 }
@@ -580,7 +666,9 @@ fn rgb_highlights_clip_at_one_shared_saturation_point() {
 fn drc_output_clamps_to_normalized_saturation_when_not_quantized() {
     let shader = rime_isp::vbe::drc::DRC_PIPELINE_WGSL;
     assert!(
-        shader.contains("clamp(raw * clamp(target_value / luma, params.min_ratio, params.max_ratio), 0.0, 1.0)"),
+        shader.contains(
+            "clamp(raw * clamp(target_value / luma, params.min_ratio, params.max_ratio), 0.0, 1.0)"
+        ),
         "DRC combine must clamp the gain-mapped Bayer to the normalized [0, 1] output domain"
     );
 }

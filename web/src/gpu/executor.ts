@@ -20,7 +20,7 @@ const DEM_ENTRY_POINTS: Record<Exclude<DemMethod, '00'>, string> = {
   '03': 'demosaic_vng_main',
   '04': 'demosaic_ahd_main',
 };
-const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_correction', 'gamma', 'rgb2yuv']);
+const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_reproduce', 'gamma', 'rgb2yuv']);
 export class NormalGpuExecutor {
   readonly #gpu: GpuContext;
   readonly #presenter: GpuPreviewPresenter;
@@ -34,6 +34,7 @@ export class NormalGpuExecutor {
   readonly #gammaTexture: GPUTexture;
   readonly #outputTexture: GPUTexture;
   readonly #uniforms: GPUBuffer;
+  readonly #crHsvLut: GPUBuffer;
   readonly #previewTextures: Readonly<Record<string, GPUTexture>>;
   readonly #drc: WebDrcExecutor;
   #demUniforms: GPUBuffer | null = null;
@@ -81,11 +82,13 @@ export class NormalGpuExecutor {
       drc: this.#drcTexture,
       wbc: this.#wbcTexture,
       dem: this.#demTexture,
-      color_correction: this.#colorTexture,
+      color_reproduce: this.#colorTexture,
       gamma: this.#gammaTexture,
       rgb2yuv: this.#outputTexture,
     };
     this.#uniforms = gpu.device.createBuffer({ label: 'normal-fused-params', size: FUSED_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const hsvLut = descriptor.colorReproduce?.hsvLut ?? [];
+    this.#crHsvLut = gpu.device.createBuffer({ label: 'cr-hsv-lut', size: Math.max(hsvLut.length * 4, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.#drc = new WebDrcExecutor(gpu.device, raw, rawByteOffset, descriptor);
     this.uploadFrame(raw, rawByteOffset, descriptor);
   }
@@ -133,6 +136,7 @@ export class NormalGpuExecutor {
           { binding: 4, resource: this.#gammaTexture.createView() },
           { binding: 5, resource: this.#outputTexture.createView() },
           { binding: 6, resource: { buffer: this.#uniforms } },
+          { binding: 7, resource: { buffer: this.#crHsvLut } },
         ],
       });
       return;
@@ -204,6 +208,7 @@ export class NormalGpuExecutor {
     this.#gammaTexture.destroy();
     this.#outputTexture.destroy();
     this.#uniforms.destroy();
+    this.#crHsvLut.destroy();
     this.#demUniforms?.destroy();
     this.#sampleBuffer?.destroy();
     this.#drc.dispose();
@@ -325,6 +330,7 @@ export class NormalGpuExecutor {
       { binding: 2, resource: this.#gammaTexture.createView() },
       { binding: 3, resource: this.#outputTexture.createView() },
       { binding: 4, resource: { buffer: this.#uniforms } },
+      { binding: 5, resource: { buffer: this.#crHsvLut } },
     ] });
   }
 
@@ -350,6 +356,11 @@ export class NormalGpuExecutor {
     if (rawByteOffset % 2 !== 0 || rawByteOffset < 0 || rawByteOffset + expected * 2 !== raw.byteLength) throw new Error(`INPUT_INVALID: expected ${expected} RAW samples`);
     this.#gpu.device.queue.writeTexture({ texture: this.#rawTexture }, new Uint16Array(raw, rawByteOffset, expected), { bytesPerRow: descriptor.rowStrideSamples * 2, rowsPerImage: descriptor.height }, { width: descriptor.width, height: descriptor.height, depthOrArrayLayers: 1 });
     this.#audit.recordRawUpload(expected * 2);
+    const crAssets = descriptor.colorReproduce;
+    const hsvLut = crAssets !== undefined && crAssets !== null && crAssets.hsvEnable ? crAssets.hsvLut : undefined;
+    if (hsvLut !== undefined && hsvLut !== null && hsvLut.length > 0) {
+      this.#gpu.device.queue.writeBuffer(this.#crHsvLut, 0, new Float32Array(hsvLut));
+    }
   }
 
   private createTexture(label: string, format: GPUTextureFormat, usage: GPUTextureUsageFlags): GPUTexture {

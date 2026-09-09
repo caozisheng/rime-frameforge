@@ -37,7 +37,7 @@ static NORMAL_OPERATORS: &[&dyn Operator] = &[
     &vbe::drc::OPERATOR,
     &vbe::dem::OPERATOR,
     &vbe::pfr::OPERATOR,
-    &vbe::color_correction::OPERATOR,
+    &vbe::color_reproduce::OPERATOR,
     &vbe::gamma::OPERATOR,
     &vbe::three_d_lut::OPERATOR,
     &vbe::rgb_to_yuv::OPERATOR,

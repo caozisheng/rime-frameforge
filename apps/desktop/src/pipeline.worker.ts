@@ -7,7 +7,7 @@ import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters } from '../../../web
 import type { DrcIqParameters, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
 import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
-import { canLoadNextDngFrame } from './runtime/dng-sequence.js';
+import { canLoadNextDngFrame, frameLoadInvalidatesRuntime } from './runtime/dng-sequence.js';
 let executor: NormalGpuExecutor | null = null;
 let gpu: GpuContext | null = null;
 let controller: RuntimeController | null = null;
@@ -81,10 +81,15 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     rawAsset = command.raw;
     rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
-    envelope = authority.reset();
+    if (frameLoadInvalidatesRuntime(canReuseExecutor)) {
+      envelope = authority.reset();
+    }
     if (canReuseExecutor && previousExecutor !== null) {
       executor = previousExecutor;
       executor.replaceFrame(rawAsset, rawByteOffset, descriptor);
+      // The reused executor's textures stay valid: keep the lifecycle state
+      // and GPU generation so committed previews survive until the next
+      // frame commits (no empty-frame flash during sequence playback).
     } else {
       executor = null;
       controller = null;

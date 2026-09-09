@@ -5,8 +5,8 @@ import { buildGpuQuantizationPlans, type QuantizationConfig } from './quantizati
 
 const QUANT_BLOCK_BYTES = 64;
 const QUANT_BLOCK_OFFSET = 64;
-const QUANT_MODULE_IDS = ['blc', 'wbc', 'dem', 'color_correction', 'gamma', 'rgb2yuv'] as const;
-export const FUSED_UNIFORM_BYTES = QUANT_BLOCK_OFFSET + QUANT_BLOCK_BYTES * QUANT_MODULE_IDS.length + 96;
+const QUANT_MODULE_IDS = ['blc', 'wbc', 'dem', 'color_reproduce', 'gamma', 'rgb2yuv'] as const;
+export const FUSED_UNIFORM_BYTES = QUANT_BLOCK_OFFSET + QUANT_BLOCK_BYTES * QUANT_MODULE_IDS.length + 240;
 
 export interface FusedDemosaicParameters {
   readonly vng_threshold: number;
@@ -61,6 +61,25 @@ export function packFusedUniforms(
       view.setUint32(flagOffset, 1, true);
     }
   });
+  const cr = descriptor.colorReproduce ?? null;
+  const identity: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const writeMatrix = (base: number, values: readonly number[] | undefined): void => {
+    const source = values ?? identity;
+    for (let row = 0; row < 3; row += 1) {
+      view.setFloat32(base + row * 16, source[row * 3] ?? 0, true);
+      view.setFloat32(base + row * 16 + 4, source[row * 3 + 1] ?? 0, true);
+      view.setFloat32(base + row * 16 + 8, source[row * 3 + 2] ?? 0, true);
+    }
+  };
+  // The CR block starts at 544: gamma_lut is array<vec4,3> occupying
+  // 496..544, so 532..543 belongs to its third row and must not be touched.
+  writeMatrix(544, cr?.sensorToProphoto);
+  writeMatrix(592, cr?.prophotoToSrgb);
+  const dims = cr?.hsvDims ?? [1, 1, 1];
+  view.setUint32(640, dims[0], true);
+  view.setUint32(644, dims[1], true);
+  view.setUint32(648, dims[2], true);
+  view.setUint32(652, cr !== null && cr.hsvEnable ? 1 : 0, true);
   view.setFloat32(480, gammaParameters.gamma, true);
   gammaParameters.lut.forEach((value, index) => view.setFloat32(496 + index * 4, value, true));
   return bytes;

@@ -46,7 +46,7 @@ fn top_graph_compute_nodes_are_enabled() {
             "wbc",
             "drc",
             "dem",
-            "color_correction",
+            "color_reproduce",
             "gamma",
             "rgb2yuv",
         ]

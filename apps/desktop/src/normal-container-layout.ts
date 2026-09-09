@@ -120,7 +120,7 @@ function layoutSiblings(
   nodeById: ReadonlyMap<string, VisibleNormalNode>,
 ): PositionedNode[] {
   if (nodes.length === 0) return [];
-  const firstRowEnd: string | null = parentId === 'vfe' ? 'sbpc' : parentId === 'vbe' ? 'color_correction' : null;
+  const firstRowEnd: string | null = parentId === 'vfe' ? 'sbpc' : parentId === 'vbe' ? 'color_reproduce' : null;
   if (firstRowEnd !== null && parentId !== null) return layoutTwoRows(nodes, edges, parentId, firstRowEnd);
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   graph.setGraph(normalLayoutConfig(parentId));

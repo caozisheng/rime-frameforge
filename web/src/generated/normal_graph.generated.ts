@@ -277,12 +277,12 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "color_correction",
-      "label": "CCM 8 x 3 x 3",
+      "id": "color_reproduce",
+      "label": "Color Reproduce",
       "parent_id": "vbe",
       "kind": "operator",
       "mode": "enabled",
-      "execution_node_id": "color_correction",
+      "execution_node_id": "color_reproduce",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
@@ -878,14 +878,14 @@ export const normalGraphPresentation = {
     {
       "id": "normal_edge_12",
       "from": "pfr",
-      "to": "color_correction",
+      "to": "color_reproduce",
       "from_port": "out",
       "to_port": "in",
       "label": null
     },
     {
       "id": "normal_edge_13",
-      "from": "color_correction",
+      "from": "color_reproduce",
       "to": "gamma",
       "from_port": "out",
       "to_port": "in",

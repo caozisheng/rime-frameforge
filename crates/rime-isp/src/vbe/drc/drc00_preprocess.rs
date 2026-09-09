@@ -180,10 +180,16 @@ fn resolve_gain(
     Ok(drc_gain)
 }
 
-fn resolve_knee(context: &PreprocessContext, module_id: &'static str) -> Result<f32, OperatorError> {
+fn resolve_knee(
+    context: &PreprocessContext,
+    module_id: &'static str,
+) -> Result<f32, OperatorError> {
     let knee = context.drc_knee.unwrap_or(DEFAULT_KNEE);
     if !knee.is_finite() || !(0.0..=1.0).contains(&knee) {
-        return Err(OperatorError::Preprocess { module_id, reason: "invalid DRC IQ knee" });
+        return Err(OperatorError::Preprocess {
+            module_id,
+            reason: "invalid DRC IQ knee",
+        });
     }
     Ok(knee)
 }
@@ -194,7 +200,10 @@ fn resolve_amplifier(
 ) -> Result<f32, OperatorError> {
     let amplifier = context.drc_amplifier.unwrap_or(DEFAULT_AMPLIFIER);
     if !amplifier.is_finite() || amplifier < 0.0 {
-        return Err(OperatorError::Preprocess { module_id, reason: "invalid DRC IQ amplifier" });
+        return Err(OperatorError::Preprocess {
+            module_id,
+            reason: "invalid DRC IQ amplifier",
+        });
     }
     Ok(amplifier)
 }

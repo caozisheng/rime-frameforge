@@ -25,6 +25,18 @@ export function canLoadNextDngFrame(lifecycleState: string): boolean {
   return lifecycleState === 'stop' || lifecycleState === 'completed';
 }
 
+/**
+ * A same-extent DNG frame swap reuses the live GPU executor: its textures
+ * stay valid, so the runtime must keep its lifecycle state and GPU
+ * generation. Only an extent change rebuilds the executor and requires the
+ * invalidating reset. Returning to `Stop` via `reset` on every frame would
+ * bump `gpuGeneration`, clear the committed previews, and flash an empty
+ * frame between load and the next preview commit.
+ */
+export function frameLoadInvalidatesRuntime(reuseExecutor: boolean): boolean {
+  return !reuseExecutor;
+}
+
 export function shouldResumeDngSequence(playing: boolean, loadedFrameIndex: number, expectedFrameIndex: number): boolean {
   return playing && loadedFrameIndex === expectedFrameIndex;
 }

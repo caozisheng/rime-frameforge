@@ -494,11 +494,11 @@ fn vbe_color_nodes() -> Vec<GraphTreeNode> {
             Some("not implemented; compatible linear-rgb identity"),
         ),
         operator(
-            "color_correction",
-            "color correction",
+            "color_reproduce",
+            "color reproduce",
             "video_back_end",
             NodeExecutionMode::Enabled,
-            Some("color_correction"),
+            Some("color_reproduce"),
             None,
         ),
         operator(

@@ -40,7 +40,7 @@ fn normal_graph_registers_every_explicit_main_chain_operator() {
             "drc",
             "dem",
             "pfr",
-            "color_correction",
+            "color_reproduce",
             "gamma",
             "three_d_lut",
             "rgb2yuv",
@@ -237,19 +237,37 @@ fn every_demosaic_method_uses_shared_rgb_saturation_clipping() {
 }
 
 #[test]
-fn color_correction_uses_shared_rgb_saturation_clipping() {
-    let color = normal_operators()
+fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hsv_lut() {
+    let cr = normal_operators()
         .iter()
-        .find(|operator| operator.definition().id == "color_correction")
-        .expect("color correction operator")
+        .find(|operator| operator.definition().id == "color_reproduce")
+        .expect("color reproduce operator")
         .definition();
-    assert!(
-        color.methods[0]
-            .shader
-            .source
-            .contains("shared_saturation_clip"),
-        "CCM output must preserve RGB ratios at saturation"
+    let method = &cr.methods[0];
+    assert_eq!(method.shader_entry, "color_reproduce_main");
+    assert_eq!(
+        method.parameters,
+        "sensor_to_prophoto hsv_lut prophoto_to_srgb"
     );
+    let source = method.shader.source;
+    // Two matrix applications (sensor->ProPhoto, ProPhoto->sRGB).
+    assert!(
+        source.contains("apply_matrix(0u"),
+        "sensor->ProPhoto matrix"
+    );
+    assert!(source.contains("apply_matrix(1u"), "ProPhoto->sRGB matrix");
+    // Nearest-neighbour HSV LUT in DNG grid order, gated by hsv_enable.
+    assert!(
+        source.contains("cr_hsv_lut.values[3u * entry"),
+        "nearest-neighbour LUT"
+    );
+    assert!(
+        source.contains("dims_and_enable.w == 0u"),
+        "HSV disable gate"
+    );
+    // Three independent per-channel clips (MATLAB steps 7, 10, 12); the
+    // ratio-preserving saturation clip belongs to the DEM family, not CR.
+    assert!(!source.contains("shared_saturation_clip"));
 }
 
 fn assert_operator_methods_are_valid(operator: &OperatorDefinition) {

@@ -17,8 +17,10 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).not.toContain('texture_storage_2d<rgba32float');
     expect(shader).toContain('textureLoad(drc_input');
     expect(shader).toContain('textureStore(yuv_output');
-    expect(shader).toContain('vec4<f32>(shared_saturation_clip');
-    expect(shader).toContain('shared_saturation_clip(corrected.rgb)');
+    expect(shader).toContain('fn sample_color_reproduce(p: vec2<i32>) -> vec4<f32> {');
+    expect(shader).toContain('cr_sensor_to_prophoto(row: u32, col: u32)');
+    expect(shader).toContain('cr_hsv_lut: FloatBuffer');
+    expect(shader).not.toContain('1.08 * rgb.r');
     const blc = compileBlcShader();
     expect(blc).toContain('textureStore(blc_output');
   });
@@ -47,7 +49,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader('00');
 
     bypassIds.forEach((id) => expect(shader).not.toMatch(new RegExp(`fn (?:sample_)?${id}(?:\\(|_)`)));
-    ['sample_wbc', 'sample_dem', 'sample_color_correction', 'sample_gamma', 'sample_rgb2yuv']
+    ['sample_wbc', 'sample_dem', 'sample_color_reproduce', 'sample_gamma', 'sample_rgb2yuv']
       .forEach((name) => expect(shader).toContain(`fn ${name}`));
   });
 

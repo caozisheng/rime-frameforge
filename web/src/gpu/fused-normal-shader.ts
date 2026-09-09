@@ -24,6 +24,9 @@ const FUSED_PARAMS = `struct FusedParams {
   quant_enabled_1: vec4<u32>,
   gamma_and_padding: vec4<f32>,
   gamma_lut: array<vec4<f32>, 3>,
+  cr_sensor_to_prophoto: array<vec4<f32>, 3>,
+  cr_prophoto_to_srgb: array<vec4<f32>, 3>,
+  cr_hsv_dims_and_enable: vec4<u32>,
 }`;
 const QUANT_HELPERS = `fn quantization_enabled(index: u32) -> bool {
   if (index < 4u) { return params.quant_enabled_0[index] != 0u; }
@@ -47,6 +50,75 @@ fn quantize_rgba(value: vec4<f32>, index: u32, p: vec2<i32>) -> vec4<f32> {
   quant.channel = 3u; let a = quantize_sample(value.a, quant, pixel_group, 0u);
   return vec4<f32>(r, g, b, a);
 }`;
+
+const CR_HELPERS = `
+fn cr_sensor_to_prophoto(row: u32, col: u32) -> f32 {
+  if (col == 0u) { return params.cr_sensor_to_prophoto[row].x; }
+  if (col == 1u) { return params.cr_sensor_to_prophoto[row].y; }
+  return params.cr_sensor_to_prophoto[row].z;
+}
+fn cr_prophoto_to_srgb(row: u32, col: u32) -> f32 {
+  if (col == 0u) { return params.cr_prophoto_to_srgb[row].x; }
+  if (col == 1u) { return params.cr_prophoto_to_srgb[row].y; }
+  return params.cr_prophoto_to_srgb[row].z;
+}
+fn cr_apply_sensor_to_prophoto(rgb: vec3<f32>) -> vec3<f32> {
+  return vec3<f32>(
+    cr_sensor_to_prophoto(0u, 0u) * rgb.r + cr_sensor_to_prophoto(0u, 1u) * rgb.g + cr_sensor_to_prophoto(0u, 2u) * rgb.b,
+    cr_sensor_to_prophoto(1u, 0u) * rgb.r + cr_sensor_to_prophoto(1u, 1u) * rgb.g + cr_sensor_to_prophoto(1u, 2u) * rgb.b,
+    cr_sensor_to_prophoto(2u, 0u) * rgb.r + cr_sensor_to_prophoto(2u, 1u) * rgb.g + cr_sensor_to_prophoto(2u, 2u) * rgb.b);
+}
+fn cr_apply_prophoto_to_srgb(rgb: vec3<f32>) -> vec3<f32> {
+  return vec3<f32>(
+    cr_prophoto_to_srgb(0u, 0u) * rgb.r + cr_prophoto_to_srgb(0u, 1u) * rgb.g + cr_prophoto_to_srgb(0u, 2u) * rgb.b,
+    cr_prophoto_to_srgb(1u, 0u) * rgb.r + cr_prophoto_to_srgb(1u, 1u) * rgb.g + cr_prophoto_to_srgb(1u, 2u) * rgb.b,
+    cr_prophoto_to_srgb(2u, 0u) * rgb.r + cr_prophoto_to_srgb(2u, 1u) * rgb.g + cr_prophoto_to_srgb(2u, 2u) * rgb.b);
+}
+fn cr_rgb_to_hsv(rgb: vec3<f32>) -> vec3<f32> {
+  let v = max(max(rgb.r, rgb.g), rgb.b);
+  let c = v - min(min(rgb.r, rgb.g), rgb.b);
+  var s = 0.0;
+  if (v != 0.0) { s = c / v; }
+  var h = 0.0;
+  if (c != 0.0) {
+    if (v == rgb.r) { h = 60.0 * (((rgb.g - rgb.b) / c) % 6.0); }
+    else if (v == rgb.g) { h = 60.0 * ((rgb.b - rgb.r) / c + 2.0); }
+    else { h = 60.0 * ((rgb.r - rgb.g) / c + 4.0); }
+  }
+  return vec3<f32>(h % 360.0, clamp(s, 0.0, 1.0), clamp(v, 0.0, 1.0));
+}
+fn cr_hsv_to_rgb(hsv: vec3<f32>) -> vec3<f32> {
+  let h = hsv.x % 360.0;
+  let s = clamp(hsv.y, 0.0, 1.0);
+  let v = clamp(hsv.z, 0.0, 1.0);
+  let c = v * s;
+  let x = c * (1.0 - abs((h / 60.0) % 2.0 - 1.0));
+  var sector = vec3<f32>(0.0);
+  let t = h / 60.0;
+  if (t < 1.0) { sector = vec3<f32>(c, x, 0.0); }
+  else if (t < 2.0) { sector = vec3<f32>(x, c, 0.0); }
+  else if (t < 3.0) { sector = vec3<f32>(0.0, c, x); }
+  else if (t < 4.0) { sector = vec3<f32>(0.0, x, c); }
+  else if (t < 5.0) { sector = vec3<f32>(x, 0.0, c); }
+  else { sector = vec3<f32>(c, 0.0, x); }
+  return clamp(sector + vec3<f32>(v - c), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+fn cr_hsv_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
+  if (params.cr_hsv_dims_and_enable.w == 0u) { return hsv; }
+  let hue_divs = max(params.cr_hsv_dims_and_enable.x, 1u);
+  let sat_divs = max(params.cr_hsv_dims_and_enable.y, 1u);
+  let val_divs = max(params.cr_hsv_dims_and_enable.z, 1u);
+  let h = min(u32(floor((hsv.x % 360.0) / 360.0 * f32(hue_divs))), hue_divs - 1u);
+  let s = min(u32(floor(clamp(hsv.y, 0.0, 1.0) * f32(sat_divs))), sat_divs - 1u);
+  let v = min(u32(floor(clamp(hsv.z, 0.0, 1.0) * f32(val_divs))), val_divs - 1u);
+  let entry = (v * hue_divs + h) * sat_divs + s;
+  let hue_shift = cr_hsv_lut.values[3u * entry + 0u];
+  let sat_scale = cr_hsv_lut.values[3u * entry + 1u];
+  let val_scale = cr_hsv_lut.values[3u * entry + 2u];
+  return vec3<f32>((hsv.x + hue_shift) % 360.0, clamp(hsv.y * sat_scale, 0.0, 1.0), clamp(hsv.z * val_scale, 0.0, 1.0));
+}
+`;
+export const CR_SHADER_HELPERS = CR_HELPERS;
 const GAMMA_HELPERS = `fn gamma_lut_value(index: u32) -> f32 { return params.gamma_lut[index / 4u][index % 4u]; }
 fn gamma_lut_secant(index: u32) -> f32 { return gamma_lut_value(index + 1u) - gamma_lut_value(index); }
 fn gamma_lut_tangent(index: u32) -> f32 {
@@ -112,7 +184,10 @@ ${FUSED_PARAMS}
 @group(0) @binding(4) var gamma_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(5) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(6) var<uniform> params: FusedParams;
+struct FloatBuffer { values: array<f32> }
+@group(0) @binding(7) var<storage, read> cr_hsv_lut: FloatBuffer;
 ${QUANT_HELPERS}
+${CR_HELPERS}
 ${GAMMA_HELPERS}
 ${drcWbcFunctions()}
 ${demosaic}
@@ -123,7 +198,7 @@ fn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let p = vec2<i32>(gid.xy);
   textureStore(wbc_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));
   textureStore(dem_output, p, sample_dem_quantized(p));
-  textureStore(color_output, p, sample_color_correction(p));
+  textureStore(color_output, p, sample_color_reproduce(p));
   textureStore(gamma_output, p, sample_gamma(p));
   textureStore(yuv_output, p, sample_rgb2yuv(p));
 }`;
@@ -165,13 +240,19 @@ fn sample_wbc(p: vec2<i32>) -> f32 {
 
 function postprocessFunctions(demExpression: string): string {
   return `fn sample_dem_quantized(p: vec2<i32>) -> vec4<f32> { return quantize_rgba(${demExpression}, 2u, p); }
-fn sample_color_correction(p: vec2<i32>) -> vec4<f32> {
-  let rgb = sample_dem_quantized(p).rgb;
-  let corrected = vec4<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b, 1.0);
-  return quantize_rgba(vec4<f32>(shared_saturation_clip(corrected.rgb), 1.0), 3u, p);
+fn sample_color_reproduce(p: vec2<i32>) -> vec4<f32> {
+  // Real color reproduce: sensor->ProPhoto matrix, HSV LUT calibration,
+  // ProPhoto->sRGB matrix, three per-channel clips (MATLAB steps 7-12).
+  // Matrices and LUT come from the Rust preprocess via descriptor assets.
+  var rgb = clamp(cr_apply_sensor_to_prophoto(sample_dem_quantized(p).rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  var hsv = cr_rgb_to_hsv(rgb);
+  hsv = cr_hsv_lut_apply(hsv);
+  rgb = clamp(cr_hsv_to_rgb(hsv), vec3<f32>(0.0), vec3<f32>(1.0));
+  let srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  return quantize_rgba(vec4<f32>(srgb, 1.0), 3u, p);
 }
 fn sample_gamma(p: vec2<i32>) -> vec4<f32> {
-  let encoded = apply_gamma_luminance_lut(sample_color_correction(p).rgb);
+  let encoded = apply_gamma_luminance_lut(sample_color_reproduce(p).rgb);
   return quantize_rgba(vec4<f32>(encoded, 1.0), 4u, p);
 }
 fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> {
@@ -222,19 +303,19 @@ ${FUSED_PARAMS}
 @group(0) @binding(2) var gamma_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(3) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(4) var<uniform> params: FusedParams;
+struct FloatBuffer { values: array<f32> }
+@group(0) @binding(5) var<storage, read> cr_hsv_lut: FloatBuffer;
 ${QUANT_HELPERS}
+${CR_HELPERS}
 ${GAMMA_HELPERS}
-fn shared_saturation_clip(rgb: vec3<f32>) -> vec3<f32> {
-  let peak = max(max(rgb.r, rgb.g), rgb.b);
-  let scaled = rgb / peak;
-  let clipped = select(scaled, vec3<f32>(1.0), min(min(scaled.r, scaled.g), scaled.b) >= 0.5);
-  return select(rgb, clipped, peak > 1.0);
-}
 fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }
 fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
-  let rgb = sample_dem_materialized(p).rgb;
-  let corrected = vec4<f32>(1.08 * rgb.r - 0.04 * rgb.g - 0.04 * rgb.b, -0.03 * rgb.r + 1.06 * rgb.g - 0.03 * rgb.b, -0.02 * rgb.r - 0.06 * rgb.g + 1.08 * rgb.b, 1.0);
-  return quantize_rgba(vec4<f32>(shared_saturation_clip(corrected.rgb), 1.0), 3u, p);
+  var rgb = clamp(cr_apply_sensor_to_prophoto(sample_dem_materialized(p).rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  var hsv = cr_rgb_to_hsv(rgb);
+  hsv = cr_hsv_lut_apply(hsv);
+  rgb = clamp(cr_hsv_to_rgb(hsv), vec3<f32>(0.0), vec3<f32>(1.0));
+  let srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  return quantize_rgba(vec4<f32>(srgb, 1.0), 3u, p);
 }
 fn sample_post_gamma(p: vec2<i32>) -> vec4<f32> {
   let encoded = apply_gamma_luminance_lut(sample_post_color(p).rgb);

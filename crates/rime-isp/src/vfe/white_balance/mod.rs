@@ -6,7 +6,8 @@ use crate::operator::OperatorDefinition;
 use rime_core::NodeExecutionMode;
 pub use wbc00::METHOD_00;
 pub use wbc00_preprocess::{
-    WhiteBalanceError, WhiteBalanceGains, WhiteBalanceMetadata, white_balance_gains,
+    WhiteBalanceError, WhiteBalanceGains, WhiteBalanceMetadata, neutral_from_metadata,
+    white_balance_gains,
 };
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {

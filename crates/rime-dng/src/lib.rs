@@ -73,6 +73,13 @@ pub struct DngMetadata {
     pub camera_model: String,
     pub color_matrix1: [f64; 9],
     pub calibration_illuminant1: String,
+    pub calibration_illuminant1_code: Option<u16>,
+    pub calibration_illuminant2_code: Option<u16>,
+    pub camera_calibration_signature: Option<String>,
+    pub profile_calibration_signature: Option<String>,
+    pub profile_hue_sat_map_dims: Option<[u32; 3]>,
+    pub profile_hue_sat_map_data1: Option<Vec<f32>>,
+    pub profile_hue_sat_map_data2: Option<Vec<f32>>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub as_shot_white_xy: Option<[f64; 2]>,
     pub color_matrix2: Option<[f64; 9]>,
@@ -200,6 +207,11 @@ impl DngReader {
                 path: path.to_owned(),
                 message: error.to_string(),
             })?;
+        let color_calibration =
+            color_calibration(data).map_err(|error| DngReaderError::Decode {
+                path: path.to_owned(),
+                message: error.to_string(),
+            })?;
         let decode_data = decoder_compatible_data(data, source_white_balance).map_err(|error| {
             DngReaderError::Decode {
                 path: path.to_owned(),
@@ -240,7 +252,8 @@ impl DngReader {
             return Err(DngReaderError::MissingCalibration);
         }
         let raw_digest = digest_u16(raw.samples());
-        let metadata = metadata_from_decoded(&decoded, raw, source_white_balance);
+        let metadata =
+            metadata_from_decoded(&decoded, raw, source_white_balance, color_calibration);
         let storage_bits = u8::try_from(storage_bits)
             .map_err(|_| DngReaderError::UnsupportedBitDepth(storage_bits))?;
         Ok(DecodedRawFrame {
@@ -344,6 +357,7 @@ fn metadata_from_decoded(
     decoded: &gamut_dng::DecodedDng,
     raw: &gamut_dng::RawImage,
     source_white_balance: SourceWhiteBalance,
+    calibration: ColorCalibration,
 ) -> DngMetadata {
     let levels = raw.levels();
     let exif = &decoded.metadata.exif;
@@ -361,6 +375,16 @@ fn metadata_from_decoded(
         camera_model: decoded.profile.unique_camera_model().to_owned(),
         color_matrix1: *decoded.profile.color_matrix1(),
         calibration_illuminant1: format!("{:?}", decoded.profile.calibration_illuminant1()),
+        calibration_illuminant1_code: Some(decoded.profile.calibration_illuminant1().code()),
+        calibration_illuminant2_code: decoded
+            .profile
+            .second_illuminant()
+            .map(|(_, illuminant)| illuminant.code()),
+        camera_calibration_signature: calibration.camera_calibration_signature,
+        profile_calibration_signature: calibration.profile_calibration_signature,
+        profile_hue_sat_map_dims: calibration.profile_hue_sat_map_dims,
+        profile_hue_sat_map_data1: calibration.profile_hue_sat_map_data1,
+        profile_hue_sat_map_data2: calibration.profile_hue_sat_map_data2,
         as_shot_neutral: source_white_balance.as_shot_neutral,
         as_shot_white_xy: source_white_balance.as_shot_white_xy,
         color_matrix2: source_white_balance.color_matrix2,
@@ -446,6 +470,62 @@ fn source_white_balance(data: &[u8]) -> gamut_dng::Result<SourceWhiteBalance> {
             tags::COLOR_MATRIX2,
             "DNG: malformed ColorMatrix2",
         )?,
+    })
+}
+
+#[derive(Clone, Debug)]
+struct ColorCalibration {
+    camera_calibration_signature: Option<String>,
+    profile_calibration_signature: Option<String>,
+    profile_hue_sat_map_dims: Option<[u32; 3]>,
+    profile_hue_sat_map_data1: Option<Vec<f32>>,
+    profile_hue_sat_map_data2: Option<Vec<f32>>,
+}
+
+const CAMERA_CALIBRATION_SIGNATURE_TAG: u16 = 50931;
+const PROFILE_CALIBRATION_SIGNATURE_TAG: u16 = 50932;
+
+fn color_calibration(data: &[u8]) -> gamut_dng::Result<ColorCalibration> {
+    let mut reader = IfdReader::open(data)?;
+    let ifd0 = reader.read_ifd(reader.first_ifd_offset())?;
+    let ascii = |reader: &mut IfdReader<&[u8]>, tag: u16| -> gamut_dng::Result<Option<String>> {
+        match ifd0.entry(tag) {
+            None => Ok(None),
+            Some(entry) => Ok(reader.value(entry)?.as_str().map(ToOwned::to_owned)),
+        }
+    };
+    let dims = match ifd0.entry(tags::PROFILE_HUE_SAT_MAP_DIMS) {
+        None => None,
+        Some(entry) => {
+            let value = reader.value(entry)?;
+            let codes = value.as_u32_vec().ok_or(gamut_dng::Error::InvalidInput(
+                "DNG: malformed ProfileHueSatMapDims",
+            ))?;
+            if codes.len() != 3 {
+                return Err(gamut_dng::Error::InvalidInput(
+                    "DNG: ProfileHueSatMapDims must have three entries",
+                ));
+            }
+            Some([codes[0], codes[1], codes[2]])
+        }
+    };
+    let floats = |reader: &mut IfdReader<&[u8]>, tag: u16| -> gamut_dng::Result<Option<Vec<f32>>> {
+        match ifd0.entry(tag) {
+            None => Ok(None),
+            Some(entry) => match reader.value(entry)? {
+                gamut_ifd::Value::Float(values) => Ok(Some(values)),
+                _ => Err(gamut_dng::Error::InvalidInput(
+                    "DNG: ProfileHueSatMapData must be FLOAT",
+                )),
+            },
+        }
+    };
+    Ok(ColorCalibration {
+        camera_calibration_signature: ascii(&mut reader, CAMERA_CALIBRATION_SIGNATURE_TAG)?,
+        profile_calibration_signature: ascii(&mut reader, PROFILE_CALIBRATION_SIGNATURE_TAG)?,
+        profile_hue_sat_map_dims: dims,
+        profile_hue_sat_map_data1: floats(&mut reader, tags::PROFILE_HUE_SAT_MAP_DATA1)?,
+        profile_hue_sat_map_data2: floats(&mut reader, tags::PROFILE_HUE_SAT_MAP_DATA2)?,
     })
 }
 

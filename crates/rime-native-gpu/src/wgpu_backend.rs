@@ -17,7 +17,6 @@ use std::sync::{Mutex, mpsc};
 use thiserror::Error;
 use wgpu::util::DeviceExt as _;
 
-
 const MAX_READBACK_BYTES: u64 = 128 * 1024 * 1024;
 #[derive(Debug, Error)]
 pub enum WgpuReadbackError {
@@ -229,12 +228,8 @@ impl WgpuReadbackExecutor {
             .first()
             .copied()
             .unwrap_or(4095.0) as f32;
-        let drc_local_statistics = build_drc_local_statistics(
-            frame.samples(),
-            &frame.layout,
-            black_level,
-            white_level,
-        )?;
+        let drc_local_statistics =
+            build_drc_local_statistics(frame.samples(), &frame.layout, black_level, white_level)?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
                 frame_index: identity.frame_index,
@@ -250,6 +245,15 @@ impl WgpuReadbackExecutor {
             as_shot_white_xy: frame.metadata.as_shot_white_xy,
             color_matrix1: frame.metadata.color_matrix1,
             color_matrix2: frame.metadata.color_matrix2,
+            calibration_illuminant1_code: frame.metadata.calibration_illuminant1_code,
+            calibration_illuminant2_code: frame.metadata.calibration_illuminant2_code,
+            camera_calibration1: frame.metadata.camera_calibration1,
+            camera_calibration2: frame.metadata.camera_calibration2,
+            camera_calibration_signature: frame.metadata.camera_calibration_signature.clone(),
+            profile_calibration_signature: frame.metadata.profile_calibration_signature.clone(),
+            profile_hue_sat_map_dims: frame.metadata.profile_hue_sat_map_dims,
+            profile_hue_sat_map_data1: frame.metadata.profile_hue_sat_map_data1.clone(),
+            profile_hue_sat_map_data2: frame.metadata.profile_hue_sat_map_data2.clone(),
             analog_balance: frame.metadata.analog_balance,
             scene_brightness_ev: frame.metadata.exif_brightness_value,
             exposure_deviation_ev: frame.metadata.exif_exposure_bias_value,
@@ -415,8 +419,8 @@ impl WgpuReadbackExecutor {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(resource.id()),
                     contents: resource.bytes(),
-                usage: wgpu::BufferUsages::STORAGE,
-            })
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
         });
         let modulation_resource = packet.resource("modulation_luts").ok_or_else(|| {
             WgpuReadbackError::Resource("DRC modulation LUTs are missing".to_owned())
@@ -508,11 +512,15 @@ impl WgpuReadbackExecutor {
             .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
         Ok(())
     }
-    fn dispatch_guided_base(&self, input: &wgpu::Texture, uniform: &wgpu::Buffer, modulation_luts: &wgpu::Buffer) -> wgpu::Texture {
+    fn dispatch_guided_base(
+        &self,
+        input: &wgpu::Texture,
+        uniform: &wgpu::Buffer,
+        modulation_luts: &wgpu::Buffer,
+    ) -> wgpu::Texture {
         let width = input.width();
         let height = input.height();
-        let coefficients =
-            self.create_drc_texture(wgpu::TextureFormat::Rgba16Float, width, height);
+        let coefficients = self.create_drc_texture(wgpu::TextureFormat::Rgba16Float, width, height);
         self.dispatch_drc_pass(
             &self.drc_pipelines.guided_coefficients,
             uniform,
@@ -774,10 +782,9 @@ impl WgpuReadbackExecutor {
         height: u32,
     ) -> Result<Vec<f32>, WgpuReadbackError> {
         let row_bytes = super::aligned_readback_bytes_per_row(width);
-        let batch_rows = u32::try_from(
-            (MAX_READBACK_BYTES / u64::from(row_bytes)).clamp(1, u64::from(height)),
-        )
-        .unwrap_or(1);
+        let batch_rows =
+            u32::try_from((MAX_READBACK_BYTES / u64::from(row_bytes)).clamp(1, u64::from(height)))
+                .unwrap_or(1);
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rime-native-readback"),
             size: u64::from(row_bytes) * u64::from(batch_rows),
@@ -835,9 +842,7 @@ impl WgpuReadbackExecutor {
             let mapped = slice.get_mapped_range();
             let batch_bytes = row_bytes as usize * rows as usize;
             for row in mapped[..batch_bytes].chunks_exact(row_bytes as usize) {
-                pixels.extend_from_slice(
-                    bytemuck::cast_slice::<u8, f32>(&row[..visible as usize]),
-                );
+                pixels.extend_from_slice(bytemuck::cast_slice::<u8, f32>(&row[..visible as usize]));
             }
             drop(mapped);
             readback.unmap();
@@ -897,15 +902,8 @@ fn build_drc_local_statistics(
     let range = white_level - black_level;
     for y in 0..layout.height {
         for x in 0..layout.width {
-            let normalized = bayer_luma_3x3(
-                samples,
-                layout,
-                x,
-                y,
-                black_level,
-                range,
-            )
-            .clamp(0.0, 1.0);
+            let normalized =
+                bayer_luma_3x3(samples, layout, x, y, black_level, range).clamp(0.0, 1.0);
             let tile_x = (x * TILES_X / layout.width).min(TILES_X - 1);
             let tile_y = (y * TILES_Y / layout.height).min(TILES_Y - 1);
             let bin = ((normalized * (BINS - 1) as f32).floor() as u32).min(BINS - 1);
@@ -916,7 +914,6 @@ fn build_drc_local_statistics(
     DrcLocalStatistics::new(TILES_X, TILES_Y, BINS, histograms)
         .map_err(|error| WgpuReadbackError::Resource(error.to_string()))
 }
-
 
 fn bayer_luma_3x3(
     samples: &[u16],
@@ -941,15 +938,11 @@ fn bayer_luma_3x3(
             }
             let index = (sample_y as u32 * layout.row_stride_samples + sample_x as u32) as usize;
             let normalized = (f32::from(samples[index]) - black_level) / range;
-            sum += normalized
-                * WEIGHTS[(dx + 1) as usize]
-                * WEIGHTS[(dy + 1) as usize];
+            sum += normalized * WEIGHTS[(dx + 1) as usize] * WEIGHTS[(dy + 1) as usize];
         }
     }
     sum / 16.0
 }
-
-
 
 fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {
     value.and_then(|(numerator, denominator)| {

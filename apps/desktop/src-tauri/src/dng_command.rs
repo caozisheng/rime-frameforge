@@ -55,6 +55,19 @@ pub struct DngMetadataDescriptor {
     pub exif_extra: Vec<DngRawTagDescriptor>,
 }
 
+/// Invocation-frozen color reproduce assets solved from DNG metadata by the
+/// `rime-isp` preprocess (single source of truth shared with the native GPU
+/// path) and forwarded to the WebGPU fused preview.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColorReproduceAssets {
+    pub sensor_to_prophoto: [f32; 9],
+    pub prophoto_to_srgb: [f32; 9],
+    pub hsv_dims: [u32; 3],
+    pub hsv_enable: bool,
+    pub hsv_lut: Option<Vec<f32>>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DngFrameDescriptor {
@@ -73,6 +86,7 @@ pub struct DngFrameDescriptor {
     pub metadata_hash: String,
     pub raw_digest: String,
     pub white_balance_gains: [f32; 3],
+    pub color_reproduce: ColorReproduceAssets,
     pub metadata: DngMetadataDescriptor,
 }
 
@@ -221,6 +235,99 @@ fn dng_frame_payload(frame: &rime_dng::DecodedRawFrame, path: &Path) -> Result<V
     Ok(payload)
 }
 
+fn color_reproduce_assets(
+    frame: &rime_dng::DecodedRawFrame,
+) -> Result<ColorReproduceAssets, String> {
+    let metadata = &frame.metadata;
+    let context = rime_isp::PreprocessContext {
+        identity: rime_isp::FrameIdentity {
+            frame_index: frame.frame_index,
+            run_revision: 1,
+            method_revision: 1,
+        },
+        width: frame.layout.width,
+        height: frame.layout.height,
+        black_level: metadata.black_levels.first().copied().unwrap_or(0.0) as f32,
+        white_level: metadata.white_levels.first().copied().unwrap_or(1.0) as f32,
+        cfa_pattern: [0, 1, 1, 2],
+        as_shot_neutral: metadata.as_shot_neutral,
+        as_shot_white_xy: metadata.as_shot_white_xy,
+        color_matrix1: metadata.color_matrix1,
+        color_matrix2: metadata.color_matrix2,
+        calibration_illuminant1_code: metadata.calibration_illuminant1_code,
+        calibration_illuminant2_code: metadata.calibration_illuminant2_code,
+        camera_calibration1: metadata.camera_calibration1,
+        camera_calibration2: metadata.camera_calibration2,
+        camera_calibration_signature: metadata.camera_calibration_signature.clone(),
+        profile_calibration_signature: metadata.profile_calibration_signature.clone(),
+        profile_hue_sat_map_dims: metadata.profile_hue_sat_map_dims,
+        profile_hue_sat_map_data1: metadata.profile_hue_sat_map_data1.clone(),
+        profile_hue_sat_map_data2: metadata.profile_hue_sat_map_data2.clone(),
+        analog_balance: metadata.analog_balance,
+        scene_brightness_ev: metadata.exif_brightness_value,
+        exposure_deviation_ev: metadata.exif_exposure_bias_value,
+        iso: metadata.exif_iso_speed.map(f64::from),
+        analog_gain: None,
+        digital_gain: None,
+        baseline_exposure_ev: metadata.baseline_exposure,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
+        drc_gain_offset_ev: None,
+        drc_knee: None,
+        drc_amplifier: None,
+        wbc_highlight_recovery: false,
+    };
+    let operator = rime_isp::operator_by_id("color_reproduce")
+        .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: operator missing".to_owned())?;
+    let packet = operator
+        .preprocess("00", &context)
+        .map_err(|error| format!("DNG_COLOR_REPRODUCE_INVALID: {error}"))?;
+
+    let matrices = packet
+        .resource("cr_matrices")
+        .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: matrices missing".to_owned())?;
+    let bytes = matrices.bytes();
+    let read = |index: usize| {
+        f32::from_ne_bytes(
+            bytes[index * 4..index * 4 + 4]
+                .try_into()
+                .expect("f32 slice"),
+        )
+    };
+    let mut sensor_to_prophoto = [0.0_f32; 9];
+    let mut prophoto_to_srgb = [0.0_f32; 9];
+    for index in 0..9 {
+        sensor_to_prophoto[index] = read(index);
+        prophoto_to_srgb[index] = read(9 + index);
+    }
+    let uniform = packet.bytes();
+    let dim = |slot: usize| {
+        u32::from_ne_bytes(
+            uniform[slot * 4..slot * 4 + 4]
+                .try_into()
+                .expect("u32 slice"),
+        )
+    };
+    let hsv_enable = dim(3) != 0;
+    let hsv_lut = packet.resource("cr_hsv_lut").map(|lut| {
+        lut.bytes()
+            .chunks_exact(4)
+            .map(|chunk| f32::from_ne_bytes(chunk.try_into().expect("f32 chunk")))
+            .collect::<Vec<f32>>()
+    });
+    Ok(ColorReproduceAssets {
+        sensor_to_prophoto,
+        prophoto_to_srgb,
+        hsv_dims: [dim(0), dim(1), dim(2)],
+        hsv_enable,
+        hsv_lut,
+    })
+}
+
 pub fn descriptor_from_frame(
     frame: &rime_dng::DecodedRawFrame,
     path: &Path,
@@ -253,6 +360,7 @@ pub fn descriptor_from_frame(
         metadata_hash: metadata.metadata_hash.clone(),
         raw_digest: frame.raw_digest.clone(),
         white_balance_gains: [gains.red, gains.green, gains.blue],
+        color_reproduce: color_reproduce_assets(frame)?,
         metadata: metadata_descriptor(metadata),
     })
 }

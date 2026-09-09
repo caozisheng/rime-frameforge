@@ -80,7 +80,7 @@ describe('projectNormalGraph', () => {
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'drc', target: 'dem' }),
       expect.objectContaining({ source: 'dem', target: 'pfr' }),
-      expect.objectContaining({ source: 'pfr', target: 'color_correction' }),
+      expect.objectContaining({ source: 'pfr', target: 'color_reproduce' }),
     ]));
   });
 

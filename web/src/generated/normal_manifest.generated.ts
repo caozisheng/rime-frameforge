@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "eeef95842f6785d3f8861f92f0bc60d810777bcfe088da785750fc3e7d64c9fb",
+  "manifest_hash": "a8f235faccafc9d0e2954feed58cc4def6edbb2e78b45377aa37dfc901a87104",
   "nodes": [
     {
       "id": "raw_source",
@@ -531,9 +531,9 @@ export const normalManifest = {
       ]
     },
     {
-      "id": "color_correction",
-      "display_name": "CCM 8 x 3 x 3",
-      "shader_entry": "color_correction_main",
+      "id": "color_reproduce",
+      "display_name": "Color Reproduce",
+      "shader_entry": "color_reproduce_main",
       "inputs": [
         {
           "id": "in",
@@ -560,9 +560,11 @@ export const normalManifest = {
       "methods": [
         {
           "method": "00",
-          "shader_entry": "color_correction_main",
+          "shader_entry": "color_reproduce_main",
           "parameters": [
-            "ccm"
+            "sensor_to_prophoto",
+            "hsv_lut",
+            "prophoto_to_srgb"
           ]
         }
       ]
@@ -832,7 +834,7 @@ export const normalManifest = {
         "port_id": "out"
       },
       "to": {
-        "node_id": "color_correction",
+        "node_id": "color_reproduce",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -840,7 +842,7 @@ export const normalManifest = {
     {
       "id": "normal_edge_13",
       "from": {
-        "node_id": "color_correction",
+        "node_id": "color_reproduce",
         "port_id": "out"
       },
       "to": {
@@ -915,7 +917,7 @@ export const normalManifest = {
       "presentation": "rgb"
     },
     {
-      "node_id": "color_correction",
+      "node_id": "color_reproduce",
       "port_id": "out",
       "domain": "linear_rgb",
       "format": "rgba32_float",

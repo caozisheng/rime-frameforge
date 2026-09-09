@@ -1,10 +1,10 @@
-use super::{color_correction00_postprocess, color_correction00_preprocess};
+use super::{color_reproduce00_postprocess, color_reproduce00_preprocess};
 use crate::operator::{MethodManifest, OperatorPort, ShaderBindings, method_manifest, shader};
 use rime_core::{ResourceFormat, SignalDomain};
 
 pub const METHOD_00: MethodManifest = method_manifest(
     "00",
-    "color_correction_main",
+    "color_reproduce_main",
     OperatorPort {
         domain: SignalDomain::LinearRgb,
         format: ResourceFormat::Rgba32Float,
@@ -13,18 +13,18 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::LinearRgb,
         format: ResourceFormat::Rgba32Float,
     },
-    "ccm",
+    "sensor_to_prophoto hsv_lut prophoto_to_srgb",
     None,
     shader(
         "00",
-        include_str!("color_correction00.wgsl"),
-        "color_correction_main",
+        include_str!("color_reproduce00.wgsl"),
+        "color_reproduce_main",
         ShaderBindings {
             input: 0,
             output: 1,
-            uniform: None,
+            uniform: Some(2),
         },
     ),
-    color_correction00_preprocess::run,
-    color_correction00_postprocess::run,
+    color_reproduce00_preprocess::run,
+    color_reproduce00_postprocess::run,
 );
