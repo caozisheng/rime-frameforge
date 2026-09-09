@@ -315,8 +315,10 @@ fn color_reproduce_assets(
     let hsv_enable = dim(3) != 0;
     let hsv_lut = packet.resource("cr_hsv_lut").map(|lut| {
         lut.bytes()
-            .chunks_exact(4)
-            .map(|chunk| f32::from_ne_bytes(chunk.try_into().expect("f32 chunk")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|chunk| f32::from_ne_bytes(*chunk))
             .collect::<Vec<f32>>()
     });
     Ok(ColorReproduceAssets {
