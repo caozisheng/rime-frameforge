@@ -237,7 +237,7 @@ fn every_demosaic_method_uses_shared_rgb_saturation_clipping() {
 }
 
 #[test]
-fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hsv_lut() {
+fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hs_lut() {
     let cr = normal_operators()
         .iter()
         .find(|operator| operator.definition().id == "color_reproduce")
@@ -247,7 +247,7 @@ fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hsv_lut() {
     assert_eq!(method.shader_entry, "color_reproduce_main");
     assert_eq!(
         method.parameters,
-        "sensor_to_prophoto hsv_lut prophoto_to_srgb"
+        "sensor_to_prophoto hs_lut prophoto_to_srgb"
     );
     let source = method.shader.source;
     // Two matrix applications (sensor->ProPhoto, ProPhoto->sRGB).
@@ -256,14 +256,19 @@ fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hsv_lut() {
         "sensor->ProPhoto matrix"
     );
     assert!(source.contains("apply_matrix(1u"), "ProPhoto->sRGB matrix");
-    // Nearest-neighbour HSV LUT in DNG grid order, gated by hsv_enable.
+    // Nearest-neighbour HS LUT (ValueDivs == 1) in DNG grid order, gated
+    // by hs_enable.
     assert!(
-        source.contains("cr_hsv_lut.values[3u * entry"),
+        source.contains("cr_hs_lut.values[3u * entry"),
         "nearest-neighbour LUT"
     );
     assert!(
-        source.contains("dims_and_enable.w == 0u"),
-        "HSV disable gate"
+        source.contains("dims_and_enable.z == 0u"),
+        "HS disable gate"
+    );
+    assert!(
+        !source.contains("* hue_divs + h) * sat_divs + s"),
+            "value dimension must not participate in the lookup index"
     );
     // Three independent per-channel clips (MATLAB steps 7, 10, 12); the
     // ratio-preserving saturation clip belongs to the DEM family, not CR.

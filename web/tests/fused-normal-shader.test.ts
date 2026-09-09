@@ -19,7 +19,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).toContain('textureStore(yuv_output');
     expect(shader).toContain('fn sample_color_reproduce(p: vec2<i32>) -> vec4<f32> {');
     expect(shader).toContain('cr_sensor_to_prophoto(row: u32, col: u32)');
-    expect(shader).toContain('cr_hsv_lut: FloatBuffer');
+    expect(shader).toContain('cr_hs_lut: FloatBuffer');
     expect(shader).not.toContain('1.08 * rgb.r');
     const blc = compileBlcShader();
     expect(blc).toContain('textureStore(blc_output');

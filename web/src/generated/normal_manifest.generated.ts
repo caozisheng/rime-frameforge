@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "a8f235faccafc9d0e2954feed58cc4def6edbb2e78b45377aa37dfc901a87104",
+  "manifest_hash": "b4b5f8a8a358e4bfd1195a0d0855d4195d4fb63a8afe94bc8ef087dd3f297687",
   "nodes": [
     {
       "id": "raw_source",
@@ -563,7 +563,7 @@ export const normalManifest = {
           "shader_entry": "color_reproduce_main",
           "parameters": [
             "sensor_to_prophoto",
-            "hsv_lut",
+            "hs_lut",
             "prophoto_to_srgb"
           ]
         }

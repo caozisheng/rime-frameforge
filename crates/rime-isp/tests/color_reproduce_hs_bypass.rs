@@ -1,6 +1,7 @@
-//! HSV calibration bypass semantics: a frame without a usable HSV LUT must
-//! still render through the matrix chain with the lookup disabled, never
-//! fail the whole color reproduce preprocess.
+//! HS calibration bypass semantics: a frame without a usable (complete,
+//! size-consistent, `ValueDivs == 1`) HS LUT must still render through the
+//! matrix chain with the lookup disabled, never fail the whole color
+//! reproduce preprocess.
 
 #![expect(
     clippy::unreadable_literal,
@@ -82,7 +83,7 @@ fn cr_packet(context: &PreprocessContext) -> rime_isp::ModuleParameterPacket {
 }
 
 #[test]
-fn dji_x5s_frame_solves_without_hsv_calibration() {
+fn dji_x5s_frame_solves_without_hs_calibration() {
     // X5S slots are cold-first and the file carries no HSV map tags at all.
     let mut context = base_context();
     context.color_matrix1 = [
@@ -96,58 +97,79 @@ fn dji_x5s_frame_solves_without_hsv_calibration() {
     context.as_shot_neutral = Some([0.629476, 1.0, 0.455567]);
 
     let packet = cr_packet(&context);
-    assert_eq!(read_u32(packet.bytes(), 3), 0, "HSV must be bypassed");
+    assert_eq!(read_u32(packet.bytes(), 2), 0, "HS must be bypassed");
     assert!(
         packet.resource("cr_matrices").is_some(),
         "matrices must still ship"
     );
     assert!(
-        packet.resource("cr_hsv_lut").is_some(),
+        packet.resource("cr_hs_lut").is_some(),
         "placeholder resource must ship"
     );
 }
 
 #[test]
-fn dims_without_any_table_bypasses_hsv_instead_of_failing() {
+fn dims_without_any_table_bypasses_hs_instead_of_failing() {
     let mut context = gh5s_context();
     context.profile_hue_sat_map_dims = Some([90, 30, 1]);
     context.profile_hue_sat_map_data1 = None;
     context.profile_hue_sat_map_data2 = None;
 
     let packet = cr_packet(&context);
-    assert_eq!(read_u32(packet.bytes(), 3), 0, "HSV must be bypassed");
+    assert_eq!(read_u32(packet.bytes(), 2), 0, "HS must be bypassed");
     assert!(
-        packet.resource("cr_hsv_lut").is_some(),
+        packet.resource("cr_hs_lut").is_some(),
         "placeholder resource must ship"
     );
 }
 
 #[test]
-fn dims_with_mismatched_table_sizes_bypass_hsv_instead_of_failing() {
+fn dims_with_mismatched_table_sizes_bypasses_hs_instead_of_failing() {
     let mut context = gh5s_context();
     context.profile_hue_sat_map_dims = Some([90, 30, 1]);
     context.profile_hue_sat_map_data1 = Some(vec![0.0; 8100]);
     context.profile_hue_sat_map_data2 = Some(vec![0.0; 100]);
 
     let packet = cr_packet(&context);
-    assert_eq!(read_u32(packet.bytes(), 3), 0, "HSV must be bypassed");
+    assert_eq!(read_u32(packet.bytes(), 2), 0, "HS must be bypassed");
     assert!(
-        packet.resource("cr_hsv_lut").is_some(),
+        packet.resource("cr_hs_lut").is_some(),
         "placeholder resource must ship"
     );
 }
 
 #[test]
-fn dual_illuminant_with_a_single_table_bypasses_hsv_instead_of_failing() {
+fn dual_illuminant_with_a_single_table_bypasses_hs_instead_of_failing() {
     let mut context = gh5s_context();
     context.profile_hue_sat_map_dims = Some([90, 30, 1]);
     context.profile_hue_sat_map_data1 = Some(vec![1.0; 8100]);
     context.profile_hue_sat_map_data2 = None;
 
     let packet = cr_packet(&context);
-    assert_eq!(read_u32(packet.bytes(), 3), 0, "HSV must be bypassed");
+    assert_eq!(read_u32(packet.bytes(), 2), 0, "HS must be bypassed");
     assert!(
-        packet.resource("cr_hsv_lut").is_some(),
+        packet.resource("cr_hs_lut").is_some(),
+        "placeholder resource must ship"
+    );
+}
+
+#[test]
+fn value_divs_above_one_bypasses_hs_instead_of_slicing_layers() {
+    // DNG permits ValueDivs > 1 but industrial profiles never use it;
+    // approximating with the first value layer is forbidden — bypass.
+    let mut context = gh5s_context();
+    context.profile_hue_sat_map_dims = Some([90, 30, 2]);
+    context.profile_hue_sat_map_data1 = Some(vec![1.0; 3 * 90 * 30 * 2]);
+    context.profile_hue_sat_map_data2 = Some(vec![1.0; 3 * 90 * 30 * 2]);
+
+    let packet = cr_packet(&context);
+    assert_eq!(read_u32(packet.bytes(), 2), 0, "HS must be bypassed");
+    assert!(
+        packet.resource("cr_matrices").is_some(),
+        "matrices must still ship"
+    );
+    assert!(
+        packet.resource("cr_hs_lut").is_some(),
         "placeholder resource must ship"
     );
 }

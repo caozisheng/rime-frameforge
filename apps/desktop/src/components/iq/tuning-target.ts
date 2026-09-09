@@ -26,5 +26,9 @@ export function tuningDescriptor(moduleId: string, method: string, parameter: st
   if (moduleId === 'drc' && (method === '00' || method === '01') && (parameter === 'drc_edge_curve' || parameter === 'drc_luma_curve')) {
     return { parameter, controlKind: 'curve' };
   }
+  // Read-only visualization page for the preprocess-frozen HS LUT asset.
+  if (moduleId === 'color_reproduce' && method === '00' && parameter === 'hs_lut') {
+    return { parameter, controlKind: 'lut_2d' };
+  }
   return null;
 }

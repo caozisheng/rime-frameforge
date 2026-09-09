@@ -107,12 +107,12 @@ fn packet_freezes_matrices_lut_and_uniform() {
         .preprocess("00", &gh5s_context())
         .expect("CR preprocess");
 
-    // Uniform: 16 bytes, dims + hsv enable.
+    // Uniform: 16 bytes, hue/saturation dims + hs enable (z) + reserved (w).
     assert_eq!(packet.bytes().len(), 16);
     assert_eq!(read_u32(packet.bytes(), 0), 2);
     assert_eq!(read_u32(packet.bytes(), 1), 3);
     assert_eq!(read_u32(packet.bytes(), 2), 1);
-    assert_eq!(read_u32(packet.bytes(), 3), 1);
+    assert_eq!(read_u32(packet.bytes(), 3), 0);
 
     // Matrices resource: 18 f32 row-major, sensor->ProPhoto then ProPhoto->sRGB.
     let matrices = packet.resource("cr_matrices").expect("cr_matrices");
@@ -136,8 +136,8 @@ fn packet_freezes_matrices_lut_and_uniform() {
         }
     }
 
-    // HSV LUT resource: per-element illuminant interpolation of the two tables.
-    let lut = packet.resource("cr_hsv_lut").expect("cr_hsv_lut");
+    // HS LUT resource: per-element illuminant interpolation of the two tables.
+    let lut = packet.resource("cr_hs_lut").expect("cr_hs_lut");
     assert_eq!(lut.bytes().len(), 3 * 2 * 3 * 4);
     let weight1 = solution.weight1 as f32;
     let weight2 = solution.weight2 as f32;
@@ -153,17 +153,17 @@ fn packet_freezes_matrices_lut_and_uniform() {
 }
 
 #[test]
-fn missing_hsv_dims_disables_lut_but_keeps_matrices() {
+fn missing_hs_dims_disables_lut_but_keeps_matrices() {
     let mut context = gh5s_context();
     context.profile_hue_sat_map_dims = None;
     context.profile_hue_sat_map_data1 = None;
     context.profile_hue_sat_map_data2 = None;
     let operator = rime_isp::operator_by_id("color_reproduce").expect("CR operator");
     let packet = operator.preprocess("00", &context).expect("CR preprocess");
-    assert_eq!(read_u32(packet.bytes(), 3), 0);
+    assert_eq!(read_u32(packet.bytes(), 2), 0);
     assert!(packet.resource("cr_matrices").is_some());
     assert!(
-        packet.resource("cr_hsv_lut").is_some(),
+        packet.resource("cr_hs_lut").is_some(),
         "placeholder resource must ship"
     );
 }

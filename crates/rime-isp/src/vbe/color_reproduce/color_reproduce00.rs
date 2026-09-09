@@ -13,7 +13,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::LinearRgb,
         format: ResourceFormat::Rgba32Float,
     },
-    "sensor_to_prophoto hsv_lut prophoto_to_srgb",
+    "sensor_to_prophoto hs_lut prophoto_to_srgb",
     None,
     shader(
         "00",

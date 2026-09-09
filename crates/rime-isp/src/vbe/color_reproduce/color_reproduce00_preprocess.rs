@@ -1,6 +1,7 @@
 //! Color reproduce preprocess: solves the sensor->ProPhoto and
-//! ProPhoto->sRGB matrices, interpolates the HSV calibration LUT, and packs
-//! the invocation-frozen parameter packet.
+//! ProPhoto->sRGB matrices, interpolates the HS calibration LUT
+//! (`ValueDivs == 1` profiles only), and packs the invocation-frozen
+//! parameter packet.
 #![expect(
     clippy::cast_possible_truncation,
     reason = "f64 solutions are narrowed to the GPU f32 parameter contract"
@@ -19,16 +20,18 @@ pub(crate) fn run(
     let inputs = collect_inputs(context)
         .map_err(|reason| OperatorError::Preprocess { module_id, reason })?;
     let solution = solve_color_reproduce(&inputs).map_err(map_solver_error(module_id))?;
-
-    // HSV calibration: interpolate the two profile tables with the same
-    // converged illuminant weights that produced the matrices. A frame
-    // without a complete, size-consistent HSV map bypasses the lookup
+    // HS calibration: interpolate the two profile tables with the same
+    // converged illuminant weights that produced the matrices. Industrial
+    // profiles carry ValueDivs == 1, so the lookup grid is H x S (the v
+    // index is always 0; valScale still applies). Frames without a
+    // complete, size-consistent, ValueDivs == 1 map bypass the lookup
     // (identity) instead of failing — matrices still ship.
-    let (dims, hsv_lut) = match context.profile_hue_sat_map_dims {
-        None => ([1u32, 1, 1], None),
-        Some(dims) => {
-            let [hue, saturation, value] = dims;
-            let expected = 3 * hue as usize * saturation as usize * value as usize;
+    let (dims, hs_lut) = match context.profile_hue_sat_map_dims {
+        // ValueDivs == 1 profiles only; None (no map) and ValueDivs > 1
+        // both bypass. ValueDivs > 1 has no product precedent — bypass
+        // rather than silently approximating with the first value layer.
+        Some([hue, saturation, 1]) => {
+            let expected = 3 * hue as usize * saturation as usize;
             let lut = match (
                 context.profile_hue_sat_map_data1.as_ref(),
                 context.profile_hue_sat_map_data2.as_ref(),
@@ -46,20 +49,21 @@ pub(crate) fn run(
                 _ => Vec::new(),
             };
             if lut.is_empty() {
-                ([1u32, 1, 1], None)
+                ([1u32, 1], None)
             } else {
-                (dims, Some(lut))
+                ([hue, saturation], Some(lut))
             }
         }
+        None | Some(_) => ([1u32, 1], None),
     };
 
-    // Uniform (binding 2): hue/sat/value divs plus the enable flag.
+    // Uniform (binding 2): hue/saturation divs plus the enable flag.
     let mut uniform = [0_u8; 16];
     for (slot, value) in dims.into_iter().enumerate() {
         uniform[slot * 4..slot * 4 + 4].copy_from_slice(&value.to_ne_bytes());
     }
-    let enable: u32 = u32::from(hsv_lut.is_some());
-    uniform[12..16].copy_from_slice(&enable.to_ne_bytes());
+    let enable: u32 = u32::from(hs_lut.is_some());
+    uniform[8..12].copy_from_slice(&enable.to_ne_bytes());
     let mut packet = ModuleParameterPacket::new(module_id, method, context.identity, &uniform)?;
 
     // Matrices resource: 18 row-major f32 values.
@@ -80,17 +84,17 @@ pub(crate) fn run(
         encode_f32(&matrices),
     ))?;
 
-    // The shader always declares the cr_hsv_lut storage binding; a bypassed
+    // The shader always declares the cr_hs_lut storage binding; a bypassed
     // lookup ships a placeholder (the enable flag keeps it unread) so the
     // bind group layout matches on every frame.
-    let lut_bytes = hsv_lut
+    let lut_bytes = hs_lut
         .as_ref()
         .map_or_else(|| encode_f32(&[0.0, 1.0, 1.0]), |lut| encode_f32(lut));
-    let lut_extent = hsv_lut
+    let lut_extent = hs_lut
         .as_ref()
         .map_or([1, 1, 1], |lut| [lut.len() as u32 / 3, 1, 1]);
     packet.push_resource(ModuleParameterResource::new(
-        "cr_hsv_lut",
+        "cr_hs_lut",
         lut_extent,
         lut_bytes,
     ))?;

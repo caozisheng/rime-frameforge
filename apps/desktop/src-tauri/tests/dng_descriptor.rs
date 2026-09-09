@@ -69,13 +69,15 @@ fn descriptor_serializes_solved_color_reproduce_assets() {
     let to_srgb = cr["prophotoToSrgb"].as_array().expect("matrix present");
     assert_eq!(to_srgb.len(), 9);
     assert!((to_srgb[0].as_f64().expect("f64") - 2.036_832).abs() < 1e-4);
-    // HSV calibration: dims (90, 30, 1), interpolated table of 8100 floats.
+    // HS calibration: dims (90, 30), interpolated table of 8100 floats
+    // (ValueDivs == 1: H x S grid, v layer constant).
     assert_eq!(
-        cr["hsvDims"]
+        cr["hsDims"]
             .as_array()
-            .map(|dims| (dims[0].as_u64(), dims[1].as_u64(), dims[2].as_u64())),
-        Some((Some(90), Some(30), Some(1)))
+            .map(|dims| (dims[0].as_u64(), dims[1].as_u64())),
+        Some((Some(90), Some(30)))
     );
-    let lut = cr["hsvLut"].as_array().expect("interpolated LUT present");
+    let lut = cr["hsLut"].as_array().expect("interpolated LUT present");
     assert_eq!(lut.len(), 8100);
+    assert_eq!(cr["hsEnable"].as_bool(), Some(true));
 }

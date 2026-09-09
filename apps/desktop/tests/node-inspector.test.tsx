@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NodeInspector } from '../src/components/NodeInspector.js';
+import { applyHsLut, hsLutMaxDeltaCab, HsLutPanel, hsLutGrid, hsvToRgb8, sampleHsLut, srgb8ToCab, wheelPixelColor } from '../src/components/iq/HsLutPanel.js';
 import { TuningProfilePanel, resolveTuningParameterValue } from '../src/components/iq/TuningProfilePanel.js';
 import type { CurvePoint } from '../src/components/iq/curve-model.js';
-import type { RuntimeEnvelope } from '../../web/src/contracts.js';
+import type { ColorReproduceAssets, RuntimeEnvelope } from '../../web/src/contracts.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
 import type { DngFrameDescriptor } from '../src/runtime/worker-bridge.js';
 
@@ -362,5 +363,188 @@ describe('NodeInspector DRC IQ controls', () => {
     expect(offset).toContain('aria-label="Apply tuning"');
     expect(knee).toContain('<span>Range</span><strong>&gt; 0 normalized</strong>');
     expect(amplifier).toContain('<span>Range</span><strong>≥ 0</strong>');
+  });
+});
+
+describe('NodeInspector CR HS LUT IQ page', () => {
+  const hsFrame = {
+    ...inspectorProps.dngFrame,
+    colorReproduce: {
+      sensorToProphoto: new Array<number>(9).fill(0),
+      prophotoToSrgb: new Array<number>(9).fill(0),
+      hsDims: [6, 4] as const,
+      hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, index) => (index % 7) - 3 + (index % 3 === 0 ? 0.5 : 0)),
+    },
+  } as unknown as DngFrameDescriptor;
+
+  it('shows a visualize entry only on the hs_lut parameter row', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="color_reproduce"
+        activeMethod="00"
+        dngFrame={hsFrame}
+      />,
+    );
+    expect(html).toContain('aria-label="Visualize hs_lut"');
+    expect(html).not.toContain('aria-label="Tune hs_lut"');
+    expect(html).not.toContain('aria-label="Visualize sensor_to_prophoto"');
+  });
+
+  it('disables the entry before a DNG frame is loaded', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector {...inspectorProps} nodeId="color_reproduce" activeMethod="00" />,
+    );
+    expect(html).toContain('aria-label="Visualize hs_lut"');
+    expect(html).toMatch(/aria-label="Visualize hs_lut"[^>]*disabled/);
+    expect(html).toContain('load a DNG frame first');
+  });
+
+  it('renders a single LUT-evaluated wheel canvas without component toggles', () => {
+    const html = renderToStaticMarkup(<HsLutPanel assets={hsFrame.colorReproduce} />);
+    expect(html).toContain('IQ LUT · read-only');
+    expect(html).toContain('data-iq-parameter="hs_lut"');
+    // Exactly one wheel canvas carrying the grid dims.
+    expect(html.match(/<canvas/g)).toHaveLength(1);
+    expect(html).toContain('data-hue-divs="6"');
+    expect(html).toContain('data-sat-divs="4"');
+    expect(html).toContain('<span>grid</span><strong>H 6 × S 4 · ValueDivs 1</strong>');
+    // No per-component views: the page shows the LUT's colour effect only.
+    expect(html).not.toContain('iq-hslut-component');
+    expect(html).not.toContain('aria-label="hs_lut component"');
+    // Source toggle: sampled (default) / corrected / delta, one pressed.
+    expect(html).toContain('aria-label="hs_lut wheel source"');
+    const pressed = html.match(/aria-pressed="true"[^>]*class="iq-hslut-source is-active"/g) ?? [];
+    expect(html.match(/class="iq-hslut-source( is-active)?"/g)).toHaveLength(3);
+    expect(pressed.length === 1 && pressed[0].length > 0).toBe(true);
+    expect(html).toContain('>original</button>');
+    expect(html).toContain('>corrected</button>');
+    expect(html).toContain('>delta</button>');
+    expect(html).toContain('data-testid="hs-lut-max-delta"');
+  });
+
+  it('toggles the wheel pixel source between original and corrected', () => {
+    const rotated: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 120 : 1)),
+    };
+    const grid = hsLutGrid(rotated)!;
+    const hs = { hue: 0, sat: 1 };
+    // original: raw input colour, no lookup -> red.
+    expect(wheelPixelColor(grid, hs, 'original')).toEqual({ r: 255, g: 0, b: 0 });
+    // corrected: LUT pushes it 120deg -> green.
+    expect(wheelPixelColor(grid, hs, 'corrected')).toEqual({ r: 0, g: 255, b: 0 });
+    // Identity LUT: the two sources agree pixel-for-pixel.
+    const identity: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 0 : 1)),
+    };
+    const identityGrid = hsLutGrid(identity)!;
+    for (const hue of [0, 43, 137, 269, 355]) {
+      for (const sat of [0.04, 0.5, 1]) {
+        expect(wheelPixelColor(identityGrid, { hue, sat }, 'original')).toEqual(wheelPixelColor(identityGrid, { hue, sat }, 'corrected'));
+      }
+    }
+  });
+
+  it('delta view maps dCab onto a grayscale wheel: darker = more modified', () => {
+    // Only hue bin 2 carries a modification: hueShift 90deg moves red
+    // toward green; its chroma drop is the wheel's peak dCab.
+    const lut: number[] = [];
+    for (let h = 0; h < 6; h++) {
+      for (let s = 0; s < 4; s++) {
+        lut.push(h === 2 ? 90 : 0, 1, 1);
+      }
+    }
+    const grid = hsLutGrid({ sensorToProphoto: [], prophotoToSrgb: [], hsDims: [6, 4], hsEnable: true, hsLut: lut })!;
+    // sRGB anchors for the chroma pipeline: white carries no chroma
+    // (within 8-bit quantization roundoff), pure red's C_ab is ~104.5
+    // (classic CIELAB value).
+    expect(srgb8ToCab(255, 255, 255)).toBeCloseTo(0, 1);
+    expect(srgb8ToCab(255, 0, 0)).toBeCloseTo(104.55, 1);
+    // Peak bin renders darkest (pure black), untouched bins pure white —
+    // monochrome grayscale, r == g == b.
+    expect(hsLutMaxDeltaCab(grid)).toBeGreaterThan(0);
+    const peakHue = ((2 + 0.5) / 6) * 360;
+    const peak = wheelPixelColor(grid, { hue: peakHue, sat: 0.875 }, 'delta');
+    expect(peak.r).toBe(peak.g);
+    expect(peak.g).toBe(peak.b);
+    expect(peak.r).toBe(0);
+    const untouched = wheelPixelColor(grid, { hue: 0, sat: 1 }, 'delta');
+    expect(untouched).toEqual({ r: 255, g: 255, b: 255 });
+    // A mid-strength bin lands strictly between white and black.
+    const mid = wheelPixelColor(grid, { hue: peakHue, sat: 0.375 }, 'delta');
+    expect(mid.r).toBeGreaterThan(0);
+    expect(mid.r).toBeLessThan(255);
+    // Identity LUT: dCab is identically 0 (incl. the divide-by-zero guard),
+    // the whole wheel renders pure white.
+    const identity: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 0 : 1)),
+    };
+    const identityGrid = hsLutGrid(identity)!;
+    expect(hsLutMaxDeltaCab(identityGrid)).toBe(0);
+    for (const hue of [0, 87, 233, 355]) {
+      for (const sat of [0.2, 0.75, 1]) {
+        expect(wheelPixelColor(identityGrid, { hue, sat }, 'delta')).toEqual({ r: 255, g: 255, b: 255 });
+      }
+    }
+  });
+
+  it('evaluates the LUT per pixel: identity table maps (h=0, s=1) to pure red', () => {
+    const identity: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 0 : 1)),
+    };
+    const grid = hsLutGrid(identity)!;
+    const sample = sampleHsLut(grid, 0, 1);
+    expect(sample).toMatchObject({ hueBin: 0, satBin: 3, hueShift: 0, satScale: 1, valScale: 1 });
+    const corrected = applyHsLut(0, 1, 1, sample);
+    expect(corrected).toEqual({ hue: 0, sat: 1, val: 1 });
+    expect(hsvToRgb8(corrected.hue, corrected.sat, corrected.val)).toEqual({ r: 255, g: 0, b: 0 });
+    expect(wheelPixelColor(grid, { hue: 0, sat: 1 })).toEqual({ r: 255, g: 0, b: 0 });
+  });
+
+  it('evaluates the LUT per pixel: a 120deg hue rotation turns red into green', () => {
+    const rotated: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 120 : 1)),
+    };
+    const grid = hsLutGrid(rotated)!;
+    // h=0 (red) shifts by 120deg -> h=120 (green), full saturation.
+    expect(wheelPixelColor(grid, { hue: 0, sat: 1 })).toEqual({ r: 0, g: 255, b: 0 });
+  });
+
+  it('evaluates the LUT per pixel: satScale 0 collapses every hue to white', () => {
+    const desat: ColorReproduceAssets = {
+      sensorToProphoto: [], prophotoToSrgb: [],
+      hsDims: [6, 4], hsEnable: true,
+      hsLut: Array.from({ length: 3 * 6 * 4 }, (_, i) => (i % 3 === 0 ? 0 : i % 3 === 1 ? 0 : 1)),
+    };
+    const grid = hsLutGrid(desat)!;
+    for (const hue of [0, 60, 210, 359.9]) {
+      expect(wheelPixelColor(grid, { hue, sat: 1 })).toEqual({ r: 255, g: 255, b: 255 });
+    }
+  });
+
+  it('clamps the nearest-neighbour lookup to the (D-1) bin at the wheel rim', () => {
+    const grid = hsLutGrid(hsFrame.colorReproduce as ColorReproduceAssets)!;
+    expect(sampleHsLut(grid, 359.999, 1)).toMatchObject({ hueBin: 5, satBin: 3 });
+    expect(sampleHsLut(grid, 360, 1)).toMatchObject({ hueBin: 0, satBin: 3 });
+  });
+
+  it('shows the bypass empty state when the frame has no usable HS map', () => {
+    const html = renderToStaticMarkup(
+      <HsLutPanel assets={{ hsDims: [1, 1], hsEnable: false } as ColorReproduceAssets} />,
+    );
+    expect(html).toContain('HS calibration unavailable');
+    expect(html).toContain('disabled (no profile map)');
+    expect(html).not.toContain('<canvas');
   });
 });

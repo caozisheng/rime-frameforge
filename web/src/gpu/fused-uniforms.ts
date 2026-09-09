@@ -75,11 +75,10 @@ export function packFusedUniforms(
   // 496..544, so 532..543 belongs to its third row and must not be touched.
   writeMatrix(544, cr?.sensorToProphoto);
   writeMatrix(592, cr?.prophotoToSrgb);
-  const dims = cr?.hsvDims ?? [1, 1, 1];
+  const dims = cr?.hsDims ?? [1, 1];
   view.setUint32(640, dims[0], true);
   view.setUint32(644, dims[1], true);
-  view.setUint32(648, dims[2], true);
-  view.setUint32(652, cr !== null && cr.hsvEnable ? 1 : 0, true);
+  view.setUint32(648, cr !== null && cr.hsEnable ? 1 : 0, true);
   view.setFloat32(480, gammaParameters.gamma, true);
   gammaParameters.lut.forEach((value, index) => view.setFloat32(496 + index * 4, value, true));
   return bytes;

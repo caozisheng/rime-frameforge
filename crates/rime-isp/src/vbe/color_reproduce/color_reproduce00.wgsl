@@ -1,5 +1,5 @@
 struct CrParams {
-  dims_and_enable: vec4<u32>,
+  dims_and_enable: vec4<u32>,   // x=hue_divs, y=saturation_divs, z=hs_enable, w=reserved
 }
 
 struct FloatBuffer { values: array<f32> }
@@ -8,7 +8,7 @@ struct FloatBuffer { values: array<f32> }
 @group(0) @binding(1) var output_tex: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: CrParams;
 @group(0) @binding(3) var<storage, read> cr_matrices: FloatBuffer;
-@group(0) @binding(4) var<storage, read> cr_hsv_lut: FloatBuffer;
+@group(0) @binding(4) var<storage, read> cr_hs_lut: FloatBuffer;
 
 fn mat_entry(matrix: u32, row: u32, col: u32) -> f32 {
   return cr_matrices.values[matrix * 9u + row * 3u + col];
@@ -60,20 +60,19 @@ fn hsv_to_rgb(hsv: vec3<f32>) -> vec3<f32> {
   return clamp(sector + vec3<f32>(v - c), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// MatHsvLookup: nearest-neighbour lookup in DNG grid order
-// (v outer, hue middle, saturation inner; per-entry three floats).
-fn hsv_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
-  if (params.dims_and_enable.w == 0u) { return hsv; }
+// MatHsvLookup with ValueDivs == 1: nearest-neighbour lookup in DNG grid
+// order (hue outer, saturation inner; per-entry three floats). The v index
+// is always 0; valScale still applies to V.
+fn hs_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
+  if (params.dims_and_enable.z == 0u) { return hsv; }
   let hue_divs = params.dims_and_enable.x;
   let sat_divs = params.dims_and_enable.y;
-  let val_divs = params.dims_and_enable.z;
   let h = min(u32(floor((hsv.x % 360.0) / 360.0 * f32(hue_divs))), hue_divs - 1u);
   let s = min(u32(floor(clamp(hsv.y, 0.0, 1.0) * f32(sat_divs))), sat_divs - 1u);
-  let v = min(u32(floor(clamp(hsv.z, 0.0, 1.0) * f32(val_divs))), val_divs - 1u);
-  let entry = (v * hue_divs + h) * sat_divs + s;
-  let hue_shift = cr_hsv_lut.values[3u * entry + 0u];
-  let sat_scale = cr_hsv_lut.values[3u * entry + 1u];
-  let val_scale = cr_hsv_lut.values[3u * entry + 2u];
+  let entry = h * sat_divs + s;
+  let hue_shift = cr_hs_lut.values[3u * entry + 0u];
+  let sat_scale = cr_hs_lut.values[3u * entry + 1u];
+  let val_scale = cr_hs_lut.values[3u * entry + 2u];
   return vec3<f32>(
     (hsv.x + hue_shift) % 360.0,
     clamp(hsv.y * sat_scale, 0.0, 1.0),
@@ -94,7 +93,7 @@ fn color_reproduce_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   // Steps 3-6: HSV calibration round trip (MATLAB steps 8-10).
   var hsv = rgb_to_hsv(rgb);
-  hsv = hsv_lut_apply(hsv);
+  hsv = hs_lut_apply(hsv);
   rgb = hsv_to_rgb(hsv);
   rgb = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
 

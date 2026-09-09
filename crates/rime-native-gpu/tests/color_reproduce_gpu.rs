@@ -82,7 +82,8 @@ fn gh5s_solver_and_packet_agree_on_converged_weights() {
         solution.weight1
     );
 
-    // The packet's HSV LUT must equal the same weighted interpolation.
+    // The packet's HS LUT must equal the same weighted interpolation
+    // (GH5S dims are (90, 30, 1): H x S grid, v layer constant).
     let operator = rime_isp::operator_by_id("color_reproduce").expect("CR");
     let mut context = gpu_suite_context();
     context.color_matrix1 = metadata.color_matrix1;
@@ -95,13 +96,11 @@ fn gh5s_solver_and_packet_agree_on_converged_weights() {
     context.profile_hue_sat_map_data2 = metadata.profile_hue_sat_map_data2.clone();
     let packet = operator.preprocess("00", &context).expect("CR packet");
 
-    let lut = packet.resource("cr_hsv_lut").expect("interpolated LUT");
+    let lut = packet.resource("cr_hs_lut").expect("interpolated LUT");
     let bytes = lut.bytes();
     let dims = metadata.profile_hue_sat_map_dims.expect("dims");
-    assert_eq!(
-        bytes.len(),
-        3 * dims[0] as usize * dims[1] as usize * dims[2] as usize * 4
-    );
+    assert_eq!(dims[2], 1, "fixture must carry ValueDivs == 1");
+    assert_eq!(bytes.len(), 3 * dims[0] as usize * dims[1] as usize * 4);
     let read = |index: usize| {
         f32::from_ne_bytes(bytes[index * 4..index * 4 + 4].try_into().expect("slice"))
     };

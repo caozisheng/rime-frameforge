@@ -40,7 +40,7 @@ describe('fused uniform ABI', () => {
     const sensorToProphoto = new Array<number>(9).fill(0).map((_, index) => 0.1 + index * 0.01);
     const prophotoToSrgb = new Array<number>(9).fill(0).map((_, index) => 1.0 + index * 0.01);
     const bytes = packFusedUniforms(
-      { ...descriptor, colorReproduce: { sensorToProphoto, prophotoToSrgb, hsvDims: [90, 30, 1], hsvEnable: true } },
+      { ...descriptor, colorReproduce: { sensorToProphoto, prophotoToSrgb, hsDims: [90, 30], hsEnable: true } },
       7,
       { vng_threshold: 1.5, ahd_l_threshold: 2, ahd_c_threshold_sq: 4 },
       normalGraphQuantization,
@@ -53,15 +53,15 @@ describe('fused uniform ABI', () => {
         expect(view.getFloat32(592 + row * 16 + col * 4, true)).toBeCloseTo(prophotoToSrgb[row * 3 + col]!, 6);
       }
     }
-    expect([view.getUint32(640, true), view.getUint32(644, true), view.getUint32(648, true)]).toEqual([90, 30, 1]);
-    expect(view.getUint32(652, true)).toBe(1);
+    // HS layout: x=hue_divs, y=sat_divs, z=hs_enable, w=reserved.
+    expect([view.getUint32(640, true), view.getUint32(644, true), view.getUint32(648, true), view.getUint32(652, true)]).toEqual([90, 30, 1, 0]);
   });
 
   it('defaults color reproduce to identity matrices when absent', () => {
     const bytes = packFusedUniforms(descriptor, 7, { vng_threshold: 1.5, ahd_l_threshold: 2, ahd_c_threshold_sq: 4 }, normalGraphQuantization);
     const view = new DataView(bytes);
     expect(view.getFloat32(544, true)).toBe(1);
-    expect(view.getUint32(652, true)).toBe(0);
+    expect(view.getUint32(648, true)).toBe(0);
 
   });
 });

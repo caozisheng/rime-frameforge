@@ -26,7 +26,7 @@ const FUSED_PARAMS = `struct FusedParams {
   gamma_lut: array<vec4<f32>, 3>,
   cr_sensor_to_prophoto: array<vec4<f32>, 3>,
   cr_prophoto_to_srgb: array<vec4<f32>, 3>,
-  cr_hsv_dims_and_enable: vec4<u32>,
+  cr_hs_dims_and_enable: vec4<u32>,
 }`;
 const QUANT_HELPERS = `fn quantization_enabled(index: u32) -> bool {
   if (index < 4u) { return params.quant_enabled_0[index] != 0u; }
@@ -103,18 +103,16 @@ fn cr_hsv_to_rgb(hsv: vec3<f32>) -> vec3<f32> {
   else { sector = vec3<f32>(c, 0.0, x); }
   return clamp(sector + vec3<f32>(v - c), vec3<f32>(0.0), vec3<f32>(1.0));
 }
-fn cr_hsv_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
-  if (params.cr_hsv_dims_and_enable.w == 0u) { return hsv; }
-  let hue_divs = max(params.cr_hsv_dims_and_enable.x, 1u);
-  let sat_divs = max(params.cr_hsv_dims_and_enable.y, 1u);
-  let val_divs = max(params.cr_hsv_dims_and_enable.z, 1u);
+fn cr_hs_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
+  if (params.cr_hs_dims_and_enable.z == 0u) { return hsv; }
+  let hue_divs = max(params.cr_hs_dims_and_enable.x, 1u);
+  let sat_divs = max(params.cr_hs_dims_and_enable.y, 1u);
   let h = min(u32(floor((hsv.x % 360.0) / 360.0 * f32(hue_divs))), hue_divs - 1u);
   let s = min(u32(floor(clamp(hsv.y, 0.0, 1.0) * f32(sat_divs))), sat_divs - 1u);
-  let v = min(u32(floor(clamp(hsv.z, 0.0, 1.0) * f32(val_divs))), val_divs - 1u);
-  let entry = (v * hue_divs + h) * sat_divs + s;
-  let hue_shift = cr_hsv_lut.values[3u * entry + 0u];
-  let sat_scale = cr_hsv_lut.values[3u * entry + 1u];
-  let val_scale = cr_hsv_lut.values[3u * entry + 2u];
+  let entry = h * sat_divs + s;
+  let hue_shift = cr_hs_lut.values[3u * entry + 0u];
+  let sat_scale = cr_hs_lut.values[3u * entry + 1u];
+  let val_scale = cr_hs_lut.values[3u * entry + 2u];
   return vec3<f32>((hsv.x + hue_shift) % 360.0, clamp(hsv.y * sat_scale, 0.0, 1.0), clamp(hsv.z * val_scale, 0.0, 1.0));
 }
 `;
@@ -185,7 +183,7 @@ ${FUSED_PARAMS}
 @group(0) @binding(5) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(6) var<uniform> params: FusedParams;
 struct FloatBuffer { values: array<f32> }
-@group(0) @binding(7) var<storage, read> cr_hsv_lut: FloatBuffer;
+@group(0) @binding(7) var<storage, read> cr_hs_lut: FloatBuffer;
 ${QUANT_HELPERS}
 ${CR_HELPERS}
 ${GAMMA_HELPERS}
@@ -246,7 +244,7 @@ fn sample_color_reproduce(p: vec2<i32>) -> vec4<f32> {
   // Matrices and LUT come from the Rust preprocess via descriptor assets.
   var rgb = clamp(cr_apply_sensor_to_prophoto(sample_dem_quantized(p).rgb), vec3<f32>(0.0), vec3<f32>(1.0));
   var hsv = cr_rgb_to_hsv(rgb);
-  hsv = cr_hsv_lut_apply(hsv);
+  hsv = cr_hs_lut_apply(hsv);
   rgb = clamp(cr_hsv_to_rgb(hsv), vec3<f32>(0.0), vec3<f32>(1.0));
   let srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
   return quantize_rgba(vec4<f32>(srgb, 1.0), 3u, p);
@@ -304,7 +302,7 @@ ${FUSED_PARAMS}
 @group(0) @binding(3) var yuv_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(4) var<uniform> params: FusedParams;
 struct FloatBuffer { values: array<f32> }
-@group(0) @binding(5) var<storage, read> cr_hsv_lut: FloatBuffer;
+@group(0) @binding(5) var<storage, read> cr_hs_lut: FloatBuffer;
 ${QUANT_HELPERS}
 ${CR_HELPERS}
 ${GAMMA_HELPERS}
@@ -312,7 +310,7 @@ fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_i
 fn sample_post_color(p: vec2<i32>) -> vec4<f32> {
   var rgb = clamp(cr_apply_sensor_to_prophoto(sample_dem_materialized(p).rgb), vec3<f32>(0.0), vec3<f32>(1.0));
   var hsv = cr_rgb_to_hsv(rgb);
-  hsv = cr_hsv_lut_apply(hsv);
+  hsv = cr_hs_lut_apply(hsv);
   rgb = clamp(cr_hsv_to_rgb(hsv), vec3<f32>(0.0), vec3<f32>(1.0));
   let srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
   return quantize_rgba(vec4<f32>(srgb, 1.0), 3u, p);

@@ -63,9 +63,9 @@ pub struct DngMetadataDescriptor {
 pub struct ColorReproduceAssets {
     pub sensor_to_prophoto: [f32; 9],
     pub prophoto_to_srgb: [f32; 9],
-    pub hsv_dims: [u32; 3],
-    pub hsv_enable: bool,
-    pub hsv_lut: Option<Vec<f32>>,
+    pub hs_dims: [u32; 2],
+    pub hs_enable: bool,
+    pub hs_lut: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -312,8 +312,8 @@ fn color_reproduce_assets(
                 .expect("u32 slice"),
         )
     };
-    let hsv_enable = dim(3) != 0;
-    let hsv_lut = packet.resource("cr_hsv_lut").map(|lut| {
+    let hs_enable = dim(2) != 0;
+    let hs_lut = packet.resource("cr_hs_lut").map(|lut| {
         lut.bytes()
             .as_chunks::<4>()
             .0
@@ -324,9 +324,9 @@ fn color_reproduce_assets(
     Ok(ColorReproduceAssets {
         sensor_to_prophoto,
         prophoto_to_srgb,
-        hsv_dims: [dim(0), dim(1), dim(2)],
-        hsv_enable,
-        hsv_lut,
+        hs_dims: [dim(0), dim(1)],
+        hs_enable,
+        hs_lut,
     })
 }
 

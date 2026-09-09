@@ -27,9 +27,9 @@ export type BayerCfa = 'rggb' | 'grbg' | 'gbrg' | 'bggr';
 export interface ColorReproduceAssets {
   readonly sensorToProphoto: readonly number[];
   readonly prophotoToSrgb: readonly number[];
-  readonly hsvDims: readonly [number, number, number];
-  readonly hsvEnable: boolean;
-  readonly hsvLut?: readonly number[] | null;
+  readonly hsDims: readonly [number, number];
+  readonly hsEnable: boolean;
+  readonly hsLut?: readonly number[] | null;
 }
 
 export interface RawFrameDescriptor {
