@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, usePanelRef, type Layout } from 'react-resizable-panels';
 import { retainPreviewsForRuntimeSnapshot } from '../../../web/src/preview-state.js';
-import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry, DrcIqParameters } from '../../../web/src/contracts.js';
+import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry, DrcIqParameters, PreprocessSnapshot } from '../../../web/src/contracts.js';
 import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js';
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
@@ -85,7 +85,7 @@ export function App() {
     red_gain: 2.0,
     green_gain: 1.0,
     blue_gain: 1.5,
-    enable_highlight_recovery: 0,
+    enable_highlight_recovery: 1,
     enable_details_amplify: 1,
     vng_threshold: 1.5,
     ahd_l_threshold: 2.0,
@@ -97,7 +97,7 @@ export function App() {
     amplifier: DEFAULT_DRC_IQ_PARAMETERS.amplifier,
   });
   const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
-    enable_highlight_recovery: 0,
+    enable_highlight_recovery: 1,
     enable_details_amplify: 1,
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
@@ -120,6 +120,7 @@ export function App() {
   const [logsCollapsed, setLogsCollapsed] = useState(false);
   const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
   const [loadedDng, setLoadedDng] = useState<DngFrameDescriptor | null>(null);
+  const [preprocessSnapshot, setPreprocessSnapshot] = useState<PreprocessSnapshot | null>(null);
   const [dngSequence, setDngSequence] = useState<DngSequenceDescriptor | null>(null);
   const [tuningCurves, setTuningCurves] = useState<TuningCurveDraft>(FACTORY_TUNING_CURVES);
   const [appliedGammaCurve, setAppliedGammaCurve] = useState(FACTORY_TUNING_CURVES.gammaCurve);
@@ -274,6 +275,9 @@ export function App() {
           sequencePlayingRef.current = false;
           setSequencePlaying(false);
         }
+      }
+      if (event.type === 'preprocess_snapshot') {
+        setPreprocessSnapshot(event.snapshot);
       }
       if (event.type === 'preview_sample' && event.requestId === sampleRequestRef.current) {
         setPreviewSample({ nodeId: event.nodeId, x: event.x, y: event.y, values: event.values });
@@ -494,6 +498,7 @@ export function App() {
 
   const stepGraph = (): void => {
     if (bridgeRef.current === null || dngPathsRef.current.length === 0) return;
+    flushParameterDrafts();
     sequencePlayingRef.current = false;
     setSequencePlaying(false);
     setCommandPending(true);
@@ -588,7 +593,7 @@ export function App() {
             defaultLayout={rightLayout}
             onLayoutChanged={(layout) => writePaneLayout(window.localStorage, RIGHT_LAYOUT_KEY, layout)}
           >
-            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} tuningCurves={tuningCurves} onTuningCurvesChange={setTuningCurves} quantization={quantization} bypassConfig={bypassConfig} onBypassConfigChange={changeBypassConfig} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onLutApply={applyLutAndRerun} onParameterReset={resetParameterToFactory} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} /></div></Panel>
+            <Panel id="inspector" minSize="28%"><div className="pane-content"><NodeInspector nodeId={selectedNode} envelope={sequencePlaying ? { ...envelope, lifecycleState: 'running', frameIndex: dngFrameIndex } : { ...envelope, lifecycleState: dngPaths.length > 1 && dngFrameIndex + 1 < dngPaths.length && envelope.lifecycleState === 'completed' ? 'paused' : envelope.lifecycleState, frameIndex: loadedDng?.frameIndex ?? envelope.frameIndex }} dngFrame={loadedDng} preprocessSnapshot={preprocessSnapshot} dngSequence={dngSequence} frameCount={dngPaths.length} activeMethod={activeMethods[selectedNode ?? ''] ?? '00'} parameterValues={{ ...parameterValues, cfa_pattern: loadedDng?.cfa ?? String(parameterValues.cfa_pattern ?? 'rggb') }} appliedParameterValues={appliedParameterValues} tuningCurves={tuningCurves} onTuningCurvesChange={setTuningCurves} quantization={quantization} bypassConfig={bypassConfig} onBypassConfigChange={changeBypassConfig} onMethodChange={changeMethod} onParameterChange={changeParameter} onParameterApply={applyParameterAndRerun} onLutApply={applyLutAndRerun} onParameterReset={resetParameterToFactory} onGraphQuantizationChange={changeGraphQuantization} onModuleQuantizationChange={changeModuleQuantization} /></div></Panel>
             <Separator className="pane-separator pane-separator-horizontal" id="inspector-preview-separator" />
             <Panel id="preview" minSize="28%"><div className="pane-content"><PreviewSurface canvasRef={canvasRef} previews={previews} nativePreview={nativePreview === null ? null : { dataUrl: nativePreview.previewDataUrl, width: nativePreview.previewWidth, height: nativePreview.previewHeight, outputWidth: nativePreview.width, outputHeight: nativePreview.height, nodeId: nativePreview.nodeId, portId: nativePreview.portId, frameIndex: nativePreview.frameIndex }} fileName={nativePreview === null ? loadedDng?.fileName ?? null : dngSequence?.fileNames[nativePreview.frameIndex] ?? loadedDng?.fileName ?? null} frameCount={dngPaths.length} sample={previewSample} mode={previewMode} selectedNode={selectedNode} nodeOptions={PREVIEW_NODE_OPTIONS} previewCapabilities={PREVIEW_CAPABILITIES} compareA={compareA} compareB={compareB} focused={previewFocused} onModeChange={setPreviewMode} onCompareAChange={setCompareA} onCompareBChange={setCompareB} onFocusedChange={setPreviewFocused} onPresentationChange={changePreviewPresentation} onSampleRequest={requestPreviewSample} /></div></Panel>
           </Group>

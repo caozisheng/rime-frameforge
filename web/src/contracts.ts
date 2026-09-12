@@ -71,8 +71,18 @@ export interface FramePacketBytes {
   readonly drcModulationLuts: Uint8Array<ArrayBuffer>;
   readonly fusedUniform: Uint8Array<ArrayBuffer>;
   readonly colorReproduceHsLut: Uint8Array<ArrayBuffer>;
+  readonly preprocessSnapshotJson: string;
 }
 export type FramePacketProvider = (identity: Readonly<{ frameIndex: number }>) => FramePacketBytes;
+export type PreprocessParameterValue = number | boolean | string | readonly number[] | null;
+export interface PreprocessModuleSnapshot {
+  readonly method: string;
+  readonly parameters: Readonly<Record<string, PreprocessParameterValue>>;
+}
+export interface PreprocessSnapshot {
+  readonly frameIndex: number;
+  readonly modules: Readonly<Record<string, PreprocessModuleSnapshot>>;
+}
 
 export interface TransferAuditSnapshot {
   readonly hostReadBytes: number;
@@ -140,4 +150,5 @@ export type RuntimeEvent =
   | { readonly type: 'preview'; readonly envelope: RuntimeEnvelope; readonly previews: readonly PreviewDescriptor[] }
   | { readonly type: 'preview_sample'; readonly envelope: RuntimeEnvelope; readonly nodeId: string; readonly x: number; readonly y: number; readonly values: readonly number[]; readonly requestId: number }
   | { readonly type: 'timings'; readonly envelope: RuntimeEnvelope; readonly timings: readonly NodeTiming[] }
+  | { readonly type: 'preprocess_snapshot'; readonly envelope: RuntimeEnvelope; readonly snapshot: PreprocessSnapshot }
   | { readonly type: 'log'; readonly envelope: RuntimeEnvelope; readonly entry: RuntimeLogEntry };

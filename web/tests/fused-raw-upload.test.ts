@@ -25,6 +25,7 @@ const packetProvider: FramePacketProvider = () => ({
   drcModulationLuts: new Uint8Array(512),
   fusedUniform: new Uint8Array(1024),
   colorReproduceHsLut: new Uint8Array(),
+  preprocessSnapshotJson: '',
 });
 
 function fusedGpu() {

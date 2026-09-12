@@ -5,7 +5,7 @@ import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
 import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters } from '../../../web/src/gpu/drc.js';
 import { DEFAULT_GAMMA_PARAMETERS } from '../../../web/src/gpu/gamma.js';
-import type { DrcIqParameters, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
+import type { DrcIqParameters, PreprocessSnapshot, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
 import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
 import { canLoadNextDngFrame, frameLoadInvalidatesRuntime } from './runtime/dng-sequence.js';
@@ -21,7 +21,7 @@ let deviceWasLost = false;
 const selectedMethods: Record<string, string> = { dem: '00' };
 let bypassConfig: GraphBypassConfig = defaultGraphBypassConfig();
 const parameterValues: Record<string, number> = {
-  enable_highlight_recovery: 0,
+  enable_highlight_recovery: 1,
   enable_details_amplify: 1,
   vng_threshold: 1.5,
   ahd_l_threshold: 2.0,
@@ -212,7 +212,7 @@ function createExecutor(generation: number): void {
     if (authority === null || rawAsset === null || descriptor === null) {
       throw new Error('INVALID_STATE_TRANSITION: frame packet inputs are unavailable');
     }
-    return authority.deriveFramePackets(
+    const packets = authority.deriveFramePackets(
       descriptor,
       rawAsset,
       rawByteOffset,
@@ -223,6 +223,12 @@ function createExecutor(generation: number): void {
       drcIqParameters,
       bypassConfig.modules,
     );
+    self.postMessage({
+      type: 'preprocess_snapshot',
+      envelope,
+      snapshot: parsePreprocessSnapshot(packets.preprocessSnapshotJson),
+    } satisfies RuntimeEvent);
+    return packets;
   });
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   if ('setBypassConfig' in executor) {
@@ -260,6 +266,19 @@ function watchDeviceLoss(device: GPUDevice): void {
       postError(`WebGPU device lost: ${info.message || info.reason}`, 'GPU_DEVICE_LOST');
     });
   });
+}
+
+function parsePreprocessSnapshot(json: string): PreprocessSnapshot {
+  let parsed: PreprocessSnapshot;
+  try {
+    parsed = JSON.parse(json) as PreprocessSnapshot;
+  } catch (error) {
+    throw new Error(`WASM_PREPROCESS_SNAPSHOT_INVALID: malformed preprocess snapshot (${String(error)})`);
+  }
+  if (typeof parsed.frameIndex !== 'number' || parsed.modules === null || typeof parsed.modules !== 'object') {
+    throw new Error('WASM_PREPROCESS_SNAPSHOT_INVALID: snapshot is missing frameIndex or modules');
+  }
+  return parsed;
 }
 
 function postError(error: unknown, diagnosticCode: string): void {

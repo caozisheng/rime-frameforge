@@ -203,6 +203,16 @@ fn wasm_deriver_returns_rust_preprocess_packets() {
     assert!(packets.drc_local_lut().is_empty());
     assert_eq!(packets.fused_uniform().len(), rime_isp::FUSED_UNIFORM_BYTES);
     assert!(packets.color_reproduce_hs_lut().is_empty());
+    let snapshot: serde_json::Value = serde_json::from_str(&packets.preprocess_snapshot_json()).expect("valid preprocess snapshot JSON");
+    assert_eq!(snapshot["frameIndex"], 11);
+    assert_eq!(snapshot["modules"]["wbc"]["parameters"]["red_gain"], 2.0);
+    assert_eq!(snapshot["modules"]["drc"]["parameters"]["luma_guard"], 1.0 / 65_536.0);
+    assert_eq!(snapshot["modules"]["dem"]["method"], "00");
+    assert_eq!(
+        snapshot["modules"]["dem"]["parameters"]["cfa_pattern"],
+        serde_json::json!([0, 1, 1, 2])
+    );
+    assert!(snapshot["modules"]["dem"]["parameters"].get("ahd_l_threshold").is_none());
     deriver.complete_frame().expect("postprocess hooks");
 }
 

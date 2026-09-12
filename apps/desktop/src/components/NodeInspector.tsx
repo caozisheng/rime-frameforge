@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
-import type { RuntimeEnvelope } from '../../../../web/src/contracts.js';
+import type { PreprocessSnapshot, RuntimeEnvelope } from '../../../../web/src/contracts.js';
 import { canUserBypassModule, defaultGraphBypassConfig, type GraphBypassConfig } from '../../../../web/src/gpu/bypass.js';
 import { normalGraphPresentation } from '../../../../web/src/generated/normal_graph.generated.js';
 import { normalManifest } from '../../../../web/src/generated/normal_manifest.generated.js';
@@ -28,7 +28,8 @@ export interface GraphQuantizationConfig {
 interface NodeInspectorProps {
   readonly nodeId: string | null;
   readonly envelope: RuntimeEnvelope;
-  readonly dngFrame: DngFrameDescriptor | null;
+  readonly dngFrame?: DngFrameDescriptor | null;
+  readonly preprocessSnapshot?: PreprocessSnapshot | null;
   readonly dngSequence?: DngSequenceDescriptor | null;
   readonly frameCount: number;
   readonly activeMethod: string;
@@ -91,24 +92,37 @@ function GraphInspector({ config, bypassConfig, canConfigure, onGraphChange, onM
   return <InspectorTree ariaLabel="Normal Graph inspector" groups={groups} storageKey="rime:graph-inspector:normal" />;
 }
 
-function parameterValue(moduleId: string | undefined, method: string | undefined, parameter: string, parameterValues: Readonly<Record<string, string | number>>, dngFrame: DngFrameDescriptor | null): string | number {
+function formatSnapshotValue(value: number | boolean | string | readonly number[]): string | number {
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  return value.join(' / ');
+}
+function parameterValue(moduleId: string | undefined, method: string | undefined, parameter: string, parameterValues: Readonly<Record<string, string | number>>, dngFrame: DngFrameDescriptor | null, preprocessSnapshot: PreprocessSnapshot | null): string | number {
+  const snapshotParameters = moduleId === undefined ? undefined : preprocessSnapshot?.modules[moduleId]?.parameters;
+  const draftControlled = parameter === 'enable_highlight_recovery' || parameter === 'enable_details_amplify';
+  if (snapshotParameters !== undefined && !draftControlled) {
+    const snapshotValue = snapshotParameters[parameter];
+    if (snapshotValue !== undefined && snapshotValue !== null) {
+      return formatSnapshotValue(snapshotValue);
+    }
+  }
   if (moduleId === 'drc') {
     const values: Readonly<Record<string, string | number>> = {
-      drc_gain: 'Rust preprocess',
-      hr_gain: 'Rust preprocess',
+      drc_gain: 'pending frame',
+      hr_gain: 'pending frame',
       drc_gain_offset_ev: parameterValues.drc_gain_offset_ev ?? 0,
       enable_details_amplify: parameterValues.enable_details_amplify ?? 1,
       knee: parameterValues.knee ?? 1,
       amplifier: parameterValues.amplifier ?? 3,
-      luma_guard: 'Rust preprocess',
-      min_ratio: 'Rust preprocess',
-      max_ratio: 'Rust preprocess',
+      luma_guard: 'pending frame',
+      min_ratio: 'pending frame',
+      max_ratio: 'pending frame',
       level_count: 3,
       feature_flags: method === '01' ? 'detail | local tiles 8×6' : 'detail | global tone',
       drc_edge_curve: '8 knots · 64-pt LUT',
       drc_luma_curve: '6 knots · 64-pt LUT',
-      global_tone_lut: '257 samples · Rust preprocess',
-      local_tone_lut: '8×6×257 · Rust preprocess',
+      global_tone_lut: '257 samples · pending frame',
+      local_tone_lut: '8×6×257 · pending frame',
     };
     return values[parameter] ?? parameterValues[parameter] ?? '—';
   }
@@ -125,13 +139,13 @@ function parameterValue(moduleId: string | undefined, method: string | undefined
     if (parameter === 'cfa_pattern' || parameter === 'cfa') return dngFrame.cfa;
     const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
     if (gainIndex !== undefined) return dngFrame.whiteBalanceGains[gainIndex] ?? '—';
-    if (parameter === 'hr_gain') return 'Rust preprocess';
+    if (parameter === 'hr_gain') return 'pending frame';
   }
-  if (parameter === 'hr_gain') return 'Rust preprocess';
+  if (parameter === 'hr_gain') return 'pending frame';
   return parameterValues[parameter] ?? '—';
 }
 
-export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, frameCount, activeMethod, parameterValues, appliedParameterValues = parameterValues, quantization = defaultQuantization, bypassConfig = defaultGraphBypassConfig(), tuningCurves = FACTORY_TUNING_CURVES, onTuningCurvesChange = () => undefined, onMethodChange, onParameterChange, onParameterApply = onParameterChange, onLutApply = () => undefined, onParameterReset = () => undefined, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined, onBypassConfigChange = () => undefined }: NodeInspectorProps): ReactNode {
+export function NodeInspector({ nodeId, envelope, dngFrame = null, preprocessSnapshot = null, dngSequence = null, frameCount, activeMethod, parameterValues, appliedParameterValues = parameterValues, quantization = defaultQuantization, bypassConfig = defaultGraphBypassConfig(), tuningCurves = FACTORY_TUNING_CURVES, onTuningCurvesChange = () => undefined, onMethodChange, onParameterChange, onParameterApply = onParameterChange, onLutApply = () => undefined, onParameterReset = () => undefined, onGraphQuantizationChange = () => undefined, onModuleQuantizationChange = () => undefined, onBypassConfigChange = () => undefined }: NodeInspectorProps): ReactNode {
   const [tuningTarget, setTuningTarget] = useState<TuningTarget | null>(null);
   const canConfigure = envelope.lifecycleState === 'stop' || envelope.lifecycleState === 'completed';
   if (nodeId === null) return <aside className="panel inspector-panel" aria-labelledby="inspector-heading"><div className="panel-heading compact"><div><span className="section-label">Graph inspector</span><h2 id="inspector-heading">Normal Graph</h2></div><span className="tree-mode-badge mode-enabled">graph</span></div><GraphInspector config={quantization} bypassConfig={bypassConfig} canConfigure={canConfigure} onGraphChange={onGraphQuantizationChange} onModuleChange={onModuleQuantizationChange} onBypassChange={onBypassConfigChange} /></aside>;
@@ -146,7 +160,7 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
   const preference = executionNode === undefined ? undefined : quantization.modules.find((module) => module.module_id === executionNode.id);
     const parameters = selectedMethod === undefined ? [] : executionNode?.id === 'drc' ? ['drc_gain_offset_ev', 'drc_edge_curve', 'drc_luma_curve', ...selectedMethod.parameters] : selectedMethod.parameters;
   const parameterChildren = selectedMethod === undefined ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }] : parameters.map((parameter) => {
-    const value = parameterValue(executionNode?.id, selectedMethod.method, parameter, parameterValues, dngFrame);
+    const value = parameterValue(executionNode?.id, selectedMethod.method, parameter, parameterValues, dngFrame, preprocessSnapshot);
     const appliedValue = appliedParameterValues[parameter];
     const editableScalar = executionNode?.id === 'dem' || (executionNode?.id === 'gamma' && parameter === 'gamma');
     const dirty = editableScalar && typeof value === 'number' && typeof appliedValue === 'number' && value !== appliedValue;

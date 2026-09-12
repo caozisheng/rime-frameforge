@@ -106,6 +106,7 @@ pub struct FramePackets {
     fused_uniform: Vec<u8>,
     color_reproduce_hs_lut: Vec<u8>,
     wbc_hr_gain: f32,
+    preprocess_snapshot: String,
 }
 
 #[wasm_bindgen]
@@ -158,6 +159,10 @@ impl FramePackets {
     #[must_use]
     pub fn wbc_hr_gain(&self) -> f32 {
         self.wbc_hr_gain
+    }
+    #[must_use]
+    pub fn preprocess_snapshot_json(&self) -> String {
+        self.preprocess_snapshot.clone()
     }
 }
 
@@ -393,6 +398,7 @@ fn build_frame_packets(
         module_modes,
     })
     .map_err(|error| js_error(&error))?;
+    let preprocess_snapshot = preprocess_snapshot_json(frame_index, options, blc, wbc, drc, dem)?;
     Ok(FramePackets {
         blc_uniform: blc.bytes().to_vec(),
         wbc_uniform: wbc.bytes().to_vec(),
@@ -404,7 +410,9 @@ fn build_frame_packets(
         fused_uniform,
         color_reproduce_hs_lut: encode_f32(color_reproduce.hs_lut.as_deref().unwrap_or(&[])),
         wbc_hr_gain,
+        preprocess_snapshot,
     })
+
 }
 
 fn packet<'a>(
@@ -429,6 +437,76 @@ fn optional_resource_bytes(packet: &ModuleParameterPacket, id: &str) -> Vec<u8> 
     packet
         .resource(id)
         .map_or_else(Vec::new, |resource| resource.bytes().to_vec())
+}
+
+fn preprocess_snapshot_json(
+    frame_index: u32,
+    options: &FrameOptions,
+    blc: &ModuleParameterPacket,
+    wbc: &ModuleParameterPacket,
+    drc: &ModuleParameterPacket,
+    dem: &ModuleParameterPacket,
+) -> Result<String, JsValue> {
+    let mut modules = serde_json::Map::new();
+    modules.insert("blc".to_owned(), module_snapshot(blc, &serde_json::json!({
+        "black_level": f32_at(blc.bytes(), 0)?,
+        "white_level": f32_at(blc.bytes(), 4)?,
+        "width": u32_at(blc.bytes(), 8)?,
+        "height": u32_at(blc.bytes(), 12)?,
+    })));
+    modules.insert("wbc".to_owned(), module_snapshot(wbc, &serde_json::json!({
+        "red_gain": f32_at(wbc.bytes(), 0)?,
+        "green_gain": f32_at(wbc.bytes(), 4)?,
+        "blue_gain": f32_at(wbc.bytes(), 8)?,
+        "hr_gain": f32_at(wbc.bytes(), 12)?,
+        "enable_highlight_recovery": f32_at(wbc.bytes(), 32)? != 0.0,
+    })));
+    modules.insert("drc".to_owned(), module_snapshot(drc, &serde_json::json!({
+        "drc_gain": f32_at(drc.bytes(), 0)?,
+        "hr_gain": f32_at(wbc.bytes(), 12)?,
+        "knee": f32_at(drc.bytes(), 4)?,
+        "amplifier": f32_at(drc.bytes(), 8)?,
+        "enable_details_amplify": (u32_at(drc.bytes(), 28)? & 1) == 1,
+        "luma_guard": f32_at(drc.bytes(), 12)?,
+        "min_ratio": f32_at(drc.bytes(), 16)?,
+        "max_ratio": f32_at(drc.bytes(), 20)?,
+        "level_count": u32_at(drc.bytes(), 24)?,
+        "feature_flags": u32_at(drc.bytes(), 28)?,
+        "analysis_wbc_gains": [
+            f32_at(wbc.bytes(), 0)?,
+            f32_at(wbc.bytes(), 4)?,
+            f32_at(wbc.bytes(), 8)?,
+        ],
+        "global_tone_lut": format!("{} samples", drc.resource("tone_lut_global").map_or(0, |r| r.bytes().len() / 4)),
+        "local_tone_lut": format!("{} bytes", drc.resource("tone_lut_local").map_or(0, |r| r.bytes().len())),
+        "modulation_luts": format!("{} samples", drc.resource("modulation_luts").map_or(0, |r| r.bytes().len() / 4)),
+    })));
+    let mut dem_parameters = serde_json::json!({
+        "cfa_pattern": [u32_at(dem.bytes(), 0)?, u32_at(dem.bytes(), 4)?, u32_at(dem.bytes(), 8)?, u32_at(dem.bytes(), 12)?],
+    });
+    if options.dem_method == "03" {
+        dem_parameters["vng_threshold"] = serde_json::json!(DEFAULT_VNG_THRESHOLD);
+    }
+    if options.dem_method == "04" {
+        dem_parameters["ahd_l_threshold"] = serde_json::json!(f32_at(dem.bytes(), 20)?);
+        dem_parameters["ahd_c_threshold_sq"] = serde_json::json!(f32_at(dem.bytes(), 24)?);
+    }
+    modules.insert("dem".to_owned(), module_snapshot(dem, &dem_parameters));
+    serde_json::to_string(&serde_json::json!({ "frameIndex": frame_index, "modules": modules }))
+        .map_err(|error| js_error(&format!("WASM_PREPROCESS_SNAPSHOT_SERIALIZE: {error}")))
+}
+
+fn module_snapshot(packet: &ModuleParameterPacket, parameters: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "method": packet.method(), "parameters": parameters })
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, JsValue> {
+    let raw = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| js_error("WASM_PACKET_LAYOUT_INVALID: missing u32 field"))?;
+    Ok(u32::from_ne_bytes(
+        raw.try_into().expect("validated four-byte packet field"),
+    ))
 }
 
 fn demosaic_thresholds(method: &str, bytes: &[u8]) -> Result<FusedDemosaicThresholds, JsValue> {

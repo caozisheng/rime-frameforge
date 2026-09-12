@@ -139,6 +139,69 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('>1.5<');
   });
 
+  it('renders Rust preprocess snapshot values over UI placeholders and DNG metadata', () => {
+    const html = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="drc"
+        preprocessSnapshot={{
+          frameIndex: 3,
+          modules: {
+            drc: {
+              method: '00',
+              parameters: {
+                drc_gain: 1.75,
+                hr_gain: 1.25,
+                luma_guard: 1 / 65_536,
+                enable_details_amplify: true,
+              },
+            },
+          },
+        }}
+        dngFrame={{ cfa: 'rggb', whiteBalanceGains: [2.125, 1, 1.625] } as DngFrameDescriptor}
+      />,
+    );
+
+    expect(html).toContain('drc_gain');
+    expect(html).toContain('1.75');
+    expect(html).toContain('hr_gain');
+    expect(html).toContain('1.25');
+    expect(html).not.toContain('Rust preprocess');
+    expect(html).toContain('enable_details_amplify');
+  });
+
+  it('drives the wbc and drc toggles from draft values even when a stale snapshot exists', () => {
+    const changes: string[] = [];
+    const wbcHtml = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="wbc"
+        parameterValues={{ enable_highlight_recovery: 1 }}
+        onParameterChange={(_nodeId, parameter) => { changes.push(parameter); }}
+        preprocessSnapshot={{
+          frameIndex: 3,
+          modules: { wbc: { method: '00', parameters: { red_gain: 2, green_gain: 1, blue_gain: 1.5, enable_highlight_recovery: false } } },
+        }}
+      />,
+    );
+    expect(wbcHtml).toContain('aria-checked="true"');
+
+    const drcHtml = renderToStaticMarkup(
+      <NodeInspector
+        {...inspectorProps}
+        nodeId="drc"
+        parameterValues={{ enable_details_amplify: 0 }}
+        onParameterChange={(_nodeId, parameter) => { changes.push(parameter); }}
+        preprocessSnapshot={{
+          frameIndex: 3,
+          modules: { drc: { method: '00', parameters: { drc_gain: 1.75, enable_details_amplify: true } } },
+        }}
+      />,
+    );
+    expect(drcHtml).toContain('aria-checked="false"');
+    expect(changes).toEqual([]);
+  });
+
 });
 
 

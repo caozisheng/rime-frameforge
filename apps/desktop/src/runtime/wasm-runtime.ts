@@ -111,6 +111,7 @@ export class WasmRuntimeAuthority {
     );
     this.#framePending = true;
     try {
+      const preprocessSnapshotJson = packets.preprocess_snapshot_json();
       return {
         blcUniform: copyPacketBytes(packets.blc_uniform()),
         wbcUniform: copyPacketBytes(packets.wbc_uniform()),
@@ -121,18 +122,10 @@ export class WasmRuntimeAuthority {
         drcModulationLuts: copyPacketBytes(packets.drc_modulation_luts()),
         fusedUniform: copyPacketBytes(packets.fused_uniform()),
         colorReproduceHsLut: copyPacketBytes(packets.color_reproduce_hs_lut()),
+        preprocessSnapshotJson,
       };
     } finally {
       packets.free();
-    }
-  }
-
-  public completeFrame(): void {
-    if (!this.#framePending) return;
-    try {
-      this.#packetDeriver.complete_frame();
-    } finally {
-      this.#framePending = false;
     }
   }
 
@@ -140,6 +133,15 @@ export class WasmRuntimeAuthority {
     if (!this.#framePending) return;
     try {
       this.#packetDeriver.abort_frame();
+    } finally {
+      this.#framePending = false;
+    }
+  }
+
+  public completeFrame(): void {
+    if (!this.#framePending) return;
+    try {
+      this.#packetDeriver.complete_frame();
     } finally {
       this.#framePending = false;
     }
