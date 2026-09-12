@@ -165,6 +165,22 @@ fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
     );
 }
 #[test]
+fn generated_shader_assets_encode_lf_line_endings() {
+    for generated in [
+        rime_isp::render_blc_pipeline_typescript().expect("BLC TypeScript"),
+        rime_isp::render_drc_pipeline_typescript().expect("DRC TypeScript"),
+        rime_isp::render_wbc_pipeline_typescript().expect("WBC TypeScript"),
+        rime_isp::render_fused_pipeline_typescript().expect("fused TypeScript"),
+        rime_isp::render_segmented_fused_typescript().expect("segmented TypeScript"),
+    ] {
+        assert!(
+            !generated.contains("\\r\\n"),
+            "generated shader asset contains escaped CRLF line endings"
+        );
+    }
+}
+
+#[test]
 fn dem_manifest_exposes_methods_and_parameters() {
     let manifest = build_normal_manifest();
     let dem = manifest.node("dem").expect("DEM node");

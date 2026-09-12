@@ -1,6 +1,23 @@
-use std::fmt::Write as _;
+use std::{borrow::Cow, fmt::Write as _};
 
 use rime_core::{Diagnostic, DiagnosticCode};
+
+fn normalize_wgsl_line_endings(source: &str) -> Cow<'_, str> {
+    if source.contains('\r') {
+        Cow::Owned(source.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(source)
+    }
+}
+
+fn serialize_wgsl(source: &str, description: &str) -> Result<String, Diagnostic> {
+    serde_json::to_string(&normalize_wgsl_line_endings(source)).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize {description}: {error}"),
+        )
+    })
+}
 
 /// Serializes the Normal Graph manifest as canonical JSON.
 ///
@@ -77,12 +94,7 @@ pub fn render_normal_graph_quantization_typescript() -> Result<String, Diagnosti
 ///
 /// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
 pub fn render_drc_pipeline_typescript() -> Result<String, Diagnostic> {
-    let source = serde_json::to_string(crate::vbe::drc::DRC_PIPELINE_WGSL).map_err(|error| {
-        Diagnostic::new(
-            DiagnosticCode::ManifestInvalid,
-            format!("failed to serialize DRC pipeline WGSL: {error}"),
-        )
-    })?;
+    let source = serialize_wgsl(crate::vbe::drc::DRC_PIPELINE_WGSL, "DRC pipeline WGSL")?;
     Ok(format!("export const drcPipelineWgsl = {source};\n"))
 }
 
@@ -92,13 +104,10 @@ pub fn render_drc_pipeline_typescript() -> Result<String, Diagnostic> {
 ///
 /// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
 pub fn render_wbc_pipeline_typescript() -> Result<String, Diagnostic> {
-    let source =
-        serde_json::to_string(crate::vfe::white_balance::WBC_PIPELINE_WGSL).map_err(|error| {
-            Diagnostic::new(
-                DiagnosticCode::ManifestInvalid,
-                format!("failed to serialize WBC pipeline WGSL: {error}"),
-            )
-        })?;
+    let source = serialize_wgsl(
+        crate::vfe::white_balance::WBC_PIPELINE_WGSL,
+        "WBC pipeline WGSL",
+    )?;
     Ok(format!("export const wbcPipelineWgsl = {source};\n"))
 }
 
@@ -108,14 +117,8 @@ pub fn render_wbc_pipeline_typescript() -> Result<String, Diagnostic> {
 ///
 /// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
 pub fn render_fused_pipeline_typescript() -> Result<String, Diagnostic> {
-    let source = serde_json::to_string(&crate::fused_view::render_fused_normal_shader()).map_err(
-        |error| {
-            Diagnostic::new(
-                DiagnosticCode::ManifestInvalid,
-                format!("failed to serialize fused pipeline WGSL: {error}"),
-            )
-        },
-    )?;
+    let shader = crate::fused_view::render_fused_normal_shader();
+    let source = serialize_wgsl(&shader, "fused pipeline WGSL")?;
     Ok(format!("export const fusedPipelineWgsl = {source};\n"))
 }
 
@@ -137,10 +140,10 @@ pub fn render_segmented_fused_typescript() -> Result<String, Diagnostic> {
             })?;
         let [pre, dem, quantize, post] = shaders;
         let json = serde_json::json!({
-            "pre": pre,
-            "dem": dem,
-            "quantize": quantize,
-            "post": post,
+            "pre": normalize_wgsl_line_endings(&pre),
+            "dem": normalize_wgsl_line_endings(&dem),
+            "quantize": normalize_wgsl_line_endings(&quantize),
+            "post": normalize_wgsl_line_endings(&post),
         });
         let serialized = serde_json::to_string(&json).map_err(|error| {
             Diagnostic::new(
@@ -162,11 +165,6 @@ pub fn render_segmented_fused_typescript() -> Result<String, Diagnostic> {
 ///
 /// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
 pub fn render_blc_pipeline_typescript() -> Result<String, Diagnostic> {
-    let source = serde_json::to_string(crate::vfe::blc::BLC_PIPELINE_WGSL).map_err(|error| {
-        Diagnostic::new(
-            DiagnosticCode::ManifestInvalid,
-            format!("failed to serialize BLC pipeline WGSL: {error}"),
-        )
-    })?;
+    let source = serialize_wgsl(crate::vfe::blc::BLC_PIPELINE_WGSL, "BLC pipeline WGSL")?;
     Ok(format!("export const blcPipelineWgsl = {source};\n"))
 }

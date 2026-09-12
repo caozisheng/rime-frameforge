@@ -11,6 +11,7 @@ import { layoutNormalContainers, type NormalContainerLayoutNode } from '../norma
 import { getNormalPortHandles, normalHandlePositions, toNormalReactFlowEdge } from '../normal-edge.js';
 import { normalFlowTopologyKey } from '../normal-flow-key.js';
 import { normalNodeAppearance } from '../../../../web/src/normal-node-appearance.js';
+import { observeGraphResize } from '../normal-graph-resize.js';
 
 interface NormalGraphCanvasProps {
   readonly envelope: RuntimeEnvelope;
@@ -31,6 +32,7 @@ const EXPANSION_KEY = 'rime:normal-graph:expanded:v3';
 const SmartSmoothEdge = createSmartEdge('smoothstep', { gridRatio: 6, nodePadding: 12 });
 const nodeTypes = { normal: NormalNodeComponent, normalFrame: NormalFrameComponent };
 const edgeTypes = { normalData: NormalDataEdge, smartSmooth: SmartSmoothEdge };
+const fitViewOptions = { padding: 0.08, minZoom: 0.08, maxZoom: 1, duration: 120 } as const;
 
 function initialExpanded(): Set<string> {
   const defaults = normalGraphPresentation.nodes.filter((node) => node.default_expanded).map((node) => node.id);
@@ -44,6 +46,7 @@ function initialExpanded(): Set<string> {
 
 export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest, headingActions }: NormalGraphCanvasProps) {
   const instanceRef = useRef<ReactFlowInstance<NormalFlowNode, Edge> | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(initialExpanded);
   const projected = useMemo(() => projectNormalGraph(normalGraphPresentation, expanded), [expanded]);
   const toggle = (id: string): void => {
@@ -58,8 +61,16 @@ export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest
   const topologyKey = useMemo(() => normalFlowTopologyKey(flow.nodes, flow.edges), [flow]);
 
   useEffect(() => {
-    if (fitRequest > 0) void instanceRef.current?.fitView({ padding: 0.08, duration: 120 });
+    if (fitRequest > 0) void instanceRef.current?.fitView(fitViewOptions);
   }, [fitRequest]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas === null) return;
+    return observeGraphResize(canvas, () => {
+      void instanceRef.current?.fitView(fitViewOptions);
+    });
+  }, []);
 
   return (
     <section className="panel graph-panel" aria-labelledby="graph-heading">
@@ -70,7 +81,7 @@ export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest
           {headingActions}
         </div>
       </div>
-      <div className="react-flow-canvas" aria-label="Normal Graph VFE VBE VPE architecture">
+      <div ref={canvasRef} className="react-flow-canvas" aria-label="Normal Graph VFE VBE VPE architecture">
         <SmartEdgeProvider nodes={flow.nodes} options={{ gridRatio: 6, nodePadding: 12, routeOnlyWhenBlocked: false }}>
           <ReactFlow
             key={topologyKey}
@@ -79,7 +90,7 @@ export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest
             edgeTypes={edgeTypes}
             nodeTypes={nodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.08, minZoom: 0.08, maxZoom: 1 }}
+            fitViewOptions={fitViewOptions}
             nodesDraggable={false}
             nodesConnectable={false}
             onInit={(instance) => { instanceRef.current = instance; }}
@@ -88,7 +99,7 @@ export function NormalGraphCanvas({ envelope, onSelect, selectedNode, fitRequest
             proOptions={{ hideAttribution: true }}
           >
             <Background color="#d8dde3" gap={16} size={1} />
-            <Controls showInteractive={false} />
+            <Controls fitViewOptions={fitViewOptions} showInteractive={false} />
           </ReactFlow>
         </SmartEdgeProvider>
       </div>
