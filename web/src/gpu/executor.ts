@@ -1,15 +1,15 @@
 import { normalManifest } from '../generated/normal_manifest.generated.js';
-import type { FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSnapshot } from '../contracts.js';
+import type { DrcIqParameters, FramePacketProvider, FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSnapshot } from '../contracts.js';
 import type { ExecutionIdentity } from '../runtime-controller.js';
 import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
 import { validateGraphBypassConfig, type GraphBypassConfig } from './bypass.js';
-import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShaders } from './fused-normal-shader.js';
-import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters, validateModulationCurves, type DrcIqParameters, type DrcModulationCurves, WebDrcExecutor, type DrcMethod } from './drc.js';
-import { DEFAULT_GAMMA_PARAMETERS, validateGammaParameters, type GammaParameters } from './gamma.js';
-import { FUSED_UNIFORM_BYTES, packFusedUniforms } from './fused-uniforms.js';
+import { blcPipelineWgsl } from '../generated/blc_pipeline.generated.js';
+import { wbcPipelineWgsl } from '../generated/wbc_pipeline.generated.js';
+import { compileFusedNormalShader, compileSegmentedNormalShaders, isSegmentedDemMethod } from './fused-normal-shader.js';
+import { ModuleShaderRuntime } from './module-shader.js';
+import { validateDrcIqParameters, validateModulationCurves, WebDrcExecutor, type DrcMethod, type DrcModulationCurves } from './drc.js';
 import { GpuPreviewPresenter, type PreviewView } from './presenter.js';
-import type { QuantizationConfig } from './quantization.js';
 import { TransferAudit } from './transfer-audit.js';
 
 const DEM_METHODS = ['00', '01', '02', '03', '04'] as const;
@@ -33,19 +33,20 @@ export class NormalGpuExecutor {
   readonly #colorTexture: GPUTexture;
   readonly #gammaTexture: GPUTexture;
   readonly #outputTexture: GPUTexture;
-  readonly #uniforms: GPUBuffer;
+  #uniforms: GPUBuffer | null = null;
   readonly #crHsLut: GPUBuffer;
   readonly #previewTextures: Readonly<Record<string, GPUTexture>>;
   readonly #drc: WebDrcExecutor;
+  readonly #packetProvider: FramePacketProvider;
   #demUniforms: GPUBuffer | null = null;
   #audit = new TransferAudit();
   #descriptor: RawFrameDescriptor;
-  #quantizationConfig: QuantizationConfig;
   #demMethod: DemMethod = '00';
   #drcMethod: DrcMethod = '00';
   #drcBypassed = false;
-  #blcPipeline: GPUComputePipeline | null = null;
-  #blcBindGroup: GPUBindGroup | null = null;
+  #moduleShaders: ModuleShaderRuntime | null = null;
+  #blcUniform: GPUBuffer | null = null;
+  #wbcUniform: GPUBuffer | null = null;
   #fullPipeline: GPUComputePipeline | null = null;
   #prePipeline: GPUComputePipeline | null = null;
   #demPipeline: GPUComputePipeline | null = null;
@@ -58,13 +59,10 @@ export class NormalGpuExecutor {
   #postBindGroup: GPUBindGroup | null = null;
   #committedPreviews: readonly PreviewDescriptor[] = [];
   #sampleBuffer: GPUBuffer | null = null;
-  #demosaicParameterValues = { vng_threshold: 1.5, ahd_l_threshold: 2.0, ahd_c_threshold_sq: 4.0 };
-  #gammaParameters: GammaParameters = { gamma: DEFAULT_GAMMA_PARAMETERS.gamma, lut: [...DEFAULT_GAMMA_PARAMETERS.lut] };
-  #drcIqParameters: DrcIqParameters = { ...DEFAULT_DRC_IQ_PARAMETERS };
-  public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, quantizationConfig: QuantizationConfig) {
+  public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, packetProvider: FramePacketProvider) {
     this.#gpu = gpu;
     this.#descriptor = descriptor;
-    this.#quantizationConfig = quantizationConfig;
+    this.#packetProvider = packetProvider;
     this.#presenter = new GpuPreviewPresenter(gpu.context, gpu.device, gpu.canvasFormat);
     const previewUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
     this.#rawTexture = this.createTexture('normal-raw-source', 'r16uint', GPUTextureUsage.COPY_DST | previewUsage);
@@ -86,10 +84,9 @@ export class NormalGpuExecutor {
       gamma: this.#gammaTexture,
       rgb2yuv: this.#outputTexture,
     };
-    this.#uniforms = gpu.device.createBuffer({ label: 'normal-fused-params', size: FUSED_UNIFORM_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const hsLut = descriptor.colorReproduce?.hsLut ?? [];
     this.#crHsLut = gpu.device.createBuffer({ label: 'cr-hs-lut', size: Math.max(hsLut.length * 4, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    this.#drc = new WebDrcExecutor(gpu.device, raw, rawByteOffset, descriptor);
+    this.#drc = new WebDrcExecutor(gpu.device, descriptor.width, descriptor.height);
     this.uploadFrame(raw, rawByteOffset, descriptor);
   }
 
@@ -104,28 +101,25 @@ export class NormalGpuExecutor {
     this.#descriptor = descriptor;
     this.invalidateBindings();
     this.#audit = new TransferAudit();
-    this.#drc.replaceFrame(raw, rawByteOffset, descriptor);
     this.uploadFrame(raw, rawByteOffset, descriptor);
   }
 
   public prepare(identity: ExecutionIdentity): void {
-    this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packFusedUniforms(this.#descriptor, identity.frameIndex, this.#demosaicParameterValues, this.#quantizationConfig, this.#gammaParameters));
+    const packets = this.#packetProvider(identity);
+    this.#uniforms ??= this.#gpu.device.createBuffer({ label: 'normal-fused-params', size: packets.fusedUniform.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packets.fusedUniform);
+    if (packets.colorReproduceHsLut.byteLength > 0) this.#gpu.device.queue.writeBuffer(this.#crHsLut, 0, packets.colorReproduceHsLut);
     if (!this.#drcBypassed) {
       this.#drc.setMethod(this.#drcMethod);
-      this.#drc.setIqParameters(this.#drcIqParameters);
-      this.#drc.prepare();
+      this.#drc.preparePackets(packets.drcUniform, packets.drcGlobalLut, packets.drcLocalLut, packets.drcModulationLuts);
     }
-    this.#blcPipeline ??= this.createPipeline(compileBlcShader(), 'blc_main');
-    this.#blcBindGroup = this.#gpu.device.createBindGroup({
-      layout: this.#blcPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: this.#rawTexture.createView() },
-        { binding: 1, resource: this.#blcTexture.createView() },
-        { binding: 2, resource: { buffer: this.#uniforms } },
-      ],
-    });
+    this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
+    this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'blc-scalars', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
+    this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'wbc-scalars', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
     if (this.#demMethod === '00') {
-      this.#fullPipeline ??= this.createPipeline(compileFusedNormalShader('00'), 'normal_fused_main');
+      this.#fullPipeline ??= this.createPipeline(compileFusedNormalShader(), 'normal_fused_main');
       this.#fullBindGroup = this.#gpu.device.createBindGroup({
         layout: this.#fullPipeline.getBindGroupLayout(0),
         entries: [
@@ -141,21 +135,49 @@ export class NormalGpuExecutor {
       });
       return;
     }
-    this.prepareSegmented();
+    this.prepareSegmented(packets.demUniform);
   }
 
   public async execute(_phase: FramePhase, identity: ExecutionIdentity): Promise<readonly PreviewDescriptor[]> {
-    if (this.#blcPipeline === null || this.#blcBindGroup === null) throw new Error('FUSED_GRAPH_INVALID: BLC pipeline was not prepared');
+    if (this.#moduleShaders === null || this.#blcUniform === null) throw new Error('FUSED_GRAPH_INVALID: BLC pipeline was not prepared');
     if (this.#demMethod === '00' && (this.#fullPipeline === null || this.#fullBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: fused pipeline was not prepared');
     if (this.#demMethod !== '00' && (this.#prePipeline === null || this.#demPipeline === null || this.#demQuantizePipeline === null || this.#postPipeline === null || this.#preBindGroup === null || this.#demBindGroup === null || this.#demQuantizeBindGroup === null || this.#postBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: segmented pipeline was not prepared');
     resizePreviewCanvas(this.#gpu.canvas, this.#descriptor);
     const encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-fused-frame' });
-    this.encodeCompute(encoder, this.#blcPipeline, this.#blcBindGroup, 'normal-blc');
-    if (!this.#drcBypassed) this.#drc.encode(encoder, this.#blcTexture, this.#drcTexture);
+    // blc00.wgsl declares: binding 0 = uniform, 1 = input_tex, 2 = output_tex.
+    this.#moduleShaders.encode(encoder, {
+      label: 'normal-blc',
+      source: blcPipelineWgsl,
+      entryPoint: 'blc_main',
+      bindings: [
+        { binding: 0, resource: { buffer: this.#blcUniform } },
+        { binding: 1, resource: { texture: this.#rawTexture } },
+        { binding: 2, resource: { texture: this.#blcTexture } },
+      ],
+      workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
+    });
+    // Manifest order: WBC precedes DRC (wbc -> cac -> drc). Native and web
+    // share the identical dataflow — DRC consumes the white-balanced Bayer,
+    // post-DRC passes read the DRC output without re-applying phase gains.
+    if (this.#moduleShaders === null || this.#wbcUniform === null) throw new Error('FUSED_GRAPH_INVALID: WBC pipeline was not prepared');
+    // wbc00.wgsl declares: binding 0 = input_tex, 1 = output_tex, 2 = uniform.
+    this.#moduleShaders.encode(encoder, {
+      label: 'normal-wbc',
+      source: wbcPipelineWgsl,
+      entryPoint: 'wbc_main',
+      bindings: [
+        { binding: 0, resource: { texture: this.#blcTexture } },
+        { binding: 1, resource: { texture: this.#wbcTexture } },
+        { binding: 2, resource: { buffer: this.#wbcUniform } },
+      ],
+      workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
+    });
+    if (!this.#drcBypassed) this.#drc.encode(encoder, this.#wbcTexture, this.#drcTexture);
+
     if (this.#demMethod === '00') {
       this.encodeCompute(encoder, this.#fullPipeline!, this.#fullBindGroup!, 'normal-post-drc-fused');
     } else {
-      this.encodeCompute(encoder, this.#prePipeline!, this.#preBindGroup!, 'normal-wbc');
+      this.encodeCompute(encoder, this.#prePipeline!, this.#preBindGroup!, 'normal-post-drc-pre-demosaic');
       this.encodeCompute(encoder, this.#demPipeline!, this.#demBindGroup!, 'normal-fused-dem');
       this.encodeCompute(encoder, this.#demQuantizePipeline!, this.#demQuantizeBindGroup!, 'normal-fused-dem-quantize');
       this.encodeCompute(encoder, this.#postPipeline!, this.#postBindGroup!, 'normal-fused-post');
@@ -207,11 +229,13 @@ export class NormalGpuExecutor {
     this.#colorTexture.destroy();
     this.#gammaTexture.destroy();
     this.#outputTexture.destroy();
-    this.#uniforms.destroy();
+    this.#uniforms?.destroy();
     this.#crHsLut.destroy();
     this.#demUniforms?.destroy();
     this.#sampleBuffer?.destroy();
     this.#drc.dispose();
+    this.#moduleShaders?.dispose();
+    this.#moduleShaders = null;
   }
 
   public async sample(nodeId: string, x: number, y: number): Promise<readonly number[]> {
@@ -260,55 +284,36 @@ export class NormalGpuExecutor {
     }
   }
 
-  public setQuantizationConfig(config: QuantizationConfig): void {
-    this.#quantizationConfig = config;
-    this.invalidateBindings();
-  }
 
   public setParameter(nodeId: string, parameter: string, value: number): void {
-    if (nodeId === 'gamma' && parameter === 'gamma') {
-      const next = { ...this.#gammaParameters, gamma: value };
-      validateGammaParameters(next);
-      this.#gammaParameters = next;
-    } else if (nodeId === 'dem' && parameter in this.#demosaicParameterValues && Number.isFinite(value)) {
-      this.#demosaicParameterValues[parameter as 'vng_threshold' | 'ahd_l_threshold' | 'ahd_c_threshold_sq'] = value;
-    } else {
-      throw new Error(`PARAMETER_INVALID: ${nodeId}.${parameter}`);
-    }
+    const node = normalManifest.nodes.find((candidate) => candidate.id === nodeId);
+    const ownsParameter = node?.methods.some((method) => (method.parameters as readonly string[]).includes(parameter)) === true;
+    if (!ownsParameter || !Number.isFinite(value)) throw new Error(`PARAMETER_INVALID: ${nodeId}.${parameter}`);
     this.invalidateBindings();
   }
+
   public setDrcIqParameters(parameters: DrcIqParameters, curves?: DrcModulationCurves): void {
     validateDrcIqParameters(parameters);
-    this.#drcIqParameters = { ...parameters };
-    if (curves !== undefined) this.#drc.setIqParameters(parameters, curves);
-    else this.#drc.setIqParameters(parameters);
+    if (curves !== undefined) validateModulationCurves(curves);
     this.invalidateBindings();
   }
 
-  public setLut(parameter: string, values: readonly number[]): void {
+  public setLut(parameter: string, _values: readonly number[]): void {
     if (parameter !== 'gamma_lut') throw new Error(`PARAMETER_INVALID: ${parameter}`);
-    const next = { ...this.#gammaParameters, lut: [...values] };
-    validateGammaParameters(next);
-    this.#gammaParameters = next;
     this.invalidateBindings();
   }
 
-  private prepareSegmented(): void {
+  private prepareSegmented(demUniform: Uint8Array<ArrayBuffer>): void {
+    if (this.#uniforms === null) throw new Error('FUSED_GRAPH_INVALID: fused parameters were not prepared');
     if (this.#demUniforms === null) this.#demUniforms = this.#gpu.device.createBuffer({ label: 'normal-fused-dem-params', size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    if (!isSegmentedDemMethod(this.#demMethod)) throw new Error(`FUSED_GRAPH_SEGMENT_INVALID: unknown DEM method ${this.#demMethod}`);
     const segmented = compileSegmentedNormalShaders(this.#demMethod);
     this.#prePipeline ??= this.createPipeline(segmented.pre, 'pre_demosaic_main');
     const method = this.#demMethod as Exclude<DemMethod, '00'>;
     this.#demPipeline ??= this.createPipeline(segmented.dem, DEM_ENTRY_POINTS[method]);
     this.#demQuantizePipeline ??= this.createPipeline(segmented.quantize, 'quantize_dem_main');
     this.#postPipeline ??= this.createPipeline(segmented.post, 'postprocess_main');
-    const demParams = new ArrayBuffer(32);
-    const view = new DataView(demParams);
-    const cfa = { rggb: [0, 1, 1, 2], grbg: [1, 0, 2, 1], gbrg: [1, 2, 0, 1], bggr: [2, 1, 1, 0] }[this.#descriptor.cfa];
-    cfa.forEach((channel, index) => view.setUint32(index * 4, channel, true));
-    view.setFloat32(16, this.#demosaicParameterValues.vng_threshold, true);
-    view.setFloat32(20, this.#demosaicParameterValues.ahd_l_threshold, true);
-    view.setFloat32(24, this.#demosaicParameterValues.ahd_c_threshold_sq, true);
-    this.#gpu.device.queue.writeBuffer(this.#demUniforms, 0, demParams);
+    this.#gpu.device.queue.writeBuffer(this.#demUniforms, 0, demUniform);
     this.#preBindGroup = this.#gpu.device.createBindGroup({ layout: this.#prePipeline.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.drcInputTexture().createView() },
       { binding: 1, resource: this.#wbcTexture.createView() },
@@ -338,7 +343,7 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = this.#drcBypassed && cursor === 'drc' ? this.#blcTexture : this.#previewTextures[cursor];
+      const texture = this.#drcBypassed && cursor === 'drc' ? this.#wbcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
       const incoming = normalManifest.edges.find((edge) => edge.to.node_id === cursor);
       if (incoming === undefined) return null;
@@ -348,7 +353,9 @@ export class NormalGpuExecutor {
   }
 
   private drcInputTexture(): GPUTexture {
-    return this.#drcBypassed ? this.#blcTexture : this.#drcTexture;
+    // Input to the post-DRC passes (graph: wbc -> cac -> drc -> dem -> ...).
+    // With DRC bypassed they consume the WBC output directly.
+    return this.#drcBypassed ? this.#wbcTexture : this.#drcTexture;
   }
 
   private uploadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {
@@ -371,17 +378,25 @@ export class NormalGpuExecutor {
     return this.#gpu.device.createComputePipeline({ label: entryPoint, layout: 'auto', compute: { module: this.#gpu.device.createShaderModule({ code: source }), entryPoint } });
   }
 
-  private encodeCompute(encoder: GPUCommandEncoder, pipeline: GPUComputePipeline, bindGroup: GPUBindGroup, label: string): void {
+  private encodeCompute(encoder: GPUCommandEncoder, pipeline: GPUComputePipeline, bindGroup: GPUBindGroup, label: string, workgroupsX?: number, workgroupsY?: number): void {
     const pass = encoder.beginComputePass({ label });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindGroup);
-    pass.dispatchWorkgroups(Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8));
+    if (workgroupsX !== undefined && workgroupsY !== undefined) {
+      pass.dispatchWorkgroups(workgroupsX, workgroupsY);
+    } else {
+      pass.dispatchWorkgroups(Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8));
+    }
     pass.end();
   }
 
   private invalidateBindings(): void {
-    this.#blcBindGroup = null;
-    this.#fullBindGroup = null;
+    this.#uniforms?.destroy();
+    this.#uniforms = null;
+    this.#blcUniform?.destroy();
+    this.#blcUniform = null;
+    this.#wbcUniform?.destroy();
+    this.#wbcUniform = null;
     this.#demQuantizeBindGroup = null;
     this.#preBindGroup = null;
     this.#demBindGroup = null;

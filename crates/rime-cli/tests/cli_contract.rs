@@ -82,6 +82,24 @@ fn dry_run_and_json_progress_are_explicit_render_options() {
 }
 
 #[test]
+fn wbc_highlight_recovery_flag_parses_and_defaults_off() {
+    let cli = Cli::try_parse_from([
+        "rime-frameforge",
+        "render",
+        "input.dng",
+        "--output",
+        "out.png",
+        "--wbc-highlight-recovery",
+    ])
+    .expect("HR option must parse");
+    let Command::Render { options, .. } = cli.command else {
+        panic!("expected render command");
+    };
+    assert!(options.wbc_highlight_recovery);
+    assert!(!RenderOptions::default().wbc_highlight_recovery);
+}
+
+#[test]
 fn sequence_selection_scans_only_the_selected_dng_parent_and_natural_sorts() {
     let mut paths = vec![
         Path::new("/capture/P10.dng").to_owned(),

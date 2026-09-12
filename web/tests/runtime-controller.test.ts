@@ -79,4 +79,38 @@ describe('RuntimeController', () => {
 
     expect(phases).toEqual(['warmup', 'output']);
   });
+
+  it('completes operator postprocess before publishing output', async () => {
+    const executor = new RecordingExecutor();
+    const events: string[] = [];
+    const controller = new RuntimeController(
+      executor,
+      () => events.push('preview'),
+      (phase) => events.push(phase),
+      () => { events.push('postprocess'); },
+    );
+
+    await controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 });
+
+    expect(events).toEqual(['warmup', 'postprocess', 'output', 'preview']);
+  });
+
+  it('aborts operator state when GPU execution fails', async () => {
+    const executor = new RecordingExecutor();
+    executor.execute = async () => {
+      throw new Error('GPU failed');
+    };
+    const events: string[] = [];
+    const controller = new RuntimeController(
+      executor,
+      () => events.push('preview'),
+      (phase) => events.push(phase),
+      () => { events.push('postprocess'); },
+      () => { events.push('abort'); },
+    );
+
+    await expect(controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 })).rejects.toThrow('GPU failed');
+
+    expect(events).toEqual(['warmup', 'abort']);
+  });
 });

@@ -70,9 +70,9 @@ fn blc_is_black_level_correction_and_owns_normalization_contract() {
 fn named_operator_outputs_own_rime_q_defaults_without_input_profiles() {
     let expected = [
         ("blc", "s0.14"),
-        ("wbc", "s0.12"),
+        ("wbc", "s0.14"),
         ("dem", "s0.12"),
-        ("rgb2yuv", "s0.10"),
+        ("rgb2yuv", "u0.10"),
     ];
 
     for (operator_id, profile) in expected {
@@ -125,9 +125,9 @@ fn generated_normal_quantization_uses_rust_defaults_for_output_modules() {
 
     for (module_id, profile) in [
         ("blc", "s0.14"),
-        ("wbc", "s0.12"),
+        ("wbc", "s0.14"),
         ("dem", "s0.12"),
-        ("rgb2yuv", "s0.10"),
+        ("rgb2yuv", "u0.10"),
     ] {
         let module = modules
             .iter()

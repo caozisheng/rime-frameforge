@@ -171,9 +171,15 @@ fn graph_quantization_defaults_exclude_raw_source() {
 
     assert!(config.module("raw_source").is_none());
     assert_eq!(config.module("blc").unwrap().output_profile, "s0.14");
-    assert_eq!(config.module("wbc").unwrap().output_profile, "s0.12");
+    assert_eq!(config.module("wbc").unwrap().output_profile, "s0.14");
+    assert_eq!(config.module("drc").unwrap().output_profile, "s0.12");
     assert_eq!(config.module("dem").unwrap().output_profile, "s0.12");
-    assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "s0.10");
+    assert_eq!(
+        config.module("color_reproduce").unwrap().output_profile,
+        "s0.12"
+    );
+    assert_eq!(config.module("gamma").unwrap().output_profile, "u0.10");
+    assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "u0.10");
 }
 
 #[test]

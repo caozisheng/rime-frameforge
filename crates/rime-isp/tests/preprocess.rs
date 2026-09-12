@@ -1,4 +1,6 @@
-use rime_isp::vfe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::vfe::white_balance::{
+    WhiteBalanceGains, WhiteBalanceMetadata, highlight_recovery_gain, white_balance_gains,
+};
 
 fn matrix(values: [f64; 9]) -> [f64; 9] {
     values
@@ -106,6 +108,58 @@ fn gains_that_overflow_f32_are_rejected() {
     })
     .expect_err("GPU f32 overflow must fail");
 
+    assert_eq!(
+        error.to_string(),
+        "white balance gains are not finite and positive"
+    );
+}
+
+#[test]
+fn hr_gain_matches_matlab_median_for_regular_white_balance() {
+    for (red, green, blue, expected) in [
+        (2.0, 1.0, 4.0, 2.0),
+        (0.5, 1.0, 2.0, 1.0),
+        (1.7, 1.0, 1.3, 1.3),
+    ] {
+        let gain = highlight_recovery_gain(&WhiteBalanceGains { red, green, blue })
+            .expect("finite gains derive hr_gain");
+        assert!(
+            (gain - expected).abs() < 1e-6,
+            "gains ({red}, {green}, {blue}): got {gain}, expected {expected}"
+        );
+    }
+}
+
+#[test]
+fn hr_gain_clamps_to_one_when_median_is_below_one() {
+    let gain = highlight_recovery_gain(&WhiteBalanceGains {
+        red: 0.6,
+        green: 1.0,
+        blue: 0.8,
+    })
+    .expect("valid gains");
+    assert!((gain - 1.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn hr_gain_caps_container_at_four_x_when_median_is_tiny() {
+    let gain = highlight_recovery_gain(&WhiteBalanceGains {
+        red: 1.0,
+        green: 1.0,
+        blue: 9.0,
+    })
+    .expect("valid gains");
+    assert!((gain - 9.0 / 4.0).abs() < 1e-6);
+}
+
+#[test]
+fn hr_gain_rejects_non_finite_gains() {
+    let error = highlight_recovery_gain(&WhiteBalanceGains {
+        red: f32::NAN,
+        green: 1.0,
+        blue: 2.0,
+    })
+    .expect_err("NaN gain must fail");
     assert_eq!(
         error.to_string(),
         "white balance gains are not finite and positive"

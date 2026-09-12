@@ -1,6 +1,6 @@
-use crate::operator::{MethodManifest, OperatorPort, method_manifest, shader};
 use crate::operator::{
-    ModuleParameterPacket, OperatorError, PostprocessContext, PreprocessContext,
+    MethodManifest, ModuleParameterPacket, OperatorError, OperatorPort, PostprocessContext,
+    PreprocessContext, method_manifest, shader,
 };
 use rime_core::{ResourceFormat, SignalDomain};
 
@@ -26,8 +26,8 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "red_gain green_gain blue_gain highlight_recovery",
-    Some("s0.12"),
+    "red_gain green_gain blue_gain enable_highlight_recovery hr_gain",
+    Some("s0.14"),
     shader(
         "00",
         include_str!("wbc00.wgsl"),

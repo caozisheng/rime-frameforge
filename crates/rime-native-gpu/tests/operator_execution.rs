@@ -44,7 +44,10 @@ fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let events = execute_operator_phases(&["blc", "wbc"], &context, |_operator, _packet| Ok(()))
         .expect("operator phases must succeed");
@@ -108,7 +111,10 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let events = rime_native_gpu::execute_operator_methods(
         &[("dem", "04")],
@@ -166,7 +172,10 @@ fn ahd_preprocess_accepts_scene_brightness_without_iso() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let result = rime_isp::operator_by_id("dem")
         .expect("DEM")
@@ -217,7 +226,10 @@ fn gamma_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let packet = rime_isp::operator_by_id("gamma")
         .expect("Gamma")

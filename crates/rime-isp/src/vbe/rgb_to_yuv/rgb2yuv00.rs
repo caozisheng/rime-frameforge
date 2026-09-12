@@ -14,7 +14,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     "bt709",
-    Some("s0.10"),
+    Some("u0.10"),
     shader(
         "00",
         include_str!("rgb2yuv00.wgsl"),

@@ -114,6 +114,7 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
         blackLevel: 64,
         whiteLevel: 4095,
         whiteBalanceGains: [2, 1, 1.5],
+        metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
       };
       send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor }, [canvas, raw]);
     },

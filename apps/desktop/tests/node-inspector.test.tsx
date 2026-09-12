@@ -139,34 +139,6 @@ describe('graph-level NodeInspector', () => {
     expect(html).toContain('>1.5<');
   });
 
-  it('shows resolved DRC preprocess parameters instead of placeholders', () => {
-    const html = renderToStaticMarkup(
-      <NodeInspector
-        {...inspectorProps}
-        nodeId="drc"
-        activeMethod="01"
-        dngFrame={{
-          cfa: 'rggb',
-          whiteBalanceGains: [2, 1, 4],
-          metadata: { baselineExposure: 1 },
-        } as DngFrameDescriptor}
-      />,
-    );
-
-    expect(html).toContain('drc_gain');
-    expect(html).toContain('>2<');
-    expect(html).toContain('knee');
-    expect(html).toContain('level_count');
-    expect(html).toContain('>3<');
-    expect(html).toContain('global_tone_lut');
-    expect(html).toContain('257 samples · CPU preprocess');
-    expect(html).toContain('local_tone_lut');
-    expect(html).toContain('drc_edge_curve');
-    expect(html).toContain('8 knots · 64-pt LUT');
-    expect(html).toContain('drc_luma_curve');
-    expect(html).toContain('6 knots · 64-pt LUT');
-    expect(html).toContain('8×6×257 · CPU preprocess');
-  });
 });
 
 

@@ -99,6 +99,57 @@ pub fn neutral_from_metadata(
     }
 }
 
+/// Derives the highlight-recovery container gain (design §3.1) from
+/// green-normalized gains.
+///
+/// # Errors
+///
+/// Returns a stable error when any gain is not finite and positive.
+pub fn highlight_recovery_gain(gains: &WhiteBalanceGains) -> Result<f32, WhiteBalanceError> {
+    if ![gains.red, gains.green, gains.blue]
+        .iter()
+        .all(|value| value.is_finite() && *value > 0.0)
+    {
+        return Err(WhiteBalanceError::InvalidGains);
+    }
+    let sorted = {
+        let mut values = [gains.red, gains.green, gains.blue];
+        values.sort_by(f32::total_cmp);
+        values
+    };
+    let median = sorted[1];
+    let hr_gain = median.max(1.0).max(sorted[2] / 4.0);
+    if !hr_gain.is_finite() || hr_gain <= 0.0 {
+        return Err(WhiteBalanceError::InvalidGains);
+    }
+    Ok(hr_gain)
+}
+
+/// Decodes the highlight-recovery gain a WBC packet published at uniform
+/// offset 12 (design §3.6) so downstream preprocesses can consume the exact
+/// same value without recomputing it.
+///
+/// # Errors
+///
+/// Returns a stable error when the packet layout does not carry the field or
+/// the decoded gain is not finite and positive.
+///
+/// # Panics
+///
+/// Never: the slice length is validated before the conversion.
+pub fn hr_gain_from_packet(packet: &ModuleParameterPacket) -> Result<f32, WhiteBalanceError> {
+    let bytes = packet.bytes();
+    if bytes.len() < 16 {
+        return Err(WhiteBalanceError::InvalidGains);
+    }
+    let raw = bytes[12..16].try_into().expect("validated 4-byte slice");
+    let value = f32::from_ne_bytes(raw);
+    if !value.is_finite() || value <= 0.0 {
+        return Err(WhiteBalanceError::InvalidGains);
+    }
+    Ok(value)
+}
+
 pub(crate) fn preprocess(
     context: &PreprocessContext,
     module_id: &'static str,
@@ -119,6 +170,17 @@ pub(crate) fn preprocess(
     uniform[0..4].copy_from_slice(&gains.red.to_ne_bytes());
     uniform[4..8].copy_from_slice(&gains.green.to_ne_bytes());
     uniform[8..12].copy_from_slice(&gains.blue.to_ne_bytes());
+    // Single point of computation (design §3.6): every consumer, GPU shader
+    // or DRC preprocess, decodes this exact field instead of rederiving.
+    let hr_gain = if context.wbc_highlight_recovery {
+        highlight_recovery_gain(&gains).map_err(|error| OperatorError::Preprocess {
+            module_id,
+            reason: error.reason(),
+        })?
+    } else {
+        1.0
+    };
+    uniform[12..16].copy_from_slice(&hr_gain.to_ne_bytes());
     for (index, value) in context.cfa_pattern.into_iter().enumerate() {
         let start = 16 + index * 4;
         uniform[start..start + 4].copy_from_slice(&value.to_ne_bytes());
@@ -129,7 +191,9 @@ pub(crate) fn preprocess(
 }
 
 impl WhiteBalanceError {
-    const fn reason(self) -> &'static str {
+    /// Stable error text shared by ISP preprocess and native executors.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
         match self {
             Self::MissingSource => "missing AsShotNeutral and AsShotWhiteXY",
             Self::InvalidNeutral => "invalid AsShotNeutral components",

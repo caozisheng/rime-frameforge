@@ -100,6 +100,10 @@ pub struct RenderOptions {
     pub drc_metered_target_ev100: Option<f64>,
     #[arg(long, default_value_t = 0.0)]
     pub drc_profile_adjustment_ev: f64,
+    #[arg(long)]
+    pub wbc_highlight_recovery: bool,
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set, num_args = 0..=1, default_missing_value = "true")]
+    pub drc_details_amplify: bool,
     #[arg(long, default_value = "h264")]
     pub codec: String,
     #[arg(long, default_value_t = 24)]
@@ -120,6 +124,8 @@ impl Default for RenderOptions {
             drc_exposure_policy: "baseline".to_owned(),
             drc_metered_target_ev100: None,
             drc_profile_adjustment_ev: 0.0,
+            wbc_highlight_recovery: false,
+            drc_details_amplify: true,
             codec: "h264".to_owned(),
             fps: 24,
         }
@@ -272,6 +278,10 @@ fn render(input: &Path, options: &RenderOptions) -> Result<(), CliError> {
         drc_exposure_policy(options),
         options.drc_metered_target_ev100,
         options.drc_profile_adjustment_ev,
+        rime_native_gpu::RenderFeatureFlags {
+            wbc_highlight_recovery: options.wbc_highlight_recovery,
+            drc_details_amplify: options.drc_details_amplify,
+        },
     )?;
     write_png(
         &options.output,
@@ -328,6 +338,10 @@ fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError
             drc_exposure_policy(options),
             options.drc_metered_target_ev100,
             options.drc_profile_adjustment_ev,
+            rime_native_gpu::RenderFeatureFlags {
+                wbc_highlight_recovery: options.wbc_highlight_recovery,
+                drc_details_amplify: options.drc_details_amplify,
+            },
         )?;
         ring.transition(slot, FrameSlotState::GpuSubmitted)
             .map_err(|error| CliError::Graph(error.to_string()))?;

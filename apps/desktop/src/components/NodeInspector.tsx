@@ -93,22 +93,22 @@ function GraphInspector({ config, bypassConfig, canConfigure, onGraphChange, onM
 
 function parameterValue(moduleId: string | undefined, method: string | undefined, parameter: string, parameterValues: Readonly<Record<string, string | number>>, dngFrame: DngFrameDescriptor | null): string | number {
   if (moduleId === 'drc') {
-    const drcGainOffset = typeof parameterValues.drc_gain_offset_ev === 'number' ? parameterValues.drc_gain_offset_ev : 0;
-    const drcGain = 2 ** Math.max(0, dngFrame?.metadata.baselineExposure ?? 0) * 2 ** drcGainOffset;
     const values: Readonly<Record<string, string | number>> = {
-      drc_gain: drcGain,
-      drc_gain_offset_ev: drcGainOffset,
+      drc_gain: 'Rust preprocess',
+      hr_gain: 'Rust preprocess',
+      drc_gain_offset_ev: parameterValues.drc_gain_offset_ev ?? 0,
+      enable_details_amplify: parameterValues.enable_details_amplify ?? 1,
       knee: parameterValues.knee ?? 1,
       amplifier: parameterValues.amplifier ?? 3,
-      luma_guard: 1 / 65_536,
-      min_ratio: 1 / 256,
-      max_ratio: drcGain * 4,
+      luma_guard: 'Rust preprocess',
+      min_ratio: 'Rust preprocess',
+      max_ratio: 'Rust preprocess',
       level_count: 3,
       feature_flags: method === '01' ? 'detail | local tiles 8×6' : 'detail | global tone',
       drc_edge_curve: '8 knots · 64-pt LUT',
       drc_luma_curve: '6 knots · 64-pt LUT',
-      global_tone_lut: '257 samples · CPU preprocess',
-      local_tone_lut: '8×6×257 · CPU preprocess',
+      global_tone_lut: '257 samples · Rust preprocess',
+      local_tone_lut: '8×6×257 · Rust preprocess',
     };
     return values[parameter] ?? parameterValues[parameter] ?? '—';
   }
@@ -125,7 +125,9 @@ function parameterValue(moduleId: string | undefined, method: string | undefined
     if (parameter === 'cfa_pattern' || parameter === 'cfa') return dngFrame.cfa;
     const gainIndex = { red_gain: 0, green_gain: 1, blue_gain: 2 }[parameter];
     if (gainIndex !== undefined) return dngFrame.whiteBalanceGains[gainIndex] ?? '—';
+    if (parameter === 'hr_gain') return 'Rust preprocess';
   }
+  if (parameter === 'hr_gain') return 'Rust preprocess';
   return parameterValues[parameter] ?? '—';
 }
 
@@ -155,6 +157,8 @@ export function NodeInspector({ nodeId, envelope, dngFrame, dngSequence = null, 
       : <><button aria-label={`Tune ${descriptor.parameter}`} className="inspector-tune-button" disabled={!canConfigure} onClick={() => setTuningTarget({ moduleAddress: `vbe.${executionNode!.id}`, moduleId: executionNode!.id, method: selectedMethod.method, parameter: descriptor.parameter, controlKind: descriptor.controlKind })} type="button">✎</button><button aria-label={`Reset ${descriptor.parameter} to factory`} className="inspector-reset-button" disabled={!canConfigure} onClick={() => onParameterReset(executionNode!.id, descriptor.parameter)} type="button">↺</button></>;
     let editor: ReactNode;
     if (parameter === 'cfa_pattern') editor = <output>{value}</output>;
+    else if (parameter === 'enable_highlight_recovery') editor = <ToggleSwitch label={`${treeNode.label} highlight recovery`} checked={value === 1} disabled={!canConfigure} onToggle={(checked) => onParameterChange(executionNode!.id, parameter, checked ? 1 : 0)} />;
+    else if (parameter === 'enable_details_amplify') editor = <ToggleSwitch label={`${treeNode.label} details amplify`} checked={value === 1} disabled={!canConfigure} onToggle={(checked) => onParameterChange(executionNode!.id, parameter, checked ? 1 : 0)} />;
     else if (editableScalar) editor = <span className={`inspector-parameter-editor${dirty ? ' is-dirty' : ''}`} data-parameter-dirty={dirty ? parameter : undefined}><input aria-label={parameter} data-current-parameter-value={`${parameter}:${value}`} disabled={!canConfigure} type="number" min={parameter === 'gamma' ? 1.8 : undefined} max={parameter === 'gamma' ? 2.4 : undefined} step="0.1" value={value === '—' ? '' : value} onChange={(event) => onParameterChange(executionNode!.id, parameter, Number(event.target.value))} />{tuningActions}</span>;
     else if (descriptor !== null) editor = <span className="inspector-parameter-editor"><output>{value}</output>{tuningActions}</span>;
     else editor = <output>{value}</output>;

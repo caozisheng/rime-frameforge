@@ -18,3 +18,6 @@ pub const DEFINITION: OperatorDefinition = OperatorDefinition {
 pub static OPERATOR: crate::operator::StaticOperator = crate::operator::StaticOperator {
     definition: &DEFINITION,
 };
+
+/// The BLC algorithm shader, single source for native and web executors.
+pub const BLC_PIPELINE_WGSL: &str = include_str!("blc00.wgsl");

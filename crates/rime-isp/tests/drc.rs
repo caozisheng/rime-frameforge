@@ -195,6 +195,29 @@ fn local_tone_lut_falls_back_for_empty_tiles_and_stays_monotonic() {
 }
 
 #[test]
+fn bayer_local_statistics_ignore_stride_padding_and_preserve_edge_weights() {
+    let samples = [0, 64, u16::MAX, 128, 255, u16::MAX];
+    let statistics =
+        rime_isp::vbe::drc::build_bayer_local_statistics(&samples, 2, 2, 3, 0.0, 255.0)
+            .expect("valid padded Bayer frame");
+
+    assert_eq!(
+        (
+            statistics.tiles_x(),
+            statistics.tiles_y(),
+            statistics.bins()
+        ),
+        (8, 6, 64)
+    );
+    let histogram = statistics.histograms();
+    assert_eq!(histogram.iter().sum::<u32>(), 4);
+    assert_eq!(histogram[9], 1);
+    assert_eq!(histogram[4 * 64 + 13], 1);
+    assert_eq!(histogram[24 * 64 + 16], 1);
+    assert_eq!(histogram[28 * 64 + 21], 1);
+}
+
+#[test]
 fn module_parameter_packet_owns_frozen_lut_resources() {
     use rime_isp::{FrameIdentity, ModuleParameterPacket, ModuleParameterResource};
 
@@ -285,7 +308,10 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -323,6 +349,139 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
     let lut = packet.resource("tone_lut_global").expect("global tone LUT");
     assert_eq!(lut.extent(), [257, 1, 1]);
     assert_eq!(lut.bytes().len(), 257 * size_of::<f32>());
+}
+
+#[test]
+fn drc_preprocess_bakes_custom_modulation_curves() {
+    use rime_isp::vbe::drc::DrcModulationCurves;
+
+    let mut context = drc00_baseline_context();
+    context.drc_modulation_curves = Some(DrcModulationCurves {
+        edge: vec![(0.0, 0.0), (1.0, 1.0)],
+        luma: vec![(0.0, 1.0), (1.0, 0.0)],
+    });
+    let packet = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &context)
+        .expect("custom DRC modulation curves");
+    let bytes = packet
+        .resource("modulation_luts")
+        .expect("modulation LUT resource")
+        .bytes();
+    let sample = |index: usize| {
+        f32::from_ne_bytes(
+            bytes[index * 4..index * 4 + 4]
+                .try_into()
+                .expect("LUT sample"),
+        )
+    };
+
+    assert_eq!(sample(0), 0.0);
+    assert_eq!(sample(63), 1.0);
+    assert_eq!(sample(64), 1.0);
+    assert_eq!(sample(127), 0.0);
+}
+
+fn drc00_baseline_context() -> rime_isp::PreprocessContext {
+    use rime_isp::{FrameIdentity, PreprocessContext};
+    PreprocessContext {
+        identity: FrameIdentity {
+            frame_index: 8,
+            run_revision: 2,
+            method_revision: 5,
+        },
+        width: 64,
+        height: 48,
+        black_level: 0.0,
+        white_level: 4095.0,
+        cfa_pattern: [0, 1, 1, 2],
+        as_shot_neutral: Some([0.5, 1.0, 0.25]),
+        as_shot_white_xy: None,
+        color_matrix1: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+        analog_balance: None,
+        scene_brightness_ev: None,
+        exposure_deviation_ev: None,
+        iso: Some(100.0),
+        analog_gain: None,
+        digital_gain: None,
+        baseline_exposure_ev: Some(1.0),
+        exposure_time_seconds: Some(0.01),
+        f_number: Some(2.8),
+        drc_local_statistics: None,
+        drc_exposure_policy: DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
+        drc_gain_offset_ev: None,
+        drc_knee: None,
+        drc_amplifier: None,
+        drc_modulation_curves: None,
+        wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
+    }
+}
+
+use rime_isp::Operator as _;
+
+#[test]
+fn drc_gain_multiplies_threaded_hr_gain() {
+    // Design §3.6 (MATLAB semantics): WBC divides hr_gain out of its
+    // divided-domain output; DRC multiplies it back through drc_gain so
+    // exposure is preserved. With HR off, hr_gain = 1.0 (identity).
+    let context = drc00_baseline_context();
+    let base = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &context)
+        .expect("baseline DRC00");
+    let mut with_hr = context.clone();
+    with_hr.wbc_hr_gain = Some(2.0);
+    let packet = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &with_hr)
+        .expect("DRC00 with threaded hr_gain");
+    let base_gain = f32::from_ne_bytes(base.bytes()[0..4].try_into().expect("gain bytes"));
+    let threaded_gain = f32::from_ne_bytes(packet.bytes()[0..4].try_into().expect("gain bytes"));
+    assert!(
+        (threaded_gain - base_gain * 2.0).abs() < 1e-5,
+        "drc_gain must multiply the threaded hr_gain: base {base_gain}, got {threaded_gain}"
+    );
+}
+
+#[test]
+fn drc_rejects_missing_hr_gain_when_highlight_recovery_is_on() {
+    let mut context = drc00_baseline_context();
+    context.wbc_highlight_recovery = true;
+    let error = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &context)
+        .expect_err("broken WBC-to-DRC thread must fail loudly");
+    assert!(
+        error
+            .to_string()
+            .contains("highlight recovery gain missing from WBC packet"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn drc_rejects_out_of_range_threaded_hr_gain() {
+    let mut context = drc00_baseline_context();
+    context.wbc_hr_gain = Some(0.5);
+    let error = rime_isp::vbe::drc::OPERATOR
+        .preprocess("00", &context)
+        .expect_err("hr_gain < 1 must fail (WBC only attenuates)");
+    assert!(
+        error
+            .to_string()
+            .contains("highlight recovery gain is outside the valid range"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]
@@ -373,7 +532,10 @@ fn drc01_preprocess_freezes_local_lut_field() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -443,7 +605,10 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         drc_gain_offset_ev: Some(1.0),
         drc_knee: Some(0.5),
         drc_amplifier: Some(2.5),
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let packet = rime_isp::vbe::drc::OPERATOR
         .preprocess("00", &context)
@@ -525,7 +690,10 @@ fn drc_iq_rejects_non_finite_and_out_of_range_values() {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     for (name, context) in [
         (

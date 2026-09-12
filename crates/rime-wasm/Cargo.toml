@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rime-core = { path = "../rime-core" }
 rime-isp = { path = "../rime-isp" }
+serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
 

@@ -86,16 +86,27 @@ impl GraphQuantizationConfig {
                     .as_deref()
                     .map(|module_id| (module_id, node.mode))
             })
-            .map(|(module_id, mode)| ModuleQuantizationPreference {
-                module_id: module_id.into(),
-                output_enabled: mode == NodeExecutionMode::Enabled,
-                output_profile: match module_id {
-                    "blc" => "s0.14",
-                    "wbc" | "dem" => "s0.12",
+            .map(|(module_id, mode)| {
+                // Default output-profile ladder (top-architecture-design §6.4):
+                // every output precision derives from its input precision.
+                // - VFE (blc..cac): s0.x with x = max(14, input_bits + 2);
+                //   the +2 bits reserve highlight-recovery headroom.
+                // - VBE before gamma (drc..color_reproduce): s0.12.
+                // - gamma and after (gamma..rgb2yuv): u0.10; gamma removes
+                //   negatives, so the domain loses its sign bit.
+                let output_profile = match module_id {
+                    "blc" | "sbpc_horizontal" | "dbpc" | "sbpc" | "raw_nr" | "tintless" | "lsc"
+                    | "wbc" | "cac" => "s0.14",
+                    "drc" | "dem" | "pfr" | "color_reproduce" => "s0.12",
+                    "gamma" | "three_d_lut" | "rgb2yuv" => "u0.10",
                     _ => "s0.10",
+                };
+                ModuleQuantizationPreference {
+                    module_id: module_id.into(),
+                    output_enabled: mode == NodeExecutionMode::Enabled,
+                    output_profile: output_profile.into(),
+                    clip_type: ClipType::Truncate,
                 }
-                .into(),
-                clip_type: ClipType::Truncate,
             })
             .collect();
         let config = Self {

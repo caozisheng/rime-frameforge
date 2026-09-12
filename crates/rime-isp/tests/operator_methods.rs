@@ -62,7 +62,7 @@ fn wbc_owns_highlight_recovery_and_cac_uses_industry_name() {
         wbc.methods[0]
             .parameters
             .split_whitespace()
-            .any(|parameter| parameter == "highlight_recovery")
+            .any(|parameter| parameter == "enable_highlight_recovery")
     );
     assert_eq!(cac.label, "CAC");
     let cac_method = cac.methods.first().expect("CAC method");
@@ -268,7 +268,7 @@ fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hs_lut() {
     );
     assert!(
         !source.contains("* hue_divs + h) * sat_divs + s"),
-            "value dimension must not participate in the lookup index"
+        "value dimension must not participate in the lookup index"
     );
     // Three independent per-channel clips (MATLAB steps 7, 10, 12); the
     // ratio-preserving saturation clip belongs to the DEM family, not CR.

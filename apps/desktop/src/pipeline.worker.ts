@@ -4,6 +4,7 @@ import { NormalGpuExecutor } from '../../../web/src/gpu/executor.js';
 import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
 import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters } from '../../../web/src/gpu/drc.js';
+import { DEFAULT_GAMMA_PARAMETERS } from '../../../web/src/gpu/gamma.js';
 import type { DrcIqParameters, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
 import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
@@ -20,6 +21,8 @@ let deviceWasLost = false;
 const selectedMethods: Record<string, string> = { dem: '00' };
 let bypassConfig: GraphBypassConfig = defaultGraphBypassConfig();
 const parameterValues: Record<string, number> = {
+  enable_highlight_recovery: 0,
+  enable_details_amplify: 1,
   vng_threshold: 1.5,
   ahd_l_threshold: 2.0,
   ahd_c_threshold_sq: 4.0,
@@ -103,7 +106,6 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
   if (command.type === 'set_quantization_config') {
     envelope = authority.setQuantizationConfig(command.config);
-    executor?.setQuantizationConfig(JSON.parse(command.config) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0]);
     self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
     return;
   }
@@ -195,18 +197,39 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
   }
 }
 
+function parameterNode(parameter: string): string {
+  if (parameter === 'enable_highlight_recovery') return 'wbc';
+  if (parameter === 'enable_details_amplify') return 'drc';
+  if (parameter === 'gamma') return 'gamma';
+  return 'dem';
+}
+
 function createExecutor(generation: number): void {
   if (gpu === null || rawAsset === null || descriptor === null || authority === null) {
     throw new Error('INVALID_STATE_TRANSITION: GPU inputs are unavailable');
   }
-  const quantization = JSON.parse(authority.quantizationConfig()) as Parameters<NormalGpuExecutor['setQuantizationConfig']>[0];
-  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, quantization);
+  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, (identity) => {
+    if (authority === null || rawAsset === null || descriptor === null) {
+      throw new Error('INVALID_STATE_TRANSITION: frame packet inputs are unavailable');
+    }
+    return authority.deriveFramePackets(
+      descriptor,
+      rawAsset,
+      rawByteOffset,
+      identity.frameIndex,
+      selectedMethods,
+      parameterValues,
+      lutValues.gamma_lut ?? DEFAULT_GAMMA_PARAMETERS.lut,
+      drcIqParameters,
+      bypassConfig.modules,
+    );
+  });
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   if ('setBypassConfig' in executor) {
     (executor as NormalGpuExecutor & { setBypassConfig(config: GraphBypassConfig): void }).setBypassConfig(bypassConfig);
   }
   executor.setDrcIqParameters(drcIqParameters, drcIqParameters.edge_curve !== undefined && drcIqParameters.luma_curve !== undefined ? { edge: drcIqParameters.edge_curve, luma: drcIqParameters.luma_curve } : undefined);
-  for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
+  for (const [parameter, value] of Object.entries(parameterValues)) executor.setParameter(parameterNode(parameter), parameter, value);
   for (const [parameter, values] of Object.entries(lutValues)) executor.setLut(parameter, values);
   controller = new RuntimeController(
     executor,
@@ -219,7 +242,9 @@ function createExecutor(generation: number): void {
         envelope,
         entry: { level: 'info', message: `frame ${envelope.frameIndex ?? 0} ${phase} completed`, framePhase: phase },
       } satisfies RuntimeEvent);
-    }
+    },
+    () => authority?.completeFrame(),
+    () => authority?.abortFrame(),
   );
 }
 

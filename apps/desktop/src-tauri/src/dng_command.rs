@@ -279,7 +279,10 @@ fn color_reproduce_assets(
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     };
     let operator = rime_isp::operator_by_id("color_reproduce")
         .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: operator missing".to_owned())?;

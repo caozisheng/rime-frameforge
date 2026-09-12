@@ -261,7 +261,9 @@ fn combine(pixel: vec2<u32>, mapped: f32) -> f32 {
   if (luma <= params.luma_guard) { return raw; }
   let detail = luma - base;
   let luma_mask = luma_mask_smoothed(input_b, position);
-  let target_value = mapped + params.amplifier * detail * luma_mask;
+  // feature_flags bit 0 gates the details re-injection (amplifier path).
+  let amplification = select(0.0, params.amplifier * detail * luma_mask, (params.feature_flags & 1u) == 1u);
+  let target_value = mapped + amplification;
   return clamp(raw * clamp(target_value / luma, params.min_ratio, params.max_ratio), 0.0, 1.0);
 }
 

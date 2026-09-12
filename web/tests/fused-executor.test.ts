@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { RawFrameDescriptor } from '../src/contracts.js';
-import { normalGraphQuantization } from '../src/generated/normal_quantization.generated.js';
+import type { FramePacketProvider, RawFrameDescriptor } from '../src/contracts.js';
 import type { GpuContext } from '../src/gpu/device.js';
 import { defaultGraphBypassConfig } from '../src/gpu/bypass.js';
 import { NormalGpuExecutor } from '../src/gpu/executor.js';
@@ -9,7 +8,19 @@ import { NormalGpuExecutor } from '../src/gpu/executor.js';
 const descriptor: RawFrameDescriptor = {
   width: 2, height: 2, rowStrideSamples: 2, storageBits: 16,
   cfa: 'rggb', blackLevel: 64, whiteLevel: 4095, whiteBalanceGains: [2, 1, 1.5],
+  metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
 };
+const packetProvider: FramePacketProvider = () => ({
+  blcUniform: new Uint8Array(16),
+  wbcUniform: new Uint8Array(48),
+  drcUniform: new Uint8Array(32),
+  demUniform: new Uint8Array(32),
+  drcGlobalLut: new Uint8Array(1028),
+  drcLocalLut: new Uint8Array(),
+  drcModulationLuts: new Uint8Array(512),
+  fusedUniform: new Uint8Array(1024),
+  colorReproduceHsLut: new Uint8Array(),
+});
 
 function fusedGpu() {
   const counts = { computePasses: 0, renderPasses: 0, submits: 0, waits: 0, dispatches: 0, draws: 0, scissors: [] as number[], sampleCopies: 0 };
@@ -62,34 +73,34 @@ beforeEach(() => {
 describe('fused Normal GPU executor', () => {
   it('encodes compute and preview into one submission and one frame fence', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-    expect(fake.counts).toMatchObject({ computePasses: 14, renderPasses: 1, submits: 1, waits: 1, dispatches: 14, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 15, renderPasses: 1, submits: 1, waits: 1, dispatches: 15, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('encodes bounded complex DEM segments in one submission and one frame fence', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 2, gpuGeneration: 1 };
     executor.setMethod('dem', '02');
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-    expect(fake.counts).toMatchObject({ computePasses: 17, renderPasses: 1, submits: 1, waits: 1, dispatches: 17, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ computePasses: 18, renderPasses: 1, submits: 1, waits: 1, dispatches: 18, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('rebinds two committed outputs for Compare without recomputing the graph', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     executor.prepare(identity);
     await executor.execute('output', identity);
 
     await executor.present('blc', 'dem', 0.4);
-    expect(fake.counts.computePasses).toBe(14);
+    expect(fake.counts.computePasses).toBe(15);
     expect(fake.counts.renderPasses).toBe(2);
     expect(fake.counts.draws).toBe(3);
     expect(fake.counts.scissors).toEqual([1]);
@@ -97,7 +108,7 @@ describe('fused Normal GPU executor', () => {
 
   it('reads one native GPU sample without copying an image', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     executor.prepare(identity);
     await executor.execute('output', identity);
@@ -110,9 +121,9 @@ describe('fused Normal GPU executor', () => {
   });
   it('skips DRC compute work and retains a presentable DRC preview alias', async () => {
     const normal = fusedGpu();
-    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const bypassed = fusedGpu();
-    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     const bypassConfig = defaultGraphBypassConfig();
 
@@ -127,23 +138,23 @@ describe('fused Normal GPU executor', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
     await executor.present('drc', null, 0.5);
-    expect(normal.counts.computePasses).toBe(14);
-    expect(bypassed.counts.computePasses).toBe(16);
-    expect(bypassed.counts.computePasses - normal.counts.computePasses).toBe(2);
-    expect(bypassed.counts).toMatchObject({ dispatches: 16, renderPasses: 3, submits: 3, waits: 3, draws: 3 });
+    expect(normal.counts.computePasses).toBe(15);
+    expect(bypassed.counts.computePasses).toBe(18);
+    expect(bypassed.counts.computePasses - normal.counts.computePasses).toBe(3);
+    expect(bypassed.counts).toMatchObject({ dispatches: 18, renderPasses: 3, submits: 3, waits: 3, draws: 3 });
   });
 });
 
   it('rejects parameters submitted to the wrong graph node', () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     expect(() => executor.setParameter('gamma', 'ahd_l_threshold', 3)).toThrow('PARAMETER_INVALID');
     expect(() => executor.setParameter('dem', 'gamma', 2.4)).toThrow('PARAMETER_INVALID');
     expect(() => executor.setParameter('gamma', 'gamma', 2.4)).not.toThrow();
   });
   it('accepts valid DRC IQ parameters and rejects invalid values', () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, normalGraphQuantization);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     expect(() => executor.setDrcIqParameters({ drc_gain_offset_ev: 0.5, knee: 1.2, amplifier: 0.8 })).not.toThrow();
     expect(() => executor.setDrcIqParameters({ drc_gain_offset_ev: 5, knee: 1, amplifier: 1 })).toThrow('DRC_IQ_INVALID');
   });

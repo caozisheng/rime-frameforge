@@ -150,8 +150,16 @@ pub struct PreprocessContext {
     pub drc_knee: Option<f32>,
     /// Optional DRC detail amplifier; omitted means the Sony reference default of three.
     pub drc_amplifier: Option<f32>,
+    /// Optional normalized edge/luma modulation curves; omitted uses the module defaults.
+    pub drc_modulation_curves: Option<crate::vbe::drc::DrcModulationCurves>,
     /// WBC internal highlight-recovery switch (wbc00); default off.
     pub wbc_highlight_recovery: bool,
+    /// Highlight-recovery container gain threaded from the WBC preprocess
+    /// packet (offset 12) by the scheduler; `None` until WBC has run.
+    pub wbc_hr_gain: Option<f32>,
+    /// DRC details re-injection switch (drc00/01 `feature_flags` bit 0);
+    /// default on to preserve the reference amplifier behavior.
+    pub drc_details_amplify: bool,
 }
 
 #[derive(Debug)]

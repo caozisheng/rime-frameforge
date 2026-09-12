@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "b4b5f8a8a358e4bfd1195a0d0855d4195d4fb63a8afe94bc8ef087dd3f297687",
+  "manifest_hash": "65a3c0c888e78630da21aa616f1f9b7c96da65c68c58f4ccc72a2d2f9e2f2a44",
   "nodes": [
     {
       "id": "raw_source",
@@ -320,7 +320,8 @@ export const normalManifest = {
             "red_gain",
             "green_gain",
             "blue_gain",
-            "highlight_recovery"
+            "enable_highlight_recovery",
+            "hr_gain"
           ]
         }
       ]
@@ -395,8 +396,10 @@ export const normalManifest = {
           "shader_entry": "drc_combine_global_main",
           "parameters": [
             "drc_gain",
+            "hr_gain",
             "knee",
             "amplifier",
+            "enable_details_amplify",
             "luma_guard",
             "min_ratio",
             "max_ratio",
@@ -411,8 +414,10 @@ export const normalManifest = {
           "shader_entry": "drc_combine_local_main",
           "parameters": [
             "drc_gain",
+            "hr_gain",
             "knee",
             "amplifier",
+            "enable_details_amplify",
             "luma_guard",
             "min_ratio",
             "max_ratio",

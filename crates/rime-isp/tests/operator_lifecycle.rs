@@ -1,42 +1,98 @@
-use rime_isp::{normal_operators, operator_by_id};
+use rime_isp::{
+    FrameIdentity, OperatorPhase, PreprocessContext, complete_operator_methods,
+    prepare_operator_methods,
+};
 
-#[test]
-fn normal_registry_exposes_complete_executable_operator_assets() {
-    let operators = normal_operators();
-
-    assert_eq!(operators.len(), 16);
-    for operator in operators {
-        let definition = operator.definition();
-        let shader = operator
-            .shader(definition.default_method)
-            .expect("default method must own a shader asset");
-
-        assert_eq!(
-            shader.entry_point,
-            definition
-                .methods
-                .iter()
-                .find(|method| method.method == definition.default_method)
-                .expect("default method")
-                .shader_entry
-        );
-        assert_ne!(shader.bindings.input, shader.bindings.output);
-        assert_eq!(
-            shader.bindings.uniform.is_some(),
-            matches!(
-                definition.id,
-                "blc" | "drc" | "wbc" | "dem" | "gamma" | "color_reproduce"
-            ),
-            "{} uniform binding differs from its parameter packet contract",
-            definition.id
-        );
+fn context() -> PreprocessContext {
+    PreprocessContext {
+        identity: FrameIdentity {
+            frame_index: 7,
+            run_revision: 2,
+            method_revision: 3,
+        },
+        width: 4,
+        height: 3,
+        black_level: 64.0,
+        white_level: 4095.0,
+        cfa_pattern: [0, 1, 1, 2],
+        as_shot_neutral: Some([0.25, 1.0, 0.5]),
+        as_shot_white_xy: None,
+        color_matrix1: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        color_matrix2: None,
+        calibration_illuminant1_code: None,
+        calibration_illuminant2_code: None,
+        camera_calibration1: None,
+        camera_calibration2: None,
+        camera_calibration_signature: None,
+        profile_calibration_signature: None,
+        profile_hue_sat_map_dims: None,
+        profile_hue_sat_map_data1: None,
+        profile_hue_sat_map_data2: None,
+        analog_balance: None,
+        scene_brightness_ev: None,
+        exposure_deviation_ev: None,
+        iso: None,
+        analog_gain: None,
+        digital_gain: None,
+        baseline_exposure_ev: None,
+        exposure_time_seconds: None,
+        f_number: None,
+        drc_local_statistics: None,
+        drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
+        drc_metered_target_ev100: None,
+        drc_profile_adjustment_ev: 0.0,
+        drc_gain_offset_ev: None,
+        drc_knee: None,
+        drc_amplifier: None,
+        drc_modulation_curves: None,
+        wbc_highlight_recovery: true,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     }
 }
 
 #[test]
-fn operator_lookup_returns_the_registered_trait_object() {
-    let wbc = operator_by_id("wbc").expect("WBC operator");
+fn shared_lifecycle_splits_preprocess_and_postprocess_around_compute() {
+    let prepared =
+        prepare_operator_methods(&[("blc", "00"), ("wbc", "00"), ("drc", "00")], &context())
+            .expect("shared preprocess");
 
-    assert_eq!(wbc.definition().label, "WBC");
-    assert!(operator_by_id("pyrd").is_none());
+    let module_ids = prepared
+        .packets()
+        .iter()
+        .map(rime_isp::ModuleParameterPacket::module_id)
+        .collect::<Vec<_>>();
+    assert_eq!(module_ids, ["blc", "wbc", "drc"]);
+
+    let drc_gain = f32::from_ne_bytes(
+        prepared.packets()[2].bytes()[0..4]
+            .try_into()
+            .expect("DRC gain bytes"),
+    );
+    assert!((drc_gain - 2.0).abs() < f32::EPSILON);
+    assert_eq!(
+        prepared
+            .events()
+            .iter()
+            .map(|event| event.phase)
+            .collect::<Vec<_>>(),
+        [
+            OperatorPhase::Preprocess,
+            OperatorPhase::Preprocess,
+            OperatorPhase::Preprocess,
+        ]
+    );
+
+    let postprocess_events = complete_operator_methods(&prepared).expect("shared postprocess");
+    assert_eq!(
+        postprocess_events
+            .iter()
+            .map(|event| event.phase)
+            .collect::<Vec<_>>(),
+        [
+            OperatorPhase::Postprocess,
+            OperatorPhase::Postprocess,
+            OperatorPhase::Postprocess,
+        ]
+    );
 }

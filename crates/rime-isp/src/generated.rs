@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use rime_core::{Diagnostic, DiagnosticCode};
 
 /// Serializes the Normal Graph manifest as canonical JSON.
@@ -82,4 +84,89 @@ pub fn render_drc_pipeline_typescript() -> Result<String, Diagnostic> {
         )
     })?;
     Ok(format!("export const drcPipelineWgsl = {source};\n"))
+}
+
+/// Renders the WBC single-source WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_wbc_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source =
+        serde_json::to_string(crate::vfe::white_balance::WBC_PIPELINE_WGSL).map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::ManifestInvalid,
+                format!("failed to serialize WBC pipeline WGSL: {error}"),
+            )
+        })?;
+    Ok(format!("export const wbcPipelineWgsl = {source};\n"))
+}
+
+/// Renders the fused-view Normal Graph WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_fused_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source = serde_json::to_string(&crate::fused_view::render_fused_normal_shader()).map_err(
+        |error| {
+            Diagnostic::new(
+                DiagnosticCode::ManifestInvalid,
+                format!("failed to serialize fused pipeline WGSL: {error}"),
+            )
+        },
+    )?;
+    Ok(format!("export const fusedPipelineWgsl = {source};\n"))
+}
+
+/// Renders the segmented (complex-DEM) Normal Graph shader set as one asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when a shader cannot be serialized or the DEM
+/// method is unknown.
+pub fn render_segmented_fused_typescript() -> Result<String, Diagnostic> {
+    let mut segments = String::new();
+    for method in ["01", "02", "03", "04"] {
+        let shaders =
+            crate::fused_view::render_segmented_normal_shaders(method).map_err(|error| {
+                Diagnostic::new(
+                    DiagnosticCode::ManifestInvalid,
+                    format!("failed to render segmented Normal Graph shaders: {error}"),
+                )
+            })?;
+        let [pre, dem, quantize, post] = shaders;
+        let json = serde_json::json!({
+            "pre": pre,
+            "dem": dem,
+            "quantize": quantize,
+            "post": post,
+        });
+        let serialized = serde_json::to_string(&json).map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::ManifestInvalid,
+                format!("failed to serialize segmented Normal Graph shaders: {error}"),
+            )
+        })?;
+        let _ = writeln!(
+            segments,
+            "export const segmented{method}Shaders = {serialized};"
+        );
+    }
+    Ok(segments)
+}
+
+/// Renders the BLC single-source WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_blc_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source = serde_json::to_string(crate::vfe::blc::BLC_PIPELINE_WGSL).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize BLC pipeline WGSL: {error}"),
+        )
+    })?;
+    Ok(format!("export const blcPipelineWgsl = {source};\n"))
 }

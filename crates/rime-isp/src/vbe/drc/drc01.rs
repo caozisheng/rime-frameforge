@@ -13,7 +13,7 @@ pub const METHOD_01: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "drc_gain knee amplifier luma_guard min_ratio max_ratio level_count feature_flags analysis_wbc_gains global_tone_lut local_tone_lut",
+    "drc_gain hr_gain knee amplifier enable_details_amplify luma_guard min_ratio max_ratio level_count feature_flags analysis_wbc_gains global_tone_lut local_tone_lut",
     None,
     shader_plan(
         "01",

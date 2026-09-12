@@ -88,9 +88,10 @@ fn prepare(
     write_f32(&mut uniform, 16, DEFAULT_MIN_RATIO);
     write_f32(&mut uniform, 20, drc_gain * 4.0);
     write_u32(&mut uniform, 24, DEFAULT_LEVEL_COUNT);
-    let feature_flags = 1 | ((tiles_x & 0xff) << 8) | ((tiles_y & 0xff) << 16);
+    let feature_flags =
+        u32::from(context.drc_details_amplify) | ((tiles_x & 0xff) << 8) | ((tiles_y & 0xff) << 16);
     write_u32(&mut uniform, 28, feature_flags);
-    let modulation_luts = bake_modulation_luts();
+    let modulation_luts = bake_modulation_luts(context.drc_modulation_curves.as_ref(), module_id)?;
     let mut packet = ModuleParameterPacket::new(module_id, method, context.identity, &uniform)?;
     packet.push_resource(ModuleParameterResource::new(
         "tone_lut_global",
@@ -116,16 +117,39 @@ fn prepare(
     Ok(packet)
 }
 
-fn bake_modulation_luts() -> Vec<f32> {
+fn bake_modulation_luts(
+    curves: Option<&super::DrcModulationCurves>,
+    module_id: &'static str,
+) -> Result<Vec<f32>, OperatorError> {
+    let (edge, luma) = curves.map_or(
+        (
+            REFERENCE_EDGE_CURVE.as_slice(),
+            REFERENCE_LUMA_CURVE.as_slice(),
+        ),
+        |curves| (curves.edge.as_slice(), curves.luma.as_slice()),
+    );
+    if curves.is_some() && (!valid_modulation_curve(edge) || !valid_modulation_curve(luma)) {
+        return Err(OperatorError::Preprocess {
+            module_id,
+            reason: "invalid DRC modulation curve",
+        });
+    }
     let mut luts = Vec::with_capacity(MODULATION_SAMPLES * 2);
     let scale = 1.0_f64 / (MODULATION_SAMPLES as f64 - 1.0);
-    for sample in 0..MODULATION_SAMPLES {
-        luts.push(interpolate_reference_curve(&REFERENCE_EDGE_CURVE, sample as f64 * scale) as f32);
+    for curve in [edge, luma] {
+        for sample in 0..MODULATION_SAMPLES {
+            luts.push(interpolate_reference_curve(curve, sample as f64 * scale) as f32);
+        }
     }
-    for sample in 0..MODULATION_SAMPLES {
-        luts.push(interpolate_reference_curve(&REFERENCE_LUMA_CURVE, sample as f64 * scale) as f32);
-    }
-    luts
+    Ok(luts)
+}
+
+fn valid_modulation_curve(curve: &[(f64, f64)]) -> bool {
+    curve.len() >= 2
+        && curve.iter().all(|&(x, y)| {
+            x.is_finite() && y.is_finite() && (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)
+        })
+        && curve.windows(2).all(|points| points[0].0 < points[1].0)
 }
 
 fn interpolate_reference_curve(curve: &[(f64, f64)], x: f64) -> f64 {
@@ -170,7 +194,29 @@ fn resolve_gain(
         module_id,
         reason: "invalid DRC exposure metadata",
     })?;
-    let drc_gain = ((exposure.drc_gain as f32) * 2.0_f32.powf(offset)).max(1.0);
+    let base_gain = ((exposure.drc_gain as f32) * 2.0_f32.powf(offset)).max(1.0);
+    // Design §3.6 (MATLAB semantics): WBC divides hr_gain out of the
+    // divided-domain output; DRC multiplies it back through drc_gain so
+    // exposure is preserved. With HR off, hr_gain = 1.0 and both sides
+    // are identity. The match also enforces the broken-thread contract
+    // (HR on but no threaded gain -> loud failure).
+    let hr_gain = match context.wbc_hr_gain {
+        Some(gain) if gain.is_finite() && gain >= 1.0 => gain,
+        Some(_) => {
+            return Err(OperatorError::Preprocess {
+                module_id,
+                reason: "highlight recovery gain is outside the valid range",
+            });
+        }
+        None if context.wbc_highlight_recovery => {
+            return Err(OperatorError::Preprocess {
+                module_id,
+                reason: "highlight recovery gain missing from WBC packet",
+            });
+        }
+        None => 1.0,
+    };
+    let drc_gain = base_gain * hr_gain;
     if !drc_gain.is_finite() || drc_gain <= 0.0 {
         return Err(OperatorError::Preprocess {
             module_id,

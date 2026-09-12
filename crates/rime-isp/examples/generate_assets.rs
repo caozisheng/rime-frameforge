@@ -3,8 +3,10 @@ use std::{fs, path::Path};
 use rime_core::render_top_graph_presentation_typescript;
 
 use rime_isp::{
-    render_drc_pipeline_typescript, render_normal_graph_presentation_typescript,
+    render_blc_pipeline_typescript, render_drc_pipeline_typescript,
+    render_fused_pipeline_typescript, render_normal_graph_presentation_typescript,
     render_normal_graph_quantization_typescript, render_normal_manifest_typescript,
+    render_segmented_fused_typescript, render_wbc_pipeline_typescript,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,6 +35,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         web_dir.join("drc_pipeline.generated.ts"),
         render_drc_pipeline_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("fused_pipeline.generated.ts"),
+        render_fused_pipeline_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("blc_pipeline.generated.ts"),
+        render_blc_pipeline_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("segmented_fused.generated.ts"),
+        render_segmented_fused_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("wbc_pipeline.generated.ts"),
+        render_wbc_pipeline_typescript()?,
     )?;
     Ok(())
 }

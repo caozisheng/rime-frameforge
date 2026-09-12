@@ -87,10 +87,99 @@ impl DrcLocalStatistics {
         self.bins
     }
 
+    #[must_use]
+    pub fn histograms(&self) -> &[u32] {
+        &self.histograms
+    }
+
     fn tile_histogram(&self, tile: usize) -> &[u32] {
         let bins = self.bins as usize;
         &self.histograms[tile * bins..(tile + 1) * bins]
     }
+}
+struct BayerLumaPlane<'a> {
+    samples: &'a [u16],
+    width: u32,
+    height: u32,
+    row_stride_samples: u32,
+    black_level: f32,
+    range: f32,
+}
+
+/// Builds the fixed-grid luminance histograms consumed by DRC method 01.
+pub fn build_bayer_local_statistics(
+    samples: &[u16],
+    width: u32,
+    height: u32,
+    row_stride_samples: u32,
+    black_level: f32,
+    white_level: f32,
+) -> Result<DrcLocalStatistics, DrcToneError> {
+    const TILES_X: u32 = 8;
+    const TILES_Y: u32 = 6;
+    const BINS: u32 = 64;
+    let expected_samples = usize::try_from(row_stride_samples)
+        .ok()
+        .and_then(|stride| {
+            usize::try_from(height)
+                .ok()
+                .and_then(|height| stride.checked_mul(height))
+        })
+        .ok_or(DrcToneError::InvalidStatistics)?;
+    if width == 0
+        || height == 0
+        || row_stride_samples < width
+        || samples.len() != expected_samples
+        || !black_level.is_finite()
+        || !white_level.is_finite()
+        || white_level <= black_level
+    {
+        return Err(DrcToneError::InvalidStatistics);
+    }
+
+    let mut histograms = vec![0_u32; (TILES_X * TILES_Y * BINS) as usize];
+    let range = white_level - black_level;
+    let plane = BayerLumaPlane {
+        samples,
+        width,
+        height,
+        row_stride_samples,
+        black_level,
+        range,
+    };
+    for y in 0..height {
+        for x in 0..width {
+            let normalized = bayer_luma_3x3(&plane, x, y).clamp(0.0, 1.0);
+            let tile_x = (x * TILES_X / width).min(TILES_X - 1);
+            let tile_y = (y * TILES_Y / height).min(TILES_Y - 1);
+            let bin = ((normalized * (BINS - 1) as f32).floor() as u32).min(BINS - 1);
+            let index = ((tile_y * TILES_X + tile_x) * BINS + bin) as usize;
+            histograms[index] = histograms[index].saturating_add(1);
+        }
+    }
+    DrcLocalStatistics::new(TILES_X, TILES_Y, BINS, histograms)
+}
+
+fn bayer_luma_3x3(plane: &BayerLumaPlane<'_>, x: u32, y: u32) -> f32 {
+    const WEIGHTS: [f32; 3] = [1.0, 2.0, 1.0];
+    let mut sum = 0.0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let sample_x = i64::from(x) + i64::from(dx);
+            let sample_y = i64::from(y) + i64::from(dy);
+            if sample_x < 0
+                || sample_y < 0
+                || sample_x >= i64::from(plane.width)
+                || sample_y >= i64::from(plane.height)
+            {
+                continue;
+            }
+            let index = (sample_y as u32 * plane.row_stride_samples + sample_x as u32) as usize;
+            let normalized = (f32::from(plane.samples[index]) - plane.black_level) / plane.range;
+            sum += normalized * WEIGHTS[(dx + 1) as usize] * WEIGHTS[(dy + 1) as usize];
+        }
+    }
+    sum / 16.0
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -31,6 +31,22 @@ export interface ColorReproduceAssets {
   readonly hsEnable: boolean;
   readonly hsLut?: readonly number[] | null;
 }
+export interface FramePreprocessMetadata {
+  readonly colorMatrix1: readonly number[];
+  readonly colorMatrix2?: readonly number[] | null;
+  readonly asShotNeutral?: readonly number[] | null;
+  readonly asShotWhiteXY?: readonly number[] | null;
+  readonly cameraCalibration1?: readonly number[] | null;
+  readonly cameraCalibration2?: readonly number[] | null;
+  readonly analogBalance?: readonly number[] | null;
+  readonly baselineExposure?: number | null;
+  readonly exifExposureTime?: readonly number[] | null;
+  readonly exifFNumber?: readonly number[] | null;
+  readonly exifIsoSpeed?: number | null;
+  readonly exifBrightnessValue?: number | null;
+  readonly exifExposureBiasValue?: number | null;
+}
+
 
 export interface RawFrameDescriptor {
   readonly width: number;
@@ -43,7 +59,21 @@ export interface RawFrameDescriptor {
   readonly whiteBalanceGains: readonly [number, number, number];
   readonly baselineExposure?: number | null;
   readonly colorReproduce?: ColorReproduceAssets | null;
+  readonly metadata: FramePreprocessMetadata;
 }
+export interface FramePacketBytes {
+  readonly blcUniform: Uint8Array<ArrayBuffer>;
+  readonly wbcUniform: Uint8Array<ArrayBuffer>;
+  readonly drcUniform: Uint8Array<ArrayBuffer>;
+  readonly demUniform: Uint8Array<ArrayBuffer>;
+  readonly drcGlobalLut: Uint8Array<ArrayBuffer>;
+  readonly drcLocalLut: Uint8Array<ArrayBuffer>;
+  readonly drcModulationLuts: Uint8Array<ArrayBuffer>;
+  readonly fusedUniform: Uint8Array<ArrayBuffer>;
+  readonly colorReproduceHsLut: Uint8Array<ArrayBuffer>;
+}
+export type FramePacketProvider = (identity: Readonly<{ frameIndex: number }>) => FramePacketBytes;
+
 export interface TransferAuditSnapshot {
   readonly hostReadBytes: number;
   readonly hostWriteBytes: number;

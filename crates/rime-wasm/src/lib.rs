@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+mod frame_packets;
+
+pub use frame_packets::{FramePacketDeriver, FramePackets};
 
 use rime_core::{Diagnostic, GraphQuantizationConfig, GraphRuntime, RuntimeSnapshot};
 use rime_isp::{build_normal_graph_presentation, build_normal_manifest};

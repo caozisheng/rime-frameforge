@@ -1,7 +1,5 @@
 #![expect(
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
     clippy::missing_errors_doc,
     clippy::too_many_lines,
     reason = "the backend mirrors the explicit graph submission contract and narrows validated DNG/image coordinates to GPU resource domains"
@@ -9,7 +7,7 @@
 
 use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
-use rime_isp::vbe::drc::{DrcExposurePolicy, DrcLocalStatistics};
+use rime_isp::vbe::drc::{DrcExposurePolicy, build_bayer_local_statistics};
 use rime_isp::{
     FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
 };
@@ -96,6 +94,33 @@ pub struct WgpuReadbackExecutor {
     drc_pipelines: DrcPipelines,
 }
 
+/// Per-render DRC/WBC options threaded through `render_internal`.
+#[derive(Clone, Copy)]
+struct RenderSetup<'a> {
+    drc_method: Option<&'a str>,
+    drc_exposure_policy: DrcExposurePolicy,
+    drc_metered_target_ev100: Option<f64>,
+    drc_profile_adjustment_ev: f64,
+    wbc_highlight_recovery: bool,
+    drc_details_amplify: bool,
+}
+
+/// Runtime ISP feature switches shared by the WBC and DRC modules.
+#[derive(Clone, Copy)]
+pub struct RenderFeatureFlags {
+    pub wbc_highlight_recovery: bool,
+    pub drc_details_amplify: bool,
+}
+
+impl Default for RenderFeatureFlags {
+    fn default() -> Self {
+        Self {
+            wbc_highlight_recovery: false,
+            drc_details_amplify: true,
+        }
+    }
+}
+
 impl WgpuReadbackExecutor {
     pub fn new() -> Result<Self, WgpuReadbackError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -165,9 +190,17 @@ impl WgpuReadbackExecutor {
         frame: &DecodedRawFrame,
         method: &str,
     ) -> Result<super::PreviewSurface, WgpuReadbackError> {
-        self.render_with_drc_options(frame, method, DrcExposurePolicy::Baseline, None, 0.0)
+        self.render_with_drc_options(
+            frame,
+            method,
+            DrcExposurePolicy::Baseline,
+            None,
+            0.0,
+            RenderFeatureFlags::default(),
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_with_drc_options(
         &self,
         frame: &DecodedRawFrame,
@@ -175,6 +208,7 @@ impl WgpuReadbackExecutor {
         exposure_policy: DrcExposurePolicy,
         metered_target_ev100: Option<f64>,
         profile_adjustment_ev: f64,
+        features: RenderFeatureFlags,
     ) -> Result<super::PreviewSurface, WgpuReadbackError> {
         self.render_internal(
             frame,
@@ -185,10 +219,14 @@ impl WgpuReadbackExecutor {
                 gpu_generation: 0,
                 phase: rime_core::FramePhase::Output,
             },
-            Some(method),
-            exposure_policy,
-            metered_target_ev100,
-            profile_adjustment_ev,
+            &RenderSetup {
+                drc_method: Some(method),
+                drc_exposure_policy: exposure_policy,
+                drc_metered_target_ev100: metered_target_ev100,
+                drc_profile_adjustment_ev: profile_adjustment_ev,
+                wbc_highlight_recovery: features.wbc_highlight_recovery,
+                drc_details_amplify: features.drc_details_amplify,
+            },
         )
     }
 
@@ -197,13 +235,26 @@ impl WgpuReadbackExecutor {
         frame: &DecodedRawFrame,
         identity: super::NativeFrameIdentity,
     ) -> Result<super::PreviewSurface, WgpuReadbackError> {
+        self.render_with_identity_options(frame, identity, RenderFeatureFlags::default())
+    }
+
+    pub fn render_with_identity_options(
+        &self,
+        frame: &DecodedRawFrame,
+        identity: super::NativeFrameIdentity,
+        features: RenderFeatureFlags,
+    ) -> Result<super::PreviewSurface, WgpuReadbackError> {
         self.render_internal(
             frame,
             identity,
-            None,
-            DrcExposurePolicy::Baseline,
-            None,
-            0.0,
+            &RenderSetup {
+                drc_method: None,
+                drc_exposure_policy: DrcExposurePolicy::Baseline,
+                drc_metered_target_ev100: None,
+                drc_profile_adjustment_ev: 0.0,
+                wbc_highlight_recovery: features.wbc_highlight_recovery,
+                drc_details_amplify: features.drc_details_amplify,
+            },
         )
     }
 
@@ -211,10 +262,7 @@ impl WgpuReadbackExecutor {
         &self,
         frame: &DecodedRawFrame,
         identity: super::NativeFrameIdentity,
-        drc_method: Option<&str>,
-        drc_exposure_policy: DrcExposurePolicy,
-        drc_metered_target_ev100: Option<f64>,
-        drc_profile_adjustment_ev: f64,
+        setup: &RenderSetup<'_>,
     ) -> Result<super::PreviewSurface, WgpuReadbackError> {
         Self::validate_input(&frame.layout, frame.samples().len())?;
         let width = frame.layout.width;
@@ -228,8 +276,15 @@ impl WgpuReadbackExecutor {
             .first()
             .copied()
             .unwrap_or(4095.0) as f32;
-        let drc_local_statistics =
-            build_drc_local_statistics(frame.samples(), &frame.layout, black_level, white_level)?;
+        let drc_local_statistics = build_bayer_local_statistics(
+            frame.samples(),
+            width,
+            height,
+            frame.layout.row_stride_samples,
+            black_level,
+            white_level,
+        )
+        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
                 frame_index: identity.frame_index,
@@ -264,13 +319,16 @@ impl WgpuReadbackExecutor {
             exposure_time_seconds: positive_ratio(frame.metadata.exif_exposure_time),
             f_number: positive_ratio(frame.metadata.exif_f_number),
             drc_local_statistics: Some(drc_local_statistics),
-            drc_exposure_policy,
-            drc_metered_target_ev100,
-            drc_profile_adjustment_ev,
+            drc_exposure_policy: setup.drc_exposure_policy,
+            drc_metered_target_ev100: setup.drc_metered_target_ev100,
+            drc_profile_adjustment_ev: setup.drc_profile_adjustment_ev,
             drc_gain_offset_ev: None,
             drc_knee: None,
             drc_amplifier: None,
-            wbc_highlight_recovery: true,
+            drc_modulation_curves: None,
+            wbc_highlight_recovery: setup.wbc_highlight_recovery,
+            wbc_hr_gain: None,
+            drc_details_amplify: setup.drc_details_amplify,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan
@@ -288,7 +346,9 @@ impl WgpuReadbackExecutor {
                     }
                 })?;
                 let method = if *id == "drc" {
-                    drc_method.unwrap_or(operator.definition().default_method)
+                    setup
+                        .drc_method
+                        .unwrap_or(operator.definition().default_method)
                 } else {
                     operator.definition().default_method
                 };
@@ -882,66 +942,6 @@ impl WgpuReadbackExecutor {
             BayerCfa::Unsupported => None,
         }
     }
-}
-
-fn build_drc_local_statistics(
-    samples: &[u16],
-    layout: &RawFrameLayout,
-    black_level: f32,
-    white_level: f32,
-) -> Result<DrcLocalStatistics, WgpuReadbackError> {
-    const TILES_X: u32 = 8;
-    const TILES_Y: u32 = 6;
-    const BINS: u32 = 64;
-    if !black_level.is_finite() || !white_level.is_finite() || white_level <= black_level {
-        return Err(WgpuReadbackError::Resource(
-            "invalid levels for DRC local statistics".to_owned(),
-        ));
-    }
-    let mut histograms = vec![0_u32; (TILES_X * TILES_Y * BINS) as usize];
-    let range = white_level - black_level;
-    for y in 0..layout.height {
-        for x in 0..layout.width {
-            let normalized =
-                bayer_luma_3x3(samples, layout, x, y, black_level, range).clamp(0.0, 1.0);
-            let tile_x = (x * TILES_X / layout.width).min(TILES_X - 1);
-            let tile_y = (y * TILES_Y / layout.height).min(TILES_Y - 1);
-            let bin = ((normalized * (BINS - 1) as f32).floor() as u32).min(BINS - 1);
-            let index = ((tile_y * TILES_X + tile_x) * BINS + bin) as usize;
-            histograms[index] = histograms[index].saturating_add(1);
-        }
-    }
-    DrcLocalStatistics::new(TILES_X, TILES_Y, BINS, histograms)
-        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))
-}
-
-fn bayer_luma_3x3(
-    samples: &[u16],
-    layout: &RawFrameLayout,
-    x: u32,
-    y: u32,
-    black_level: f32,
-    range: f32,
-) -> f32 {
-    const WEIGHTS: [f32; 3] = [1.0, 2.0, 1.0];
-    let mut sum = 0.0;
-    for dy in -1..=1 {
-        for dx in -1..=1 {
-            let sample_x = i64::from(x) + i64::from(dx);
-            let sample_y = i64::from(y) + i64::from(dy);
-            if sample_x < 0
-                || sample_y < 0
-                || sample_x >= i64::from(layout.width)
-                || sample_y >= i64::from(layout.height)
-            {
-                continue;
-            }
-            let index = (sample_y as u32 * layout.row_stride_samples + sample_x as u32) as usize;
-            let normalized = (f32::from(samples[index]) - black_level) / range;
-            sum += normalized * WEIGHTS[(dx + 1) as usize] * WEIGHTS[(dy + 1) as usize];
-        }
-    }
-    sum / 16.0
 }
 
 fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {

@@ -5,9 +5,13 @@ mod wbc00_preprocess;
 use crate::operator::OperatorDefinition;
 use rime_core::NodeExecutionMode;
 pub use wbc00::METHOD_00;
+
+/// The WBC algorithm shader, single source for native and web executors
+/// (native `include_str!`, web via `wbc_pipeline.generated.ts`).
+pub const WBC_PIPELINE_WGSL: &str = include_str!("wbc00.wgsl");
 pub use wbc00_preprocess::{
-    WhiteBalanceError, WhiteBalanceGains, WhiteBalanceMetadata, neutral_from_metadata,
-    white_balance_gains,
+    WhiteBalanceError, WhiteBalanceGains, WhiteBalanceMetadata, highlight_recovery_gain,
+    hr_gain_from_packet, neutral_from_metadata, white_balance_gains,
 };
 
 pub const DEFINITION: OperatorDefinition = OperatorDefinition {

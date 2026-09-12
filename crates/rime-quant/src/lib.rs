@@ -4,9 +4,15 @@
 //! Fixed-grid `f32` quantization shared by ISP operators and shader code.
 
 mod dither;
+mod gpu_plan;
 mod profile;
 mod quantize;
 pub use dither::{DitherKey, dither_u04, lfsr28_advance, lfsr28_next, rnd4b};
+
+pub use gpu_plan::{
+    DEFAULT_PPC, DEFAULT_SEED, GpuQuantModuleConfig, GpuQuantPlan, GpuQuantPlanRequest,
+    QUANT_PARAMS_BYTES, rounding_mode_u32,
+};
 
 pub use profile::{
     ClipType, DitherProfile, QuantProfile, RimeQProfile, RoundingMode, SaturationMode,

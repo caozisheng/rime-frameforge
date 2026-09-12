@@ -85,6 +85,8 @@ export function App() {
     red_gain: 2.0,
     green_gain: 1.0,
     blue_gain: 1.5,
+    enable_highlight_recovery: 0,
+    enable_details_amplify: 1,
     vng_threshold: 1.5,
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
@@ -95,6 +97,8 @@ export function App() {
     amplifier: DEFAULT_DRC_IQ_PARAMETERS.amplifier,
   });
   const [appliedParameterValues, setAppliedParameterValues] = useState<Record<string, string | number>>({
+    enable_highlight_recovery: 0,
+    enable_details_amplify: 1,
     ahd_l_threshold: 2.0,
     ahd_c_threshold_sq: 4.0,
     gamma: 2.2,
@@ -434,6 +438,20 @@ export function App() {
       bridgeRef.current.setDrcIqParameters(JSON.stringify(drcDraft));
       for (const key of DRC_IQ_PARAMETERS) {
         setAppliedParameterValues((current) => ({ ...current, [key]: drcDraft[key] }));
+      }
+    }
+    if (parameterValues.enable_highlight_recovery !== appliedParameterValues.enable_highlight_recovery) {
+      const value = parameterValues.enable_highlight_recovery;
+      if (typeof value === 'number') {
+        bridgeRef.current.setParameter('wbc', 'enable_highlight_recovery', value);
+        setAppliedParameterValues((current) => ({ ...current, enable_highlight_recovery: value }));
+      }
+    }
+    if (parameterValues.enable_details_amplify !== appliedParameterValues.enable_details_amplify) {
+      const value = parameterValues.enable_details_amplify;
+      if (typeof value === 'number') {
+        bridgeRef.current.setParameter('drc', 'enable_details_amplify', value);
+        setAppliedParameterValues((current) => ({ ...current, enable_details_amplify: value }));
       }
     }
     for (const parameter of ['ahd_l_threshold', 'ahd_c_threshold_sq', 'gamma'] as const) {

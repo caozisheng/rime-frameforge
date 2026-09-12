@@ -158,6 +158,9 @@ fn gpu_suite_context() -> rime_isp::PreprocessContext {
         drc_gain_offset_ev: None,
         drc_knee: None,
         drc_amplifier: None,
+        drc_modulation_curves: None,
         wbc_highlight_recovery: false,
+        wbc_hr_gain: None,
+        drc_details_amplify: true,
     }
 }

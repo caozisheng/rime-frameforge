@@ -9,7 +9,7 @@ mod wgpu_backend;
 pub use operator_scheduler::{
     OperatorPhase, OperatorPhaseEvent, execute_operator_methods, execute_operator_phases,
 };
-pub use wgpu_backend::{WgpuReadbackError, WgpuReadbackExecutor};
+pub use wgpu_backend::{RenderFeatureFlags, WgpuReadbackError, WgpuReadbackExecutor};
 
 use std::collections::VecDeque;
 
