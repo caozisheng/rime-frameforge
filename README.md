@@ -24,24 +24,7 @@ DNG → rime-dng DecodedRawFrame → rime-native-gpu wgpu graph
 
 The v0.1.3 desktop path uploads RAW once and keeps subsequent processing GPU-resident. The native readback path is intended for CLI, native verification, and future encoder integration; it currently performs a final GPU→CPU readback and therefore is not the desktop preview default.
 
-The WASM control plane manages graph lifecycle and revision state; it does not perform per-pixel image processing.
-
-## Workspace layout
-
-```text
-apps/desktop/           React UI, Worker bridge, and Tauri shell
-crates/rime-core/       Manifest, DAG, diagnostics, lifecycle
-crates/rime-dng/        DNG metadata and RAW frame decoding
-crates/rime-isp/        VFE/VBE/VPE operator definitions and graph builders
-crates/rime-quant/      Fixed-grid f32 quantization and deterministic dither
-crates/rime-wasm/       WASM runtime control plane
-crates/rime-native-gpu/ Rust wgpu graph/readback backend and bounded frame ring
-crates/rime-cli/        Headless `rime-frameforge` command-line interface
-pipeline/normal/        Fixed smoke RAW asset and metadata
-web/                    TypeScript contracts, runtime, and WebGPU code
-```
-
-Rust graph and operator definitions are the canonical source. Files under `web/src/generated/` are generated and must not be hand-edited. The `pipeline/normal/` directory contains only runtime smoke input data.
+The WASM control plane manages graph lifecycle and revision state; it does not perform per-pixel image processing. Rust graph and operator definitions are the canonical source. Files under `web/src/generated/` are generated and must not be hand-edited. The `pipeline/normal/` directory contains only runtime smoke input data.
 
 ## Requirements
 
