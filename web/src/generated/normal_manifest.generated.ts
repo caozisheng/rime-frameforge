@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "65a3c0c888e78630da21aa616f1f9b7c96da65c68c58f4ccc72a2d2f9e2f2a44",
+  "manifest_hash": "38fd3217185779ed5c506bc5339a3cf4445eaaba21f6a6cb92def33e206ca224",
   "nodes": [
     {
       "id": "raw_source",
@@ -327,43 +327,6 @@ export const normalManifest = {
       ]
     },
     {
-      "id": "cac",
-      "display_name": "CAC",
-      "shader_entry": "identity_r32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_r32_main",
-          "parameters": [
-            "identity"
-          ]
-        }
-      ]
-    },
-    {
       "id": "drc",
       "display_name": "DRC",
       "shader_entry": "drc_combine_global_main",
@@ -426,6 +389,43 @@ export const normalManifest = {
             "analysis_wbc_gains",
             "global_tone_lut",
             "local_tone_lut"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cac",
+      "display_name": "CAC",
+      "shader_entry": "identity_r32_main",
+      "inputs": [
+        {
+          "id": "in",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "default_method": "00",
+      "methods": [
+        {
+          "method": "00",
+          "shader_entry": "identity_r32_main",
+          "parameters": [
+            "identity"
           ]
         }
       ]
@@ -791,7 +791,7 @@ export const normalManifest = {
         "port_id": "out"
       },
       "to": {
-        "node_id": "cac",
+        "node_id": "drc",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -799,11 +799,11 @@ export const normalManifest = {
     {
       "id": "normal_edge_9",
       "from": {
-        "node_id": "cac",
+        "node_id": "drc",
         "port_id": "out"
       },
       "to": {
-        "node_id": "drc",
+        "node_id": "cac",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -811,7 +811,7 @@ export const normalManifest = {
     {
       "id": "normal_edge_10",
       "from": {
-        "node_id": "drc",
+        "node_id": "cac",
         "port_id": "out"
       },
       "to": {
@@ -961,7 +961,7 @@ export const normalManifest = {
       "presentation": "rgb"
     },
     {
-      "node_id": "drc",
+      "node_id": "cac",
       "port_id": "out",
       "domain": "raw_bayer_rime_q",
       "format": "r32_float",
@@ -974,7 +974,7 @@ export const normalManifest = {
       "presentation": "raw_gray"
     },
     {
-      "node_id": "cac",
+      "node_id": "drc",
       "port_id": "out",
       "domain": "raw_bayer_rime_q",
       "format": "r32_float",

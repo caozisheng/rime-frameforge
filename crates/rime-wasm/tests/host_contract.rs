@@ -1,3 +1,8 @@
+#![expect(
+    clippy::float_cmp,
+    reason = "packet bytes round-trip exact f32 bit patterns; no arithmetic occurs"
+)]
+
 use rime_wasm::{FramePacketDeriver, NormalRuntime};
 
 #[test]
@@ -128,6 +133,7 @@ fn direct_context() -> rime_isp::PreprocessContext {
         wbc_highlight_recovery: true,
         wbc_hr_gain: None,
         drc_details_amplify: true,
+        dem_thresholds: None,
     }
 }
 
@@ -248,4 +254,100 @@ fn wasm_deriver_can_abort_a_failed_gpu_frame() {
         .derive_frame_packets(&descriptor, &raw_samples, &options, 12)
         .expect("next frame preprocess");
     deriver.complete_frame().expect("next frame postprocess");
+}
+
+#[test]
+fn wasm_deriver_applies_dem_threshold_overrides() {
+    let graph = rime_isp::build_normal_graph_presentation();
+    let quantization =
+        rime_core::GraphQuantizationConfig::defaults_for(&graph).expect("quantization defaults");
+    let mut descriptor = frame_descriptor();
+    descriptor["metadata"]["exifBrightnessValue"] = serde_json::json!(0.0);
+    let base_options = serde_json::json!({
+        "drc_method": "00",
+        "drc_gain_offset_ev": 0.0,
+        "drc_knee": 1.0,
+        "drc_amplifier": 3.0,
+        "drc_details_amplify": true,
+        "wbc_highlight_recovery": true,
+        "gamma": {
+            "gamma": 2.2,
+            "lut": [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+        },
+        "quantization": quantization
+    });
+    let raw_samples = [64_u16; 12];
+    let f32_at = |bytes: &[u8], offset: usize| {
+        f32::from_ne_bytes(bytes[offset..offset + 4].try_into().unwrap())
+    };
+
+    // dem03 (VNG): override lands at uniform offset 16; absent override
+    // keeps the module default.
+    let mut with_override = base_options.clone();
+    with_override["dem_method"] = serde_json::json!("03");
+    with_override["dem_thresholds"] = serde_json::json!({
+        "vng_threshold": 3.25,
+        "ahd_l_threshold": 2.0,
+        "ahd_c_threshold_sq": 4.0
+    });
+    let mut deriver = FramePacketDeriver::new();
+    let packets = deriver
+        .derive_frame_packets(
+            &descriptor.to_string(),
+            &raw_samples,
+            &with_override.to_string(),
+            11,
+        )
+        .expect("dem03 override packets");
+    assert_eq!(f32_at(&packets.dem_uniform(), 16), 3.25);
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&packets.preprocess_snapshot_json()).expect("snapshot JSON");
+    assert_eq!(snapshot["modules"]["dem"]["parameters"]["vng_threshold"], 3.25);
+
+    let mut without_override = base_options.clone();
+    without_override["dem_method"] = serde_json::json!("03");
+    let mut deriver = FramePacketDeriver::new();
+    let packets = deriver
+        .derive_frame_packets(
+            &descriptor.to_string(),
+            &raw_samples,
+            &without_override.to_string(),
+            11,
+        )
+        .expect("dem03 default packets");
+    assert_eq!(f32_at(&packets.dem_uniform(), 16), 1.5);
+
+    // dem04 (AHD): override replaces both IQ LUT values (EV 0 -> 1.05/3.15).
+    let mut ahd_override = base_options.clone();
+    ahd_override["dem_method"] = serde_json::json!("04");
+    ahd_override["dem_thresholds"] = serde_json::json!({
+        "vng_threshold": 1.5,
+        "ahd_l_threshold": 2.0,
+        "ahd_c_threshold_sq": 4.0
+    });
+    let mut deriver = FramePacketDeriver::new();
+    let packets = deriver
+        .derive_frame_packets(
+            &descriptor.to_string(),
+            &raw_samples,
+            &ahd_override.to_string(),
+            11,
+        )
+        .expect("dem04 override packets");
+    assert_eq!(f32_at(&packets.dem_uniform(), 20), 2.0);
+    assert_eq!(f32_at(&packets.dem_uniform(), 24), 4.0);
+
+    let mut ahd_default = base_options.clone();
+    ahd_default["dem_method"] = serde_json::json!("04");
+    let mut deriver = FramePacketDeriver::new();
+    let packets = deriver
+        .derive_frame_packets(
+            &descriptor.to_string(),
+            &raw_samples,
+            &ahd_default.to_string(),
+            11,
+        )
+        .expect("dem04 IQ default packets");
+    assert_eq!(f32_at(&packets.dem_uniform(), 20), 1.05);
+    assert_eq!(f32_at(&packets.dem_uniform(), 24), 3.15);
 }

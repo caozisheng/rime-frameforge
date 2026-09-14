@@ -128,7 +128,7 @@ fn collect_inputs(context: &PreprocessContext) -> Result<ColorReproduceInputs, &
     let Some(ci1) = context.calibration_illuminant1_code else {
         return Err("missing calibration illuminant");
     };
-    let neutral = crate::vfe::white_balance::neutral_from_metadata(
+    let neutral = crate::vbe::white_balance::neutral_from_metadata(
         context.as_shot_neutral,
         context.as_shot_white_xy,
         context.color_matrix2.unwrap_or(context.color_matrix1),

@@ -153,9 +153,23 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "video_back_end",
+      "label": "video back end",
+      "parent_id": "isp_pipeline",
+      "kind": "group",
+      "mode": "enabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [],
+      "outputs": [],
+      "reason": null,
+      "default_expanded": true
+    },
+    {
       "id": "tintless",
       "label": "color shading correction",
-      "parent_id": "sensor_correction",
+      "parent_id": "video_back_end",
       "kind": "operator",
       "mode": "bypass",
       "execution_node_id": null,
@@ -173,7 +187,7 @@ export const topGraphPresentation = {
     {
       "id": "lsc",
       "label": "luma shading correction",
-      "parent_id": "sensor_correction",
+      "parent_id": "video_back_end",
       "kind": "operator",
       "mode": "bypass",
       "execution_node_id": null,
@@ -191,7 +205,7 @@ export const topGraphPresentation = {
     {
       "id": "wbc",
       "label": "white balance",
-      "parent_id": "sensor_correction",
+      "parent_id": "video_back_end",
       "kind": "operator",
       "mode": "enabled",
       "execution_node_id": "wbc",
@@ -205,38 +219,6 @@ export const topGraphPresentation = {
       ],
       "reason": null,
       "default_expanded": false
-    },
-    {
-      "id": "cac",
-      "label": "chromatic aberration correction",
-      "parent_id": "sensor_correction",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
-      "id": "video_back_end",
-      "label": "video back end",
-      "parent_id": "isp_pipeline",
-      "kind": "group",
-      "mode": "enabled",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [],
-      "outputs": [],
-      "reason": null,
-      "default_expanded": true
     },
     {
       "id": "drc",
@@ -254,6 +236,24 @@ export const topGraphPresentation = {
         "out"
       ],
       "reason": null,
+      "default_expanded": false
+    },
+    {
+      "id": "cac",
+      "label": "chromatic aberration correction",
+      "parent_id": "video_back_end",
+      "kind": "operator",
+      "mode": "bypass",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "not implemented; compatible bayer identity",
       "default_expanded": false
     },
     {

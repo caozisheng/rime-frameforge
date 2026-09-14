@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::path::Path;
 
 use rime_dng::DngReader;
-use rime_isp::vfe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
+use rime_isp::vbe::white_balance::{WhiteBalanceMetadata, white_balance_gains};
 use serde::Serialize;
 use tauri::ipc::Response;
 
@@ -283,6 +283,7 @@ fn color_reproduce_assets(
         wbc_highlight_recovery: false,
         wbc_hr_gain: None,
         drc_details_amplify: true,
+        dem_thresholds: None,
     };
     let operator = rime_isp::operator_by_id("color_reproduce")
         .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: operator missing".to_owned())?;

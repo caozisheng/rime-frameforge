@@ -12,6 +12,7 @@ pollster.workspace = true
 rime-core = { path = "../rime-core" }
 rime-dng = { path = "../rime-dng" }
 rime-isp = { path = "../rime-isp" }
+rime-scene = { path = "../rime-scene" }
 serde.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true

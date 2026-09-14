@@ -69,6 +69,7 @@ fn base_context() -> PreprocessContext {
         wbc_highlight_recovery: false,
         wbc_hr_gain: None,
         drc_details_amplify: true,
+        dem_thresholds: None,
     }
 }
 

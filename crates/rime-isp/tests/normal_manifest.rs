@@ -24,8 +24,8 @@ fn normal_manifest_contains_the_explicit_main_chain() {
             "tintless",
             "lsc",
             "wbc",
-            "cac",
             "drc",
+            "cac",
             "dem",
             "pfr",
             "color_reproduce",
@@ -283,7 +283,7 @@ fn presentation_uses_dem_then_pfr_without_compound_node() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "drc" && edge.to == "dem")
+            .any(|edge| edge.from == "cac" && edge.to == "dem")
     );
     assert!(
         presentation
@@ -339,13 +339,19 @@ fn presentation_uses_split_vfe_modules_without_legacy_ids() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "wbc" && edge.to == "cac")
+            .any(|edge| edge.from == "wbc" && edge.to == "drc")
     );
     assert!(
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "cac" && edge.to == "drc")
+            .any(|edge| edge.from == "drc" && edge.to == "cac")
+    );
+    assert!(
+        presentation
+            .edges
+            .iter()
+            .any(|edge| edge.from == "cac" && edge.to == "dem")
     );
 }
 #[test]

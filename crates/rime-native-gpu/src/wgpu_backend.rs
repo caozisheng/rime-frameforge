@@ -310,7 +310,15 @@ impl WgpuReadbackExecutor {
             profile_hue_sat_map_data1: frame.metadata.profile_hue_sat_map_data1.clone(),
             profile_hue_sat_map_data2: frame.metadata.profile_hue_sat_map_data2.clone(),
             analog_balance: frame.metadata.analog_balance,
-            scene_brightness_ev: frame.metadata.exif_brightness_value,
+            scene_brightness_ev: frame.metadata.exif_brightness_value.or_else(|| {
+                rime_scene::estimate_scene_brightness_ev(&rime_scene::SceneInput {
+                    aperture_f_number: positive_ratio(frame.metadata.exif_f_number),
+                    exposure_time_seconds: positive_ratio(frame.metadata.exif_exposure_time),
+                    exposure_bias_ev: frame.metadata.exif_exposure_bias_value,
+                    ..rime_scene::SceneInput::default()
+                })
+                .ok()
+            }),
             exposure_deviation_ev: frame.metadata.exif_exposure_bias_value,
             iso: frame.metadata.exif_iso_speed.map(f64::from),
             analog_gain: None,
@@ -329,6 +337,7 @@ impl WgpuReadbackExecutor {
             wbc_highlight_recovery: setup.wbc_highlight_recovery,
             wbc_hr_gain: None,
             drc_details_amplify: setup.drc_details_amplify,
+            dem_thresholds: None,
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan

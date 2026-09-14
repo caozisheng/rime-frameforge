@@ -67,7 +67,7 @@ pub fn prepare_operator_methods(
         let packet = operator.preprocess(method.method, &threaded_context)?;
         if operator.definition().id == "wbc" {
             threaded_context.wbc_hr_gain = Some(
-                crate::vfe::white_balance::hr_gain_from_packet(&packet).map_err(|error| {
+                crate::vbe::white_balance::hr_gain_from_packet(&packet).map_err(|error| {
                     OperatorError::Preprocess {
                         module_id: "wbc",
                         reason: error.reason(),

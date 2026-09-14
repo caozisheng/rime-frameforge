@@ -48,7 +48,18 @@ fn context() -> PreprocessContext {
         wbc_highlight_recovery: true,
         wbc_hr_gain: None,
         drc_details_amplify: true,
+        dem_thresholds: None,
     }
+}
+
+#[test]
+fn ahd_preprocess_rejects_missing_scene_brightness() {
+    let error = rime_isp::operator_by_id("dem")
+        .expect("DEM")
+        .preprocess("04", &context())
+        .expect_err("AHD requires scene brightness");
+
+    assert_eq!(error.to_string(), "operator `dem` preprocessing failed: AHD IQ requires scene brightness EV");
 }
 
 #[test]

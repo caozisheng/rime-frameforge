@@ -110,8 +110,8 @@ pub fn build_normal_manifest() -> PipelineManifest {
         "tintless",
         "lsc",
         "wbc",
-        "cac",
         "drc",
+        "cac",
         "dem",
         "pfr",
         "color_reproduce",
@@ -283,41 +283,13 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             Some("raw_nr"),
             Some("RAW-domain denoise; method 00: identity bypass"),
         ),
-        operator(
-            "tintless",
-            "TINTLESS",
-            "vfe",
-            NodeExecutionMode::Bypass,
-            Some("tintless"),
-            Some("color shading correction; method 00: identity bypass"),
-        ),
-        operator(
-            "lsc",
-            "LSC",
-            "vfe",
-            NodeExecutionMode::Bypass,
-            Some("lsc"),
-            Some("luma shading correction; method 00: identity bypass"),
-        ),
-        operator(
-            "wbc",
-            "WBC",
-            "vfe",
-            NodeExecutionMode::Enabled,
-            Some("wbc"),
-            None,
-        ),
-        operator(
-            "cac",
-            "CAC",
-            "vfe",
-            NodeExecutionMode::Bypass,
-            Some("cac"),
-            Some("method 00: identity bypass"),
-        ),
     ]
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixed presentation is the single explicit topology source"
+)]
 fn vbe_nodes() -> Vec<GraphTreeNode> {
     vec![
         group(
@@ -328,12 +300,44 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             true,
         ),
         operator(
+            "tintless",
+            "TINTLESS",
+            "vbe",
+            NodeExecutionMode::Bypass,
+            Some("tintless"),
+            Some("color shading correction; method 00: identity bypass"),
+        ),
+        operator(
+            "lsc",
+            "LSC",
+            "vbe",
+            NodeExecutionMode::Bypass,
+            Some("lsc"),
+            Some("luma shading correction; method 00: identity bypass"),
+        ),
+        operator(
+            "wbc",
+            "WBC",
+            "vbe",
+            NodeExecutionMode::Enabled,
+            Some("wbc"),
+            None,
+        ),
+        operator(
             "drc",
             "DRC",
             "vbe",
             NodeExecutionMode::Enabled,
             Some("drc"),
             None,
+        ),
+        operator(
+            "cac",
+            "CAC",
+            "vbe",
+            NodeExecutionMode::Bypass,
+            Some("cac"),
+            Some("Chromatic Aberration Correction; method 00: identity bypass"),
         ),
         operator(
             "dem",
@@ -451,9 +455,9 @@ fn presentation_edges() -> Vec<GraphPresentationEdge> {
         ("raw_nr", "out", "tintless", "in", None),
         ("tintless", "out", "lsc", "in", None),
         ("lsc", "out", "wbc", "in", None),
-        ("wbc", "out", "cac", "in", None),
-        ("cac", "out", "drc", "in", None),
-        ("drc", "out", "dem", "in", None),
+        ("wbc", "out", "drc", "in", None),
+        ("drc", "out", "cac", "in", None),
+        ("cac", "out", "dem", "in", None),
         ("dem", "out", "pfr", "in", None),
         ("pfr", "out", "color_reproduce", "in", None),
         ("color_reproduce", "out", "gamma", "in", None),

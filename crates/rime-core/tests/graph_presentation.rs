@@ -68,7 +68,7 @@ fn top_graph_merges_hr_into_wbc_and_keeps_same_extent_cac() {
     let cac = graph.node("cac").expect("CAC node");
 
     assert_eq!(wbc.label, "white balance");
-    assert_eq!(wbc.parent_id.as_deref(), Some("sensor_correction"));
+    assert_eq!(wbc.parent_id.as_deref(), Some("video_back_end"));
     assert_eq!(cac.label, "chromatic aberration correction");
     assert_eq!(cac.mode, NodeExecutionMode::Bypass);
     assert!(graph.node("hr").is_none());

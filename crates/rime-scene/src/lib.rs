@@ -158,8 +158,10 @@ pub enum SceneError {
     NonFiniteValue { name: &'static str },
     #[error("scene metadata value `{name}` must be positive")]
     NonPositiveValue { name: &'static str },
-    #[error("aperture and exposure time must be provided together")]
-    IncompleteExposure,
+    #[error("aperture f-number must be provided")]
+    MissingAperture,
+    #[error("exposure time must be provided")]
+    MissingExposureTime,
     #[error("{name} must be finite and positive")]
     InvalidProfileConstant { name: &'static str },
     #[error("scene label id must not be empty")]
@@ -176,17 +178,35 @@ pub enum SceneError {
 pub fn ev100_capture(input: &SceneInput) -> Result<f64, SceneError> {
     let Some(aperture) = input.aperture_f_number else {
         return if input.exposure_time_seconds.is_some() {
-            Err(SceneError::IncompleteExposure)
+            Err(SceneError::MissingAperture)
         } else {
             Err(SceneError::InvalidAperture)
         };
     };
     let Some(exposure_time) = input.exposure_time_seconds else {
-        return Err(SceneError::IncompleteExposure);
+        return Err(SceneError::MissingExposureTime);
     };
     validate_positive(aperture, SceneError::InvalidAperture)?;
     validate_positive(exposure_time, SceneError::InvalidExposureTime)?;
     Ok((aperture * aperture / exposure_time).log2())
+}
+
+/// Estimates scene brightness from capture exposure and exposure bias.
+///
+/// This explicit estimator is separate from [`derive_scene_meta`]: camera
+/// exposure settings are not treated as a physical scene measurement unless a
+/// caller opts into this estimate.
+pub fn estimate_scene_brightness_ev(input: &SceneInput) -> Result<f64, SceneError> {
+    let aperture = input
+        .aperture_f_number
+        .ok_or(SceneError::MissingAperture)?;
+    let exposure_time = input
+        .exposure_time_seconds
+        .ok_or(SceneError::MissingExposureTime)?;
+    validate_positive(aperture, SceneError::InvalidAperture)?;
+    validate_positive(exposure_time, SceneError::InvalidExposureTime)?;
+    validate_optional_finite(input.exposure_bias_ev, "exposure bias")?;
+    Ok((aperture * aperture / exposure_time).log2() + input.exposure_bias_ev.unwrap_or(0.0))
 }
 
 pub fn derive_scene_meta(

@@ -89,9 +89,11 @@ impl GraphQuantizationConfig {
             .map(|(module_id, mode)| {
                 // Default output-profile ladder (top-architecture-design §6.4):
                 // every output precision derives from its input precision.
-                // - VFE (blc..cac): s0.x with x = max(14, input_bits + 2);
+                // - VFE (blc..raw_nr): s0.x with x = max(14, input_bits + 2);
                 //   the +2 bits reserve highlight-recovery headroom.
-                // - VBE before gamma (drc..color_reproduce): s0.12.
+                // - VBE before gamma (tintless..color_reproduce): signed
+                //   profiles — tintless/lsc/wbc/cac stay s0.14 as RAW-domain
+                //   Bayer corrections; drc..color_reproduce are s0.12.
                 // - gamma and after (gamma..rgb2yuv): u0.10; gamma removes
                 //   negatives, so the domain loses its sign bit.
                 let output_profile = match module_id {
@@ -431,38 +433,6 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             None,
             Some("not implemented; compatible bayer identity"),
         ),
-        operator(
-            "tintless",
-            "color shading correction",
-            "sensor_correction",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
-        ),
-        operator(
-            "lsc",
-            "luma shading correction",
-            "sensor_correction",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
-        ),
-        operator(
-            "wbc",
-            "white balance",
-            "sensor_correction",
-            NodeExecutionMode::Enabled,
-            Some("wbc"),
-            None,
-        ),
-        operator(
-            "cac",
-            "chromatic aberration correction",
-            "sensor_correction",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
-        ),
     ]
 }
 
@@ -481,12 +451,44 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
 fn vbe_color_nodes() -> Vec<GraphTreeNode> {
     vec![
         operator(
+            "tintless",
+            "color shading correction",
+            "video_back_end",
+            NodeExecutionMode::Bypass,
+            None,
+            Some("not implemented; compatible bayer identity"),
+        ),
+        operator(
+            "lsc",
+            "luma shading correction",
+            "video_back_end",
+            NodeExecutionMode::Bypass,
+            None,
+            Some("not implemented; compatible bayer identity"),
+        ),
+        operator(
+            "wbc",
+            "white balance",
+            "video_back_end",
+            NodeExecutionMode::Enabled,
+            Some("wbc"),
+            None,
+        ),
+        operator(
             "drc",
             "dynamic range compression",
             "video_back_end",
             NodeExecutionMode::Enabled,
             Some("drc"),
             None,
+        ),
+        operator(
+            "cac",
+            "chromatic aberration correction",
+            "video_back_end",
+            NodeExecutionMode::Bypass,
+            None,
+            Some("not implemented; compatible bayer identity"),
         ),
         operator(
             "dem",

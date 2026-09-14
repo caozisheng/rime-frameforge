@@ -73,16 +73,16 @@ fn wbc_owns_highlight_recovery_and_cac_uses_industry_name() {
 }
 
 #[test]
-fn vfe_shading_operators_have_separate_same_extent_contracts() {
+fn bayer_shading_operators_have_separate_same_extent_contracts() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
         .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
 
     for (id, label) in [("sbpc", "SBPC"), ("tintless", "TINTLESS"), ("lsc", "LSC")] {
-        let operator = operators.get(id).expect("VFE operator");
+        let operator = operators.get(id).expect("Bayer shading operator");
         assert_eq!(operator.label, label);
-        let method = operator.methods.first().expect("VFE method");
+        let method = operator.methods.first().expect("shading method");
         assert_eq!(method.input, method.output);
     }
     assert!(!operators.contains_key("sbpc_pdpc"));
@@ -124,7 +124,7 @@ fn dem_and_pfr_have_separate_operator_contracts() {
 
 #[test]
 fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
-    let shader = include_str!("../src/vfe/white_balance/wbc00.wgsl");
+    let shader = include_str!("../src/vbe/white_balance/wbc00.wgsl");
 
     assert!(shader.contains("gains: vec4<f32>"));
     assert!(shader.contains("params.cfa_pattern"));

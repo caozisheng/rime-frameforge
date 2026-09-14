@@ -120,8 +120,8 @@ function layoutSiblings(
   nodeById: ReadonlyMap<string, VisibleNormalNode>,
 ): PositionedNode[] {
   if (nodes.length === 0) return [];
-  const firstRowEnd: string | null = parentId === 'vfe' ? 'sbpc' : parentId === 'vbe' ? 'color_reproduce' : null;
-  if (firstRowEnd !== null && parentId !== null) return layoutTwoRows(nodes, edges, parentId, firstRowEnd);
+  if (parentId === 'vfe') return layoutRow(nodes, edges, parentId, FRAME_HEADER_HEIGHT);
+  if (parentId === 'vbe') return layoutRows(nodes, edges, parentId, 4);
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   graph.setGraph(normalLayoutConfig(parentId));
   for (const node of nodes) graph.setNode(node.id, { width: node.width, height: node.height });
@@ -158,15 +158,15 @@ function layoutSiblings(
   }));
 }
 
-function layoutTwoRows(nodes: readonly SizedNode[], edges: readonly VisibleNormalEdge[], parentId: string, firstRowEnd: string): PositionedNode[] {
-  const endIndex = nodes.findIndex((node) => node.id === firstRowEnd);
-  if (endIndex < 0) return layoutRow(nodes, edges, parentId, FRAME_HEADER_HEIGHT);
-  const firstRow = nodes.slice(0, endIndex + 1);
-  const secondRow = nodes.slice(endIndex + 1);
-  const first = layoutRow(firstRow, edges, parentId, FRAME_HEADER_HEIGHT);
-  const firstHeight = Math.max(...first.map((node) => node.height), NODE_HEIGHT);
-  const second = layoutRow(secondRow, edges, parentId, FRAME_HEADER_HEIGHT + firstHeight + 56);
-  return [...first, ...second];
+function layoutRows(nodes: readonly SizedNode[], edges: readonly VisibleNormalEdge[], parentId: string, perRow: number): PositionedNode[] {
+  const rows: PositionedNode[] = [];
+  let y = FRAME_HEADER_HEIGHT;
+  for (let start = 0; start < nodes.length; start += perRow) {
+    const row = layoutRow(nodes.slice(start, start + perRow), edges, parentId, y);
+    rows.push(...row);
+    y += Math.max(...row.map((node) => node.height), NODE_HEIGHT) + 56;
+  }
+  return rows;
 }
 
 function layoutRow(

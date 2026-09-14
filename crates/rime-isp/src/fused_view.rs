@@ -348,11 +348,17 @@ pub fn render_segmented_normal_shaders(dem_method: &str) -> Result<[String; 4], 
     post.push('\n');
     post.push_str(FUSED_PARAMS);
     post.push_str(BINDINGS_POST);
+    post.push_str(SOURCE_HELPERS);
     post.push_str(QUANT_HELPERS);
-    post.push_str(CR_HELPERS);
     post.push_str(GAMMA_HELPERS);
+    post.push_str(CR_HELPERS);
     post.push_str("fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }\n");
-    post.push_str(POSTPROCESS_HELPERS);
+    post.push_str(
+        &POSTPROCESS_HELPERS.replace(
+            "return vec4<f32>(dem00_sample(p, extent).rgb, 1.0);",
+            "return sample_dem_materialized(p);",
+        ),
+    );
     post.push_str(ENTRY_POST);
 
     Ok([pre, dem, quantize, post])
@@ -578,13 +584,13 @@ pub fn pack_fused_uniforms(request: &FusedUniformRequest) -> Result<Vec<u8>, Str
         CR_HS_DIMS_OFFSET + 8,
         u32::from(request.color_reproduce.hs_enable),
     );
-    let gains = crate::vfe::white_balance::WhiteBalanceGains {
+    let gains = crate::vbe::white_balance::WhiteBalanceGains {
         red: request.highlight_recovery.gains[0],
         green: request.highlight_recovery.gains[1],
         blue: request.highlight_recovery.gains[2],
     };
     let (hr_gain, hr_enable) = if request.highlight_recovery.enable {
-        let gain = crate::vfe::white_balance::highlight_recovery_gain(&gains)
+        let gain = crate::vbe::white_balance::highlight_recovery_gain(&gains)
             .map_err(|error| format!("FUSED_UNIFORM_HR_GAIN_INVALID: {error}"))?;
         (gain, 1.0_f32)
     } else {

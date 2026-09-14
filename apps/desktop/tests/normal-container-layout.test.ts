@@ -99,14 +99,21 @@ describe('layoutNormalContainers', () => {
     expect(normalLayoutConfig('vpe').rankdir).toBe('TB');
   });
 
-  it('places Gamma on the second VBE row after CCM', () => {
+  it('wraps VBE every four nodes into three rows', () => {
     const projected = projectNormalGraph(normalGraphPresentation, expanded);
     const layout = layoutNormalContainers(projected.nodes, projected.edges);
     const byId = new Map(layout.nodes.map((node) => [node.id, node]));
+    const row = (id: string): number => byId.get(id)!.position.y;
 
-    expect(byId.get('gamma')!.position.y).toBe(byId.get('three_d_lut')!.position.y);
-    expect(byId.get('gamma')!.position.x).toBeLessThan(byId.get('three_d_lut')!.position.x);
-    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('color_reproduce')!.position.y);
+    expect(row('tintless')).toBe(row('lsc'));
+    expect(row('lsc')).toBe(row('wbc'));
+    expect(row('wbc')).toBe(row('drc'));
+    expect(row('cac')).toBe(row('dem'));
+    expect(row('cac')).toBeGreaterThan(row('drc'));
+    expect(row('color_reproduce')).toBe(row('pfr'));
+    expect(row('color_reproduce')).toBeGreaterThan(row('drc'));
+    expect(row('gamma')).toBe(row('rgb2yuv'));
+    expect(row('gamma')).toBeGreaterThan(row('color_reproduce'));
   });
 
   it('keeps all VBE to VPE scale labels at routed bends', () => {
@@ -127,16 +134,5 @@ describe('layoutNormalContainers', () => {
     const stageY = (layout: typeof labeled, id: string): number => layout.nodes.find((node) => node.id === id)!.position.y;
 
     expect(stageY(labeled, 'vpe') - stageY(labeled, 'vbe')).toBe(stageY(unlabeled, 'vpe') - stageY(unlabeled, 'vbe'));
-  });
-
-  it('wraps VBE after CCM and VFE after SBPC into second horizontal rows', () => {
-    const projected = projectNormalGraph(normalGraphPresentation, expanded);
-    const layout = layoutNormalContainers(projected.nodes, projected.edges);
-    const byId = new Map(layout.nodes.map((node) => [node.id, node]));
-
-    expect(byId.get('gamma')!.position.y).toBeGreaterThan(byId.get('drc')!.position.y);
-    expect(byId.get('rgb2yuv')!.position.y).toBeGreaterThan(byId.get('dem')!.position.y);
-    expect(byId.get('raw_nr')!.position.y).toBeGreaterThan(byId.get('sbpc')!.position.y);
-    expect(byId.get('cac')!.position.y).toBeGreaterThan(byId.get('blc')!.position.y);
   });
 });

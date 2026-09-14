@@ -105,7 +105,7 @@ pub fn render_drc_pipeline_typescript() -> Result<String, Diagnostic> {
 /// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
 pub fn render_wbc_pipeline_typescript() -> Result<String, Diagnostic> {
     let source = serialize_wgsl(
-        crate::vfe::white_balance::WBC_PIPELINE_WGSL,
+        crate::vbe::white_balance::WBC_PIPELINE_WGSL,
         "WBC pipeline WGSL",
     )?;
     Ok(format!("export const wbcPipelineWgsl = {source};\n"))
@@ -167,4 +167,19 @@ pub fn render_segmented_fused_typescript() -> Result<String, Diagnostic> {
 pub fn render_blc_pipeline_typescript() -> Result<String, Diagnostic> {
     let source = serialize_wgsl(crate::vfe::blc::BLC_PIPELINE_WGSL, "BLC pipeline WGSL")?;
     Ok(format!("export const blcPipelineWgsl = {source};\n"))
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn segmented_dem04_postprocess_wgsl_validates() {
+        let [_, _, _, source] = crate::fused_view::render_segmented_normal_shaders("04")
+            .expect("DEM04 segmented shaders");
+        let module = naga::front::wgsl::parse_str(&source).expect("DEM04 post WGSL must parse");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("DEM04 post WGSL must validate");
+    }
 }

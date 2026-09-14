@@ -3161,6 +3161,7 @@ dependencies = [
  "rime-core",
  "rime-dng",
  "rime-isp",
+ "rime-scene",
  "serde",
  "thiserror 2.0.20",
  "wgpu",
@@ -3189,6 +3190,7 @@ version = "0.1.21"
 dependencies = [
  "rime-core",
  "rime-isp",
+ "rime-scene",
  "serde",
  "serde_json",
  "wasm-bindgen",

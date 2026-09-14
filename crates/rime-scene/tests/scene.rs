@@ -42,6 +42,27 @@ fn rejects_non_positive_exposure_inputs() {
 }
 
 #[test]
+fn estimates_scene_brightness_from_capture_ev_and_exposure_bias() {
+    let ev = rime_scene::estimate_scene_brightness_ev(&SceneInput {
+        aperture_f_number: Some(2.0),
+        exposure_time_seconds: Some(0.25),
+        exposure_bias_ev: Some(1.0),
+        ..SceneInput::default()
+    })
+    .expect("valid exposure estimate");
+
+    assert!((ev - 5.0).abs() < 1e-12);
+}
+
+#[test]
+fn scene_brightness_estimator_requires_capture_settings() {
+    let error = rime_scene::estimate_scene_brightness_ev(&SceneInput::default())
+        .expect_err("missing capture settings must fail");
+
+    assert_eq!(error.to_string(), "aperture f-number must be provided");
+}
+
+#[test]
 fn keeps_scene_brightness_exposure_bias_and_iso_as_separate_values() {
     let meta = derive_scene_meta(
         &SceneInput {

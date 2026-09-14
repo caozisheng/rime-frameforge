@@ -162,5 +162,6 @@ fn gpu_suite_context() -> rime_isp::PreprocessContext {
         wbc_highlight_recovery: false,
         wbc_hr_gain: None,
         drc_details_amplify: true,
+        dem_thresholds: None,
     }
 }

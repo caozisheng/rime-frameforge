@@ -15,6 +15,9 @@ mod dem04_iq;
 mod dem04_postprocess;
 mod dem04_preprocess;
 mod dem_common;
+pub use dem_common::{
+    DEFAULT_AHD_C_THRESHOLD_SQ, DEFAULT_AHD_L_THRESHOLD, DEFAULT_VNG_THRESHOLD,
+};
 
 use crate::operator::OperatorDefinition;
 pub use dem00::METHOD_00;

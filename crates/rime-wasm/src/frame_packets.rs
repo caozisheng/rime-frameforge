@@ -4,13 +4,12 @@ use rime_isp::{
     FusedHighlightRecovery, FusedUniformRequest, ModuleParameterPacket, PreparedOperatorMethods,
     PreprocessContext, build_normal_graph_presentation, complete_operator_methods,
     pack_fused_uniforms, prepare_operator_methods,
+    vbe::dem::{
+        DEFAULT_AHD_C_THRESHOLD_SQ, DEFAULT_AHD_L_THRESHOLD, DEFAULT_VNG_THRESHOLD,
+    },
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
-
-const DEFAULT_VNG_THRESHOLD: f32 = 1.5;
-const DEFAULT_AHD_L_THRESHOLD: f32 = 2.0;
-const DEFAULT_AHD_C_THRESHOLD_SQ: f32 = 4.0;
 
 #[wasm_bindgen]
 pub struct FramePacketDeriver {
@@ -231,6 +230,7 @@ struct FrameOptions {
     drc_details_amplify: bool,
     wbc_highlight_recovery: bool,
     gamma: GammaOptions,
+    dem_thresholds: Option<DemosaicThresholdsOptions>,
     quantization: GraphQuantizationConfig,
 }
 
@@ -251,6 +251,25 @@ impl From<&ModulationCurvesOptions> for rime_isp::vbe::drc::DrcModulationCurves 
         Self {
             edge: curves.edge.clone(),
             luma: curves.luma.clone(),
+        }
+    }
+}
+
+/// Demosaic threshold overrides sent by the host. Present = full override;
+/// absent = per-method IQ default (VNG constant, AHD scene-brightness LUT).
+#[derive(Deserialize)]
+struct DemosaicThresholdsOptions {
+    vng_threshold: f32,
+    ahd_l_threshold: f32,
+    ahd_c_threshold_sq: f32,
+}
+
+impl From<&DemosaicThresholdsOptions> for rime_isp::DemosaicThresholds {
+    fn from(options: &DemosaicThresholdsOptions) -> Self {
+        Self {
+            vng_threshold: options.vng_threshold,
+            ahd_l_threshold: options.ahd_l_threshold,
+            ahd_c_threshold_sq: options.ahd_c_threshold_sq,
         }
     }
 }
@@ -299,9 +318,17 @@ fn preprocess_context(
         profile_calibration_signature: None,
         profile_hue_sat_map_dims: None,
         profile_hue_sat_map_data1: None,
-        profile_hue_sat_map_data2: None,
         analog_balance: descriptor.metadata.analog_balance,
-        scene_brightness_ev: descriptor.metadata.exif_brightness_value,
+        profile_hue_sat_map_data2: None,
+        scene_brightness_ev: descriptor.metadata.exif_brightness_value.or_else(|| {
+            rime_scene::estimate_scene_brightness_ev(&rime_scene::SceneInput {
+                aperture_f_number: positive_ratio(descriptor.metadata.exif_f_number),
+                exposure_time_seconds: positive_ratio(descriptor.metadata.exif_exposure_time),
+                exposure_bias_ev: descriptor.metadata.exif_exposure_bias_value,
+                ..rime_scene::SceneInput::default()
+            })
+            .ok()
+        }),
         exposure_deviation_ev: descriptor.metadata.exif_exposure_bias_value,
         iso: descriptor.metadata.exif_iso_speed.map(f64::from),
         analog_gain: None,
@@ -320,6 +347,7 @@ fn preprocess_context(
         wbc_highlight_recovery: options.wbc_highlight_recovery,
         wbc_hr_gain: None,
         drc_details_amplify: options.drc_details_amplify,
+        dem_thresholds: options.dem_thresholds.as_ref().map(Into::into),
     })
 }
 
@@ -333,7 +361,7 @@ fn build_frame_packets(
     let wbc = packet(prepared, "wbc")?;
     let drc = packet(prepared, "drc")?;
     let dem = packet(prepared, "dem")?;
-    let wbc_hr_gain = rime_isp::vfe::white_balance::hr_gain_from_packet(wbc)
+    let wbc_hr_gain = rime_isp::vbe::white_balance::hr_gain_from_packet(wbc)
         .map_err(|error| js_error(&format!("WASM_WBC_PACKET_INVALID: {error}")))?;
     let white_balance_gains = [
         f32_at(wbc.bytes(), 0)?,
@@ -485,7 +513,7 @@ fn preprocess_snapshot_json(
         "cfa_pattern": [u32_at(dem.bytes(), 0)?, u32_at(dem.bytes(), 4)?, u32_at(dem.bytes(), 8)?, u32_at(dem.bytes(), 12)?],
     });
     if options.dem_method == "03" {
-        dem_parameters["vng_threshold"] = serde_json::json!(DEFAULT_VNG_THRESHOLD);
+        dem_parameters["vng_threshold"] = serde_json::json!(f32_at(dem.bytes(), 16)?);
     }
     if options.dem_method == "04" {
         dem_parameters["ahd_l_threshold"] = serde_json::json!(f32_at(dem.bytes(), 20)?);
@@ -515,6 +543,9 @@ fn demosaic_thresholds(method: &str, bytes: &[u8]) -> Result<FusedDemosaicThresh
         ahd_l_threshold: DEFAULT_AHD_L_THRESHOLD,
         ahd_c_threshold_sq: DEFAULT_AHD_C_THRESHOLD_SQ,
     };
+    if method == "03" {
+        thresholds.vng_threshold = f32_at(bytes, 16)?;
+    }
     if method == "04" {
         thresholds.ahd_l_threshold = f32_at(bytes, 20)?;
         thresholds.ahd_c_threshold_sq = f32_at(bytes, 24)?;

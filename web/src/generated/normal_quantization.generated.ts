@@ -51,15 +51,15 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
-      "module_id": "cac",
-      "output_enabled": false,
-      "output_profile": "s0.14",
-      "clip_type": "truncate"
-    },
-    {
       "module_id": "drc",
       "output_enabled": true,
       "output_profile": "s0.12",
+      "clip_type": "truncate"
+    },
+    {
+      "module_id": "cac",
+      "output_enabled": false,
+      "output_profile": "s0.14",
       "clip_type": "truncate"
     },
     {

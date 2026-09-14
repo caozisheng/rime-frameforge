@@ -137,9 +137,23 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "vbe",
+      "label": "VBE",
+      "parent_id": "normal",
+      "kind": "group",
+      "mode": "enabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [],
+      "outputs": [],
+      "reason": null,
+      "default_expanded": true
+    },
+    {
       "id": "tintless",
       "label": "TINTLESS",
-      "parent_id": "vfe",
+      "parent_id": "vbe",
       "kind": "operator",
       "mode": "bypass",
       "execution_node_id": "tintless",
@@ -157,7 +171,7 @@ export const normalGraphPresentation = {
     {
       "id": "lsc",
       "label": "LSC",
-      "parent_id": "vfe",
+      "parent_id": "vbe",
       "kind": "operator",
       "mode": "bypass",
       "execution_node_id": "lsc",
@@ -175,7 +189,7 @@ export const normalGraphPresentation = {
     {
       "id": "wbc",
       "label": "WBC",
-      "parent_id": "vfe",
+      "parent_id": "vbe",
       "kind": "operator",
       "mode": "enabled",
       "execution_node_id": "wbc",
@@ -189,38 +203,6 @@ export const normalGraphPresentation = {
       ],
       "reason": null,
       "default_expanded": false
-    },
-    {
-      "id": "cac",
-      "label": "CAC",
-      "parent_id": "vfe",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": "cac",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "method 00: identity bypass",
-      "default_expanded": false
-    },
-    {
-      "id": "vbe",
-      "label": "VBE",
-      "parent_id": "normal",
-      "kind": "group",
-      "mode": "enabled",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [],
-      "outputs": [],
-      "reason": null,
-      "default_expanded": true
     },
     {
       "id": "drc",
@@ -238,6 +220,24 @@ export const normalGraphPresentation = {
         "out"
       ],
       "reason": null,
+      "default_expanded": false
+    },
+    {
+      "id": "cac",
+      "label": "CAC",
+      "parent_id": "vbe",
+      "kind": "operator",
+      "mode": "bypass",
+      "execution_node_id": "cac",
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "Chromatic Aberration Correction; method 00: identity bypass",
       "default_expanded": false
     },
     {
@@ -846,22 +846,22 @@ export const normalGraphPresentation = {
     {
       "id": "normal_edge_8",
       "from": "wbc",
-      "to": "cac",
-      "from_port": "out",
-      "to_port": "in",
-      "label": null
-    },
-    {
-      "id": "normal_edge_9",
-      "from": "cac",
       "to": "drc",
       "from_port": "out",
       "to_port": "in",
       "label": null
     },
     {
-      "id": "normal_edge_10",
+      "id": "normal_edge_9",
       "from": "drc",
+      "to": "cac",
+      "from_port": "out",
+      "to_port": "in",
+      "label": null
+    },
+    {
+      "id": "normal_edge_10",
+      "from": "cac",
       "to": "dem",
       "from_port": "out",
       "to_port": "in",

@@ -1,4 +1,4 @@
-use rime_isp::vfe::white_balance::{
+use rime_isp::vbe::white_balance::{
     WhiteBalanceGains, WhiteBalanceMetadata, highlight_recovery_gain, white_balance_gains,
 };
 

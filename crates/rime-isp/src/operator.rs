@@ -160,6 +160,21 @@ pub struct PreprocessContext {
     /// DRC details re-injection switch (drc00/01 `feature_flags` bit 0);
     /// default on to preserve the reference amplifier behavior.
     pub drc_details_amplify: bool,
+    /// Optional demosaic threshold overrides (dem03 VNG gradient, dem04 AHD
+    /// luminance/chroma); omitted uses the per-method IQ default.
+    pub dem_thresholds: Option<DemosaicThresholds>,
+}
+
+/// User-level demosaic threshold overrides threaded through the preprocess
+/// context; each field is validated by the consuming demosaic method.
+#[derive(Clone, Copy, Debug)]
+pub struct DemosaicThresholds {
+    /// VNG gradient threshold (dem03).
+    pub vng_threshold: f32,
+    /// AHD luminance threshold (dem04).
+    pub ahd_l_threshold: f32,
+    /// AHD chroma threshold squared (dem04).
+    pub ahd_c_threshold_sq: f32,
 }
 
 #[derive(Debug)]

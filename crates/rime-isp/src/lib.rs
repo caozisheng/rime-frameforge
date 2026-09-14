@@ -16,10 +16,11 @@ pub use fused_view::{
 };
 pub use graph::{build_normal_graph_presentation, build_normal_manifest};
 pub use operator::{
-    FrameIdentity, MethodManifest, ModuleParameterPacket, ModuleParameterResource, Operator,
-    OperatorDefinition, OperatorError, OperatorPort, PostprocessContext, PreprocessContext,
-    ShaderAsset, ShaderBindingAccess, ShaderBindingKind, ShaderBindings, ShaderStageAsset,
-    ShaderStageBinding, empty_postprocess, empty_preprocess, shader_plan,
+    DemosaicThresholds, FrameIdentity, MethodManifest, ModuleParameterPacket,
+    ModuleParameterResource, Operator, OperatorDefinition, OperatorError, OperatorPort,
+    PostprocessContext, PreprocessContext, ShaderAsset, ShaderBindingAccess, ShaderBindingKind,
+    ShaderBindings, ShaderStageAsset, ShaderStageBinding, empty_postprocess, empty_preprocess,
+    shader_plan,
 };
 pub use operator_lifecycle::{
     OperatorPhase, OperatorPhaseEvent, PreparedOperatorMethods, complete_operator_methods,
@@ -42,11 +43,11 @@ static NORMAL_OPERATORS: &[&dyn Operator] = &[
     &vfe::dbpc::OPERATOR,
     &vfe::sbpc::OPERATOR,
     &vfe::raw_nr::OPERATOR,
-    &vfe::tintless::OPERATOR,
-    &vfe::lsc::OPERATOR,
-    &vfe::white_balance::OPERATOR,
-    &vfe::cac::OPERATOR,
+    &vbe::tintless::OPERATOR,
+    &vbe::lsc::OPERATOR,
+    &vbe::white_balance::OPERATOR,
     &vbe::drc::OPERATOR,
+    &vbe::cac::OPERATOR,
     &vbe::dem::OPERATOR,
     &vbe::pfr::OPERATOR,
     &vbe::color_reproduce::OPERATOR,

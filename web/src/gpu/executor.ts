@@ -123,7 +123,7 @@ export class NormalGpuExecutor {
       this.#fullBindGroup = this.#gpu.device.createBindGroup({
         layout: this.#fullPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: this.drcInputTexture().createView() },
+          { binding: 0, resource: this.#drcTexture.createView() },
           { binding: 1, resource: this.#wbcTexture.createView() },
           { binding: 2, resource: this.#demTexture.createView() },
           { binding: 3, resource: this.#colorTexture.createView() },
@@ -156,7 +156,7 @@ export class NormalGpuExecutor {
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
     });
-    // Manifest order: WBC precedes DRC (wbc -> cac -> drc). Native and web
+    // Manifest order: WBC precedes DRC (wbc -> drc -> cac). Native and web
     // share the identical dataflow — DRC consumes the white-balanced Bayer,
     // post-DRC passes read the DRC output without re-applying phase gains.
     if (this.#moduleShaders === null || this.#wbcUniform === null) throw new Error('FUSED_GRAPH_INVALID: WBC pipeline was not prepared');
@@ -167,7 +167,7 @@ export class NormalGpuExecutor {
       entryPoint: 'wbc_main',
       bindings: [
         { binding: 0, resource: { texture: this.#blcTexture } },
-        { binding: 1, resource: { texture: this.#wbcTexture } },
+        { binding: 1, resource: { texture: this.#drcBypassed ? this.#drcTexture : this.#wbcTexture } },
         { binding: 2, resource: { buffer: this.#wbcUniform } },
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
@@ -315,7 +315,7 @@ export class NormalGpuExecutor {
     this.#postPipeline ??= this.createPipeline(segmented.post, 'postprocess_main');
     this.#gpu.device.queue.writeBuffer(this.#demUniforms, 0, demUniform);
     this.#preBindGroup = this.#gpu.device.createBindGroup({ layout: this.#prePipeline.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.drcInputTexture().createView() },
+      { binding: 0, resource: this.#drcTexture.createView() },
       { binding: 1, resource: this.#wbcTexture.createView() },
       { binding: 2, resource: { buffer: this.#uniforms } },
     ] });
@@ -343,7 +343,7 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = this.#drcBypassed && cursor === 'drc' ? this.#wbcTexture : this.#previewTextures[cursor];
+      const texture = this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
       const incoming = normalManifest.edges.find((edge) => edge.to.node_id === cursor);
       if (incoming === undefined) return null;
@@ -353,9 +353,9 @@ export class NormalGpuExecutor {
   }
 
   private drcInputTexture(): GPUTexture {
-    // Input to the post-DRC passes (graph: wbc -> cac -> drc -> dem -> ...).
-    // With DRC bypassed they consume the WBC output directly.
-    return this.#drcBypassed ? this.#wbcTexture : this.#drcTexture;
+    // WBC and DRC both publish the post-white-balance Bayer data to this
+    // stable source texture; bypassing DRC changes WBC's output target.
+    return this.#drcTexture;
   }
 
   private uploadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {
