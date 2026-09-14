@@ -3079,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "rime-cli"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "clap",
  "image",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "rime-core"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "petgraph",
  "rime-quant",
@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "rime-desktop"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -3122,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "rime-dng"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bytemuck",
  "gamut-dng",
@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "rime-iq"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_yaml",
@@ -3142,7 +3142,7 @@ dependencies = [
 
 [[package]]
 name = "rime-isp"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "naga",
  "rime-core",
@@ -3153,7 +3153,7 @@ dependencies = [
 
 [[package]]
 name = "rime-native-gpu"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "bytemuck",
  "image",
@@ -3169,7 +3169,7 @@ dependencies = [
 
 [[package]]
 name = "rime-quant"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "serde_json",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "rime-scene"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -3186,7 +3186,7 @@ dependencies = [
 
 [[package]]
 name = "rime-wasm"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "rime-core",
  "rime-isp",
