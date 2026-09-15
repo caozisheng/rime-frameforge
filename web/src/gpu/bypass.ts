@@ -15,7 +15,6 @@ export const BYPASS_EXCLUDED_MODULE_IDS = [
   'wbc',
   'dem',
   'color_reproduce',
-  'gamma',
   'rgb2yuv',
 ] as const;
 

@@ -162,7 +162,7 @@ export function NodeInspector({ nodeId, envelope, dngFrame = null, preprocessSna
   const parameterChildren = selectedMethod === undefined ? [{ id: 'parameters.empty', label: 'Value', value: 'No parameters' }] : parameters.map((parameter) => {
     const value = parameterValue(executionNode?.id, selectedMethod.method, parameter, parameterValues, dngFrame, preprocessSnapshot);
     const appliedValue = appliedParameterValues[parameter];
-    const editableScalar = executionNode?.id === 'dem' || (executionNode?.id === 'gamma' && parameter === 'gamma');
+    const editableScalar = executionNode?.id === 'dem' || (executionNode?.id === 'color_reproduce' && parameter === 'gamma');
     const dirty = editableScalar && typeof value === 'number' && typeof appliedValue === 'number' && value !== appliedValue;
     const descriptor = executionNode === undefined ? null : tuningDescriptor(executionNode.id, selectedMethod.method, parameter);
     const isLut2d = descriptor !== null && descriptor.controlKind === 'lut_2d';

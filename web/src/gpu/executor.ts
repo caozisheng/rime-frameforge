@@ -20,7 +20,7 @@ const DEM_ENTRY_POINTS: Record<Exclude<DemMethod, '00'>, string> = {
   '03': 'demosaic_vng_main',
   '04': 'demosaic_ahd_main',
 };
-const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_reproduce', 'gamma', 'rgb2yuv']);
+const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_reproduce', 'rgb2yuv']);
 export class NormalGpuExecutor {
   readonly #gpu: GpuContext;
   readonly #presenter: GpuPreviewPresenter;
@@ -31,7 +31,6 @@ export class NormalGpuExecutor {
   readonly #demTexture: GPUTexture;
   readonly #demIntermediateTexture: GPUTexture;
   readonly #colorTexture: GPUTexture;
-  readonly #gammaTexture: GPUTexture;
   readonly #outputTexture: GPUTexture;
   #uniforms: GPUBuffer | null = null;
   readonly #crHsLut: GPUBuffer;
@@ -72,7 +71,6 @@ export class NormalGpuExecutor {
     this.#demTexture = this.createTexture('normal-dem', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#demIntermediateTexture = this.createTexture('normal-dem-intermediate', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING);
     this.#colorTexture = this.createTexture('normal-color', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#gammaTexture = this.createTexture('normal-gamma', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#outputTexture = this.createTexture('normal-yuv', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#previewTextures = {
       raw_source: this.#rawTexture,
@@ -81,7 +79,6 @@ export class NormalGpuExecutor {
       wbc: this.#wbcTexture,
       dem: this.#demTexture,
       color_reproduce: this.#colorTexture,
-      gamma: this.#gammaTexture,
       rgb2yuv: this.#outputTexture,
     };
     const hsLut = descriptor.colorReproduce?.hsLut ?? [];
@@ -109,15 +106,15 @@ export class NormalGpuExecutor {
     this.#uniforms ??= this.#gpu.device.createBuffer({ label: 'normal-fused-params', size: packets.fusedUniform.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packets.fusedUniform);
     if (packets.colorReproduceHsLut.byteLength > 0) this.#gpu.device.queue.writeBuffer(this.#crHsLut, 0, packets.colorReproduceHsLut);
+    this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
+    this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-blc-params', size: Math.max(packets.blcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-wbc-params', size: Math.max(packets.wbcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
+    this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
     if (!this.#drcBypassed) {
       this.#drc.setMethod(this.#drcMethod);
       this.#drc.preparePackets(packets.drcUniform, packets.drcGlobalLut, packets.drcLocalLut, packets.drcModulationLuts);
     }
-    this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
-    this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'blc-scalars', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
-    this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'wbc-scalars', size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
     if (this.#demMethod === '00') {
       this.#fullPipeline ??= this.createPipeline(compileFusedNormalShader(), 'normal_fused_main');
       this.#fullBindGroup = this.#gpu.device.createBindGroup({
@@ -127,10 +124,9 @@ export class NormalGpuExecutor {
           { binding: 1, resource: this.#wbcTexture.createView() },
           { binding: 2, resource: this.#demTexture.createView() },
           { binding: 3, resource: this.#colorTexture.createView() },
-          { binding: 4, resource: this.#gammaTexture.createView() },
-          { binding: 5, resource: this.#outputTexture.createView() },
-          { binding: 6, resource: { buffer: this.#uniforms } },
-          { binding: 7, resource: { buffer: this.#crHsLut } },
+          { binding: 4, resource: this.#outputTexture.createView() },
+          { binding: 5, resource: { buffer: this.#uniforms } },
+          { binding: 6, resource: { buffer: this.#crHsLut } },
         ],
       });
       return;
@@ -156,7 +152,7 @@ export class NormalGpuExecutor {
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
     });
-    // Manifest order: WBC precedes DRC (wbc -> drc -> cac). Native and web
+    // Manifest order: WBC precedes DRC (wbc -> drc -> dem). Native and web
     // share the identical dataflow — DRC consumes the white-balanced Bayer,
     // post-DRC passes read the DRC output without re-applying phase gains.
     if (this.#moduleShaders === null || this.#wbcUniform === null) throw new Error('FUSED_GRAPH_INVALID: WBC pipeline was not prepared');
@@ -227,7 +223,6 @@ export class NormalGpuExecutor {
     this.#demTexture.destroy();
     this.#demIntermediateTexture.destroy();
     this.#colorTexture.destroy();
-    this.#gammaTexture.destroy();
     this.#outputTexture.destroy();
     this.#uniforms?.destroy();
     this.#crHsLut.destroy();
@@ -332,10 +327,9 @@ export class NormalGpuExecutor {
     this.#postBindGroup = this.#gpu.device.createBindGroup({ layout: this.#postPipeline.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.#demTexture.createView() },
       { binding: 1, resource: this.#colorTexture.createView() },
-      { binding: 2, resource: this.#gammaTexture.createView() },
-      { binding: 3, resource: this.#outputTexture.createView() },
-      { binding: 4, resource: { buffer: this.#uniforms } },
-      { binding: 5, resource: { buffer: this.#crHsLut } },
+      { binding: 2, resource: this.#outputTexture.createView() },
+      { binding: 3, resource: { buffer: this.#uniforms } },
+      { binding: 4, resource: { buffer: this.#crHsLut } },
     ] });
   }
 
@@ -350,12 +344,6 @@ export class NormalGpuExecutor {
       cursor = incoming.from.node_id;
     }
     return null;
-  }
-
-  private drcInputTexture(): GPUTexture {
-    // WBC and DRC both publish the post-white-balance Bayer data to this
-    // stable source texture; bypassing DRC changes WBC's output target.
-    return this.#drcTexture;
   }
 
   private uploadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void {

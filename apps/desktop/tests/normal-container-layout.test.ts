@@ -41,6 +41,7 @@ describe('layoutNormalContainers', () => {
     ]));
   });
 
+
   it('preserves shared MCTF module and IQ override bindings', () => {
     const projected = projectNormalGraph(normalGraphPresentation, expanded);
     const layout = layoutNormalContainers(projected.nodes, projected.edges);
@@ -99,7 +100,7 @@ describe('layoutNormalContainers', () => {
     expect(normalLayoutConfig('vpe').rankdir).toBe('TB');
   });
 
-  it('wraps VBE every four nodes into three rows', () => {
+  it('wraps the VBE chain into two rows', () => {
     const projected = projectNormalGraph(normalGraphPresentation, expanded);
     const layout = layoutNormalContainers(projected.nodes, projected.edges);
     const byId = new Map(layout.nodes.map((node) => [node.id, node]));
@@ -108,12 +109,9 @@ describe('layoutNormalContainers', () => {
     expect(row('tintless')).toBe(row('lsc'));
     expect(row('lsc')).toBe(row('wbc'));
     expect(row('wbc')).toBe(row('drc'));
-    expect(row('cac')).toBe(row('dem'));
-    expect(row('cac')).toBeGreaterThan(row('drc'));
-    expect(row('color_reproduce')).toBe(row('pfr'));
-    expect(row('color_reproduce')).toBeGreaterThan(row('drc'));
-    expect(row('gamma')).toBe(row('rgb2yuv'));
-    expect(row('gamma')).toBeGreaterThan(row('color_reproduce'));
+    expect(row('dem')).toBe(row('color_reproduce'));
+    expect(row('color_reproduce')).toBe(row('rgb2yuv'));
+    expect(row('dem')).toBeGreaterThan(row('drc'));
   });
 
   it('keeps all VBE to VPE scale labels at routed bends', () => {

@@ -120,6 +120,9 @@ function NormalNodeComponent({ data, selected }: NodeProps<NormalFlowNode>) {
         </div>
         <small>{data.kind === 'group' ? 'group' : data.kind === 'endpoint' ? 'external I/O' : data.mode}</small>
       </div>
+      {getNormalPortHandles(data.outputs.filter((port) => port !== 'out')).map((handle) => (
+        <span key={`output-label:${handle.id}`} className="normal-output-label" style={{ top: handle.top }}>{handle.id}</span>
+      ))}
       {getNormalPortHandles(data.outputs).map((handle) => (
         <Handle key={`source:${handle.id}`} id={handle.id} type="source" position={normalHandlePositions.source} style={{ top: handle.top }} className="dag-handle" />
       ))}

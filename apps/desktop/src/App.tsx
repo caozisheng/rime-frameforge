@@ -462,12 +462,12 @@ export function App() {
       const value = parameterValues[parameter];
       const applied = appliedParameterValues[parameter];
       if (typeof value === 'number' && value !== applied) {
-        bridgeRef.current.setParameter(parameter === 'gamma' ? 'gamma' : 'dem', parameter, value);
+        bridgeRef.current.setParameter(parameter === 'gamma' ? 'color_reproduce' : 'dem', parameter, value);
         setAppliedParameterValues((current) => ({ ...current, [parameter]: value }));
       }
     }
     if (tuningCurves.gammaCurve.some((point, index) => point.y !== appliedGammaCurve[index]?.y)) {
-      bridgeRef.current.setLut('gamma', 'gamma_lut', tuningCurves.gammaCurve.map((point) => point.y));
+      bridgeRef.current.setLut('color_reproduce', 'gamma_lut', tuningCurves.gammaCurve.map((point) => point.y));
       setAppliedGammaCurve(tuningCurves.gammaCurve);
     }
   };

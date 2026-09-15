@@ -111,12 +111,14 @@ fn packet_freezes_matrices_lut_and_uniform() {
         .preprocess("00", &gh5s_context())
         .expect("CR preprocess");
 
-    // Uniform: 16 bytes, hue/saturation dims + hs enable (z) + reserved (w).
-    assert_eq!(packet.bytes().len(), 16);
+    // Uniform: 32 bytes — hue/saturation dims + hs enable (z) + reserved (w),
+    // then the gamma block (x = exponent 2.2, yzw reserved).
+    assert_eq!(packet.bytes().len(), 32);
     assert_eq!(read_u32(packet.bytes(), 0), 2);
     assert_eq!(read_u32(packet.bytes(), 1), 3);
     assert_eq!(read_u32(packet.bytes(), 2), 1);
     assert_eq!(read_u32(packet.bytes(), 3), 0);
+    assert!((read_f32(packet.bytes(), 4) - 2.2).abs() < 1e-6);
 
     // Matrices resource: 18 f32 row-major, sensor->ProPhoto then ProPhoto->sRGB.
     let matrices = packet.resource("cr_matrices").expect("cr_matrices");
@@ -153,6 +155,13 @@ fn packet_freezes_matrices_lut_and_uniform() {
             (expected - actual).abs() < 1e-6,
             "lut[{index}]: {expected} vs {actual}"
         );
+    }
+
+    // Gamma LUT resource: the identity nine-knot luminance LUT.
+    let gamma_lut = packet.resource("cr_gamma_lut").expect("cr_gamma_lut");
+    assert_eq!(gamma_lut.bytes().len(), 9 * 4);
+    for index in 0..9 {
+        assert!((read_f32(gamma_lut.bytes(), index) - index as f32 / 8.0).abs() < 1e-6);
     }
 }
 

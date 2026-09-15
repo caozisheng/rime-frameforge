@@ -57,38 +57,14 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
-      "module_id": "cac",
-      "output_enabled": false,
-      "output_profile": "s0.14",
-      "clip_type": "truncate"
-    },
-    {
       "module_id": "dem",
       "output_enabled": true,
       "output_profile": "s0.12",
       "clip_type": "truncate"
     },
     {
-      "module_id": "pfr",
-      "output_enabled": false,
-      "output_profile": "s0.12",
-      "clip_type": "truncate"
-    },
-    {
       "module_id": "color_reproduce",
       "output_enabled": true,
-      "output_profile": "s0.12",
-      "clip_type": "truncate"
-    },
-    {
-      "module_id": "gamma",
-      "output_enabled": true,
-      "output_profile": "u0.10",
-      "clip_type": "truncate"
-    },
-    {
-      "module_id": "three_d_lut",
-      "output_enabled": false,
       "output_profile": "u0.10",
       "clip_type": "truncate"
     },

@@ -149,7 +149,7 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     return;
   }
   if (command.type === 'set_lut') {
-    if (executor === null || command.nodeId !== 'gamma') throw new Error('INVALID_STATE_TRANSITION: Gamma executor is unavailable');
+    if (executor === null || command.nodeId !== 'color_reproduce') throw new Error('INVALID_STATE_TRANSITION: Color Reproduce executor is unavailable');
     executor.setLut(command.parameter, command.values);
     lutValues[command.parameter] = [...command.values];
     envelope = authority.changeMethod();
@@ -200,7 +200,7 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
 function parameterNode(parameter: string): string {
   if (parameter === 'enable_highlight_recovery') return 'wbc';
   if (parameter === 'enable_details_amplify') return 'drc';
-  if (parameter === 'gamma') return 'gamma';
+  if (parameter === 'gamma') return 'color_reproduce';
   return 'dem';
 }
 

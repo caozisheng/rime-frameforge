@@ -1,5 +1,6 @@
 struct CrParams {
   dims_and_enable: vec4<u32>,   // x=hue_divs, y=saturation_divs, z=hs_enable, w=reserved
+  gamma_and_padding: vec4<f32>, // x=display gamma exponent; yzw reserved
 }
 
 struct FloatBuffer { values: array<f32> }
@@ -9,6 +10,7 @@ struct FloatBuffer { values: array<f32> }
 @group(0) @binding(2) var<uniform> params: CrParams;
 @group(0) @binding(3) var<storage, read> cr_matrices: FloatBuffer;
 @group(0) @binding(4) var<storage, read> cr_hs_lut: FloatBuffer;
+@group(0) @binding(5) var<storage, read> cr_gamma_lut: FloatBuffer;
 
 fn mat_entry(matrix: u32, row: u32, col: u32) -> f32 {
   return cr_matrices.values[matrix * 9u + row * 3u + col];
@@ -80,6 +82,65 @@ fn hs_lut_apply(hsv: vec3<f32>) -> vec3<f32> {
   );
 }
 
+// Gamma encode (merged from the standalone gamma module): the nine-knot
+// luminance LUT lives in the cr_gamma_lut storage buffer.
+fn gamma_lut_value(index: u32) -> f32 {
+  return cr_gamma_lut.values[index];
+}
+
+fn gamma_lut_secant(index: u32) -> f32 {
+  return gamma_lut_value(index + 1u) - gamma_lut_value(index);
+}
+
+fn gamma_lut_tangent(index: u32) -> f32 {
+  if (index == 0u) {
+    return gamma_lut_secant(0u);
+  }
+  if (index >= 8u) {
+    return gamma_lut_secant(7u);
+  }
+  let left = gamma_lut_secant(index - 1u);
+  let right = gamma_lut_secant(index);
+  if (left * right <= 0.0) {
+    return 0.0;
+  }
+  return 2.0 * left * right / (left + right);
+}
+
+fn sample_gamma_luminance_lut(value: f32) -> f32 {
+  if (value > 1.0) {
+    return value;
+  }
+  let coordinate = clamp(value, 0.0, 1.0) * 8.0;
+  let index = min(u32(floor(coordinate)), 7u);
+  let t = coordinate - f32(index);
+  let y0 = gamma_lut_value(index);
+  let y1 = gamma_lut_value(index + 1u);
+  let control1 = y0 + gamma_lut_tangent(index) / 3.0;
+  let control2 = y1 - gamma_lut_tangent(index + 1u) / 3.0;
+  let one_minus_t = 1.0 - t;
+  return clamp(
+    one_minus_t * one_minus_t * one_minus_t * y0
+      + 3.0 * one_minus_t * one_minus_t * t * control1
+      + 3.0 * one_minus_t * t * t * control2
+      + t * t * t * y1,
+    min(y0, y1),
+    max(y0, y1),
+  );
+}
+
+// Luminance-domain LUT gain (hue invariant), then the per-channel display
+// exponent — the only per-channel transfer in the graph.
+fn gamma_encode(linear_rgb: vec3<f32>) -> vec3<f32> {
+  let luminance = dot(linear_rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+  var mapped_rgb = vec3<f32>(0.0);
+  if (luminance > 0.000001) {
+    let mapped_luminance = sample_gamma_luminance_lut(luminance);
+    mapped_rgb = linear_rgb * (mapped_luminance / luminance);
+  }
+  return pow(max(mapped_rgb, vec3<f32>(0.0)), vec3<f32>(1.0 / max(params.gamma_and_padding.x, 0.000001)));
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn color_reproduce_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let extent = textureDimensions(input_tex);
@@ -101,5 +162,7 @@ fn color_reproduce_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var srgb = apply_matrix(1u, rgb);
   srgb = clamp(srgb, vec3<f32>(0.0), vec3<f32>(1.0));
 
-  textureStore(output_tex, p, vec4<f32>(srgb, 1.0));
+  // Gamma encode: this module is the linear-to-encoded boundary.
+  let encoded = gamma_encode(srgb);
+  textureStore(output_tex, p, vec4<f32>(encoded, 1.0));
 }

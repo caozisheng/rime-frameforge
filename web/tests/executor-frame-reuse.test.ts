@@ -88,7 +88,7 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
 
-    expect(fake.counts()).toEqual({ textureCreates: 20, textureDestroys: 0, bufferCreates: 5, bufferDestroys: 0, rawUploads: 2 });
+    expect(fake.counts()).toEqual({ textureCreates: 19, textureDestroys: 0, bufferCreates: 5, bufferDestroys: 0, rawUploads: 2 });
   });
   it('reuses the uploaded raw source across reset and repeated graph execution', async () => {
     const fake = fakeGpu();

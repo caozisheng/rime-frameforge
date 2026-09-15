@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "38fd3217185779ed5c506bc5339a3cf4445eaaba21f6a6cb92def33e206ca224",
+  "manifest_hash": "9c59154d83af8e8dd2d4d030844b864faa34dab5af00aeaa1e9526b3db906460",
   "nodes": [
     {
       "id": "raw_source",
@@ -394,43 +394,6 @@ export const normalManifest = {
       ]
     },
     {
-      "id": "cac",
-      "display_name": "CAC",
-      "shader_entry": "identity_r32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "raw_bayer_rime_q",
-          "format": "r32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_r32_main",
-          "parameters": [
-            "identity"
-          ]
-        }
-      ]
-    },
-    {
       "id": "dem",
       "display_name": "DEM",
       "shader_entry": "demosaic_bilinear_main",
@@ -499,43 +462,6 @@ export const normalManifest = {
       ]
     },
     {
-      "id": "pfr",
-      "display_name": "PFR",
-      "shader_entry": "identity_rgba32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "linear_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "linear_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_rgba32_main",
-          "parameters": [
-            "identity"
-          ]
-        }
-      ]
-    },
-    {
       "id": "color_reproduce",
       "display_name": "Color Reproduce",
       "shader_entry": "color_reproduce_main",
@@ -553,7 +479,7 @@ export const normalManifest = {
       "outputs": [
         {
           "id": "out",
-          "domain": "linear_rgb",
+          "domain": "encoded_rgb",
           "format": "rgba32_float",
           "extent": {
             "width": 32,
@@ -569,82 +495,9 @@ export const normalManifest = {
           "parameters": [
             "sensor_to_prophoto",
             "hs_lut",
-            "prophoto_to_srgb"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "gamma",
-      "display_name": "Gamma",
-      "shader_entry": "gamma_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "linear_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "encoded_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "gamma_main",
-          "parameters": [
+            "prophoto_to_srgb",
             "gamma",
             "gamma_lut"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "three_d_lut",
-      "display_name": "3D LUT 17³",
-      "shader_entry": "identity_rgba32_main",
-      "inputs": [
-        {
-          "id": "in",
-          "domain": "encoded_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "outputs": [
-        {
-          "id": "out",
-          "domain": "encoded_rgb",
-          "format": "rgba32_float",
-          "extent": {
-            "width": 32,
-            "height": 24
-          }
-        }
-      ],
-      "default_method": "00",
-      "methods": [
-        {
-          "method": "00",
-          "shader_entry": "identity_rgba32_main",
-          "parameters": [
-            "identity"
           ]
         }
       ]
@@ -803,7 +656,7 @@ export const normalManifest = {
         "port_id": "out"
       },
       "to": {
-        "node_id": "cac",
+        "node_id": "dem",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -811,11 +664,11 @@ export const normalManifest = {
     {
       "id": "normal_edge_10",
       "from": {
-        "node_id": "cac",
+        "node_id": "dem",
         "port_id": "out"
       },
       "to": {
-        "node_id": "dem",
+        "node_id": "color_reproduce",
         "port_id": "in"
       },
       "frame_delay": 0
@@ -823,55 +676,7 @@ export const normalManifest = {
     {
       "id": "normal_edge_11",
       "from": {
-        "node_id": "dem",
-        "port_id": "out"
-      },
-      "to": {
-        "node_id": "pfr",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_12",
-      "from": {
-        "node_id": "pfr",
-        "port_id": "out"
-      },
-      "to": {
         "node_id": "color_reproduce",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_13",
-      "from": {
-        "node_id": "color_reproduce",
-        "port_id": "out"
-      },
-      "to": {
-        "node_id": "gamma",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_14",
-      "from": {
-        "node_id": "gamma",
-        "port_id": "out"
-      },
-      "to": {
-        "node_id": "three_d_lut",
-        "port_id": "in"
-      },
-      "frame_delay": 0
-    },
-    {
-      "id": "normal_edge_15",
-      "from": {
-        "node_id": "three_d_lut",
         "port_id": "out"
       },
       "to": {
@@ -896,48 +701,9 @@ export const normalManifest = {
       "presentation": "yuv"
     },
     {
-      "node_id": "three_d_lut",
-      "port_id": "out",
-      "domain": "encoded_rgb",
-      "format": "rgba32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "rgba",
-      "presentation": "rgb"
-    },
-    {
-      "node_id": "gamma",
-      "port_id": "out",
-      "domain": "encoded_rgb",
-      "format": "rgba32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "rgba",
-      "presentation": "rgb"
-    },
-    {
       "node_id": "color_reproduce",
       "port_id": "out",
-      "domain": "linear_rgb",
-      "format": "rgba32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "rgba",
-      "presentation": "rgb"
-    },
-    {
-      "node_id": "pfr",
-      "port_id": "out",
-      "domain": "linear_rgb",
+      "domain": "encoded_rgb",
       "format": "rgba32_float",
       "extent": {
         "width": 32,
@@ -959,19 +725,6 @@ export const normalManifest = {
       "range": "normalized",
       "channel_layout": "rgba",
       "presentation": "rgb"
-    },
-    {
-      "node_id": "cac",
-      "port_id": "out",
-      "domain": "raw_bayer_rime_q",
-      "format": "r32_float",
-      "extent": {
-        "width": 32,
-        "height": 24
-      },
-      "range": "normalized",
-      "channel_layout": "scalar",
-      "presentation": "raw_gray"
     },
     {
       "node_id": "drc",

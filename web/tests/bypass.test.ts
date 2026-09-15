@@ -19,12 +19,12 @@ describe('Normal Graph bypass configuration', () => {
   it('builds runtime bypass state for every non-excluded operator', () => {
     expect(defaultConfig().modules.map((module) => module.module_id)).toEqual(eligibleModuleIds);
     expect(defaultConfig().modules.find((module) => module.module_id === 'drc')?.bypass).toBe(false);
-    expect(defaultConfig().modules.find((module) => module.module_id === 'cac')?.bypass).toBe(true);
+    expect(defaultConfig().modules.find((module) => module.module_id === 'raw_nr')?.bypass).toBe(true);
   });
 
   it('exposes switches for every non-excluded operator', () => {
     expect(canUserBypassModule('drc')).toBe(true);
-    expect(canUserBypassModule('cac')).toBe(true);
+    expect(canUserBypassModule('tintless')).toBe(true);
     expect(canUserBypassModule('raw_nr')).toBe(true);
     expect(canUserBypassModule('blc')).toBe(false);
     expect(canUserBypassModule('unknown')).toBe(false);

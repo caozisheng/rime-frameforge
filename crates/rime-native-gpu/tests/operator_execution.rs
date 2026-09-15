@@ -187,7 +187,7 @@ fn ahd_preprocess_accepts_scene_brightness_without_iso() {
 }
 
 #[test]
-fn gamma_preprocess_emits_default_gamma_and_identity_luminance_lut() {
+fn color_reproduce_preprocess_emits_default_gamma_and_identity_luminance_lut() {
     let context = PreprocessContext {
         identity: FrameIdentity {
             frame_index: 1,
@@ -201,9 +201,9 @@ fn gamma_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         cfa_pattern: [0, 1, 1, 2],
         as_shot_neutral: Some([1.0, 1.0, 1.0]),
         as_shot_white_xy: None,
-        color_matrix1: [1.0; 9],
+        color_matrix1: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         color_matrix2: None,
-        calibration_illuminant1_code: None,
+        calibration_illuminant1_code: Some(21),
         calibration_illuminant2_code: None,
         camera_calibration1: None,
         camera_calibration2: None,
@@ -235,17 +235,21 @@ fn gamma_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         drc_details_amplify: true,
         dem_thresholds: None,
     };
-    let packet = rime_isp::operator_by_id("gamma")
-        .expect("Gamma")
+    let packet = rime_isp::operator_by_id("color_reproduce")
+        .expect("color_reproduce")
         .preprocess("00", &context)
-        .expect("Gamma preprocess");
-    assert_eq!(packet.bytes().len(), 64);
-    let gamma = f32::from_ne_bytes(packet.bytes()[0..4].try_into().expect("gamma bytes"));
+        .expect("color_reproduce preprocess");
+    // Gamma stage merged into CR: uniform carries the hue/sat divs and
+    // enable flag, with the gamma exponent at offset 16.
+    assert_eq!(packet.bytes().len(), 32);
+    let gamma = f32::from_ne_bytes(packet.bytes()[16..20].try_into().expect("gamma bytes"));
     assert!((gamma - 2.2).abs() < f32::EPSILON);
+    // Gamma LUT resource: identity ramp, 9 knots covering [0,1].
+    let lut = packet.resource("cr_gamma_lut").expect("cr_gamma_lut resource");
     let values = (0..9)
         .map(|index| {
             f32::from_ne_bytes(
-                packet.bytes()[16 + index * 4..20 + index * 4]
+                lut.bytes()[index * 4..index * 4 + 4]
                     .try_into()
                     .expect("LUT bytes"),
             )

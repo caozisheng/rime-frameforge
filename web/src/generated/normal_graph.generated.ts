@@ -119,6 +119,60 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "pdafst",
+      "label": "PDAFST",
+      "parent_id": "vfe",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "pdaf-stat"
+      ],
+      "reason": "phase-difference AF statistics placeholder; output pdaf-stat",
+      "default_expanded": false
+    },
+    {
+      "id": "lcst",
+      "label": "LCST",
+      "parent_id": "vfe",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "lc-stat"
+      ],
+      "reason": "luma-chroma statistics placeholder; output lc-stat",
+      "default_expanded": false
+    },
+    {
+      "id": "cdafst",
+      "label": "CDAFST",
+      "parent_id": "vfe",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "cdaf-stat"
+      ],
+      "reason": "contrast-difference AF statistics placeholder; output cdaf-stat",
+      "default_expanded": false
+    },
+    {
       "id": "raw_nr",
       "label": "RAW-NR",
       "parent_id": "vfe",
@@ -223,24 +277,6 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "cac",
-      "label": "CAC",
-      "parent_id": "vbe",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": "cac",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "Chromatic Aberration Correction; method 00: identity bypass",
-      "default_expanded": false
-    },
-    {
       "id": "dem",
       "label": "DEM",
       "parent_id": "vbe",
@@ -259,24 +295,6 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "pfr",
-      "label": "PFR",
-      "parent_id": "vbe",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": "pfr",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "Purple-Fringe Removal; method 00: identity bypass",
-      "default_expanded": false
-    },
-    {
       "id": "color_reproduce",
       "label": "Color Reproduce",
       "parent_id": "vbe",
@@ -292,42 +310,6 @@ export const normalGraphPresentation = {
         "out"
       ],
       "reason": null,
-      "default_expanded": false
-    },
-    {
-      "id": "gamma",
-      "label": "Gamma",
-      "parent_id": "vbe",
-      "kind": "operator",
-      "mode": "enabled",
-      "execution_node_id": "gamma",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": null,
-      "default_expanded": false
-    },
-    {
-      "id": "three_d_lut",
-      "label": "3D LUT 17³",
-      "parent_id": "vbe",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": "three_d_lut",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "method 00: identity bypass",
       "default_expanded": false
     },
     {
@@ -506,6 +488,24 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "vpe_16_sharpen",
+      "label": "Sharpen",
+      "parent_id": "vpe_16_pass",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "pyramid input unavailable",
+      "default_expanded": false
+    },
+    {
       "id": "vpe_4_pass",
       "label": "pass-2",
       "parent_id": "vpe",
@@ -601,6 +601,24 @@ export const normalGraphPresentation = {
       "execution_node_id": null,
       "module_id": "mctf",
       "iq_override_id": "mctf_2",
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "pyramid input unavailable",
+      "default_expanded": false
+    },
+    {
+      "id": "vpe_4_sharpen",
+      "label": "Sharpen",
+      "parent_id": "vpe_4_pass",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
       "inputs": [
         "in"
       ],
@@ -752,6 +770,24 @@ export const normalGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "vpe_full_sharpen",
+      "label": "Sharpen",
+      "parent_id": "vpe_full_pass",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ],
+      "reason": "pyramid input unavailable",
+      "default_expanded": false
+    },
+    {
       "id": "encoder",
       "label": "FFmpeg Encoder",
       "parent_id": "normal",
@@ -805,6 +841,14 @@ export const normalGraphPresentation = {
     },
     {
       "id": "normal_edge_3",
+      "from": "sbpc_horizontal",
+      "to": "pdafst",
+      "from_port": "out",
+      "to_port": "in",
+      "label": null
+    },
+    {
+      "id": "normal_edge_4",
       "from": "dbpc",
       "to": "sbpc",
       "from_port": "out",
@@ -812,7 +856,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_4",
+      "id": "normal_edge_5",
       "from": "sbpc",
       "to": "raw_nr",
       "from_port": "out",
@@ -820,7 +864,23 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_5",
+      "id": "normal_edge_6",
+      "from": "sbpc",
+      "to": "lcst",
+      "from_port": "out",
+      "to_port": "in",
+      "label": null
+    },
+    {
+      "id": "normal_edge_7",
+      "from": "sbpc",
+      "to": "cdafst",
+      "from_port": "out",
+      "to_port": "in",
+      "label": null
+    },
+    {
+      "id": "normal_edge_8",
       "from": "raw_nr",
       "to": "tintless",
       "from_port": "out",
@@ -828,7 +888,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_6",
+      "id": "normal_edge_9",
       "from": "tintless",
       "to": "lsc",
       "from_port": "out",
@@ -836,7 +896,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_7",
+      "id": "normal_edge_10",
       "from": "lsc",
       "to": "wbc",
       "from_port": "out",
@@ -844,7 +904,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_8",
+      "id": "normal_edge_11",
       "from": "wbc",
       "to": "drc",
       "from_port": "out",
@@ -852,63 +912,31 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_9",
+      "id": "normal_edge_12",
       "from": "drc",
-      "to": "cac",
-      "from_port": "out",
-      "to_port": "in",
-      "label": null
-    },
-    {
-      "id": "normal_edge_10",
-      "from": "cac",
       "to": "dem",
       "from_port": "out",
       "to_port": "in",
       "label": null
     },
     {
-      "id": "normal_edge_11",
+      "id": "normal_edge_13",
       "from": "dem",
-      "to": "pfr",
-      "from_port": "out",
-      "to_port": "in",
-      "label": null
-    },
-    {
-      "id": "normal_edge_12",
-      "from": "pfr",
       "to": "color_reproduce",
       "from_port": "out",
       "to_port": "in",
       "label": null
     },
     {
-      "id": "normal_edge_13",
-      "from": "color_reproduce",
-      "to": "gamma",
-      "from_port": "out",
-      "to_port": "in",
-      "label": null
-    },
-    {
       "id": "normal_edge_14",
-      "from": "gamma",
-      "to": "three_d_lut",
-      "from_port": "out",
-      "to_port": "in",
-      "label": null
-    },
-    {
-      "id": "normal_edge_15",
-      "from": "three_d_lut",
+      "from": "color_reproduce",
       "to": "rgb2yuv",
       "from_port": "out",
       "to_port": "in",
       "label": null
     },
     {
-      "id": "normal_edge_16",
+      "id": "normal_edge_15",
       "from": "rgb2yuv",
       "to": "pyrd",
       "from_port": "out",
@@ -916,7 +944,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_17",
+      "id": "normal_edge_16",
       "from": "vpe_16_sharpen",
       "to": "vpe_4_pyrc",
       "from_port": "out",
@@ -924,7 +952,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_18",
+      "id": "normal_edge_17",
       "from": "vpe_4_sharpen",
       "to": "vpe_full_pyrc",
       "from_port": "out",
@@ -932,7 +960,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_19",
+      "id": "normal_edge_18",
       "from": "vpe_full_sharpen",
       "to": "encoder",
       "from_port": "out",
@@ -940,7 +968,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_20",
+      "id": "normal_edge_19",
       "from": "pyrd",
       "to": "vpe_full_pyrc",
       "from_port": "full",
@@ -948,7 +976,7 @@ export const normalGraphPresentation = {
       "label": "Full YUV"
     },
     {
-      "id": "normal_edge_21",
+      "id": "normal_edge_20",
       "from": "pyrd",
       "to": "vpe_4_pyrc",
       "from_port": "quarter",
@@ -956,7 +984,7 @@ export const normalGraphPresentation = {
       "label": "1/4 YUV"
     },
     {
-      "id": "normal_edge_22",
+      "id": "normal_edge_21",
       "from": "pyrd",
       "to": "vpe_16_pyrc",
       "from_port": "sixteenth",

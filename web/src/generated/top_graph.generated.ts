@@ -117,6 +117,60 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
+      "id": "pdafst",
+      "label": "pdaf statistics",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "pdaf-stat"
+      ],
+      "reason": "phase-difference AF statistics placeholder; output pdaf-stat",
+      "default_expanded": false
+    },
+    {
+      "id": "lcst",
+      "label": "luma-chroma statistics",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "lc-stat"
+      ],
+      "reason": "luma-chroma statistics placeholder; output lc-stat",
+      "default_expanded": false
+    },
+    {
+      "id": "cdafst",
+      "label": "contrast-difference AF statistics",
+      "parent_id": "sensor_correction",
+      "kind": "operator",
+      "mode": "disabled",
+      "execution_node_id": null,
+      "module_id": null,
+      "iq_override_id": null,
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "cdaf-stat"
+      ],
+      "reason": "contrast-difference AF statistics placeholder; output cdaf-stat",
+      "default_expanded": false
+    },
+    {
       "id": "sbpc",
       "label": "static bad pixel correction",
       "parent_id": "sensor_correction",
@@ -239,24 +293,6 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "cac",
-      "label": "chromatic aberration correction",
-      "parent_id": "video_back_end",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible bayer identity",
-      "default_expanded": false
-    },
-    {
       "id": "dem",
       "label": "demosaic",
       "parent_id": "video_back_end",
@@ -275,24 +311,6 @@ export const topGraphPresentation = {
       "default_expanded": false
     },
     {
-      "id": "pfr",
-      "label": "purple-fringe removal",
-      "parent_id": "video_back_end",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": "pfr",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible linear-rgb identity",
-      "default_expanded": false
-    },
-    {
       "id": "color_reproduce",
       "label": "color reproduce",
       "parent_id": "video_back_end",
@@ -308,42 +326,6 @@ export const topGraphPresentation = {
         "out"
       ],
       "reason": null,
-      "default_expanded": false
-    },
-    {
-      "id": "gamma",
-      "label": "gamma",
-      "parent_id": "video_back_end",
-      "kind": "operator",
-      "mode": "enabled",
-      "execution_node_id": "gamma",
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": null,
-      "default_expanded": false
-    },
-    {
-      "id": "three_d_lut",
-      "label": "3d lut",
-      "parent_id": "video_back_end",
-      "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
-      "module_id": null,
-      "iq_override_id": null,
-      "inputs": [
-        "in"
-      ],
-      "outputs": [
-        "out"
-      ],
-      "reason": "not implemented; compatible encoded rgb identity",
       "default_expanded": false
     },
     {

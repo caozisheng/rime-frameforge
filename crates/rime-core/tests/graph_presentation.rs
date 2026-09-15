@@ -47,7 +47,6 @@ fn top_graph_compute_nodes_are_enabled() {
             "drc",
             "dem",
             "color_reproduce",
-            "gamma",
             "rgb2yuv",
         ]
     );
@@ -62,18 +61,18 @@ fn compatible_unimplemented_image_nodes_are_bypass() {
 }
 
 #[test]
-fn top_graph_merges_hr_into_wbc_and_keeps_same_extent_cac() {
+fn top_graph_merges_hr_into_wbc() {
     let graph = build_top_graph_presentation();
     let wbc = graph.node("wbc").expect("WBC node");
-    let cac = graph.node("cac").expect("CAC node");
 
     assert_eq!(wbc.label, "white balance");
     assert_eq!(wbc.parent_id.as_deref(), Some("video_back_end"));
-    assert_eq!(cac.label, "chromatic aberration correction");
-    assert_eq!(cac.mode, NodeExecutionMode::Bypass);
     assert!(graph.node("hr").is_none());
     assert!(graph.node("highlight_recovery").is_none());
-    assert!(graph.node("raw_downscale_cac").is_none());
+    assert!(graph.node("cac").is_none());
+    assert!(graph.node("pfr").is_none());
+    assert!(graph.node("gamma").is_none());
+    assert!(graph.node("three_d_lut").is_none());
 }
 
 #[test]
@@ -124,6 +123,19 @@ fn graph_without_instance_override_uses_module_default_iq() {
         }))
     );
 }
+#[test]
+fn top_graph_includes_disabled_vfe_statistics_placeholders() {
+    let graph = build_top_graph_presentation();
+
+    for (id, output) in [("pdafst", "pdaf-stat"), ("lcst", "lc-stat"), ("cdafst", "cdaf-stat")] {
+        let node = graph.node(id).expect("VFE statistics placeholder");
+        assert_eq!(node.mode, NodeExecutionMode::Disabled);
+        assert_eq!(node.execution_node_id, None);
+        assert_eq!(node.parent_id.as_deref(), Some("sensor_correction"));
+        assert_eq!(node.outputs, [output]);
+    }
+}
+
 #[test]
 fn unsupported_statistics_are_omitted_and_pyramid_branches_are_disabled() {
     let graph = build_top_graph_presentation();
@@ -176,9 +188,8 @@ fn graph_quantization_defaults_exclude_raw_source() {
     assert_eq!(config.module("dem").unwrap().output_profile, "s0.12");
     assert_eq!(
         config.module("color_reproduce").unwrap().output_profile,
-        "s0.12"
+        "u0.10"
     );
-    assert_eq!(config.module("gamma").unwrap().output_profile, "u0.10");
     assert_eq!(config.module("rgb2yuv").unwrap().output_profile, "u0.10");
 }
 

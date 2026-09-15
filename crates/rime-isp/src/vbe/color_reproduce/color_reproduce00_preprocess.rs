@@ -1,7 +1,7 @@
 //! Color reproduce preprocess: solves the sensor->ProPhoto and
 //! ProPhoto->sRGB matrices, interpolates the HS calibration LUT
 //! (`ValueDivs == 1` profiles only), and packs the invocation-frozen
-//! parameter packet.
+//! parameter packet (uniform + matrices + HS LUT + gamma LUT).
 #![expect(
     clippy::cast_possible_truncation,
     reason = "f64 solutions are narrowed to the GPU f32 parameter contract"
@@ -11,6 +11,9 @@ use crate::operator::{
 };
 
 use super::solver::{ColorReproduceError, ColorReproduceInputs, Matrix3, solve_color_reproduce};
+
+const DEFAULT_GAMMA: f32 = 2.2;
+const IDENTITY_GAMMA_LUT: [f32; 9] = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0];
 
 pub(crate) fn run(
     context: &PreprocessContext,
@@ -57,13 +60,15 @@ pub(crate) fn run(
         None | Some(_) => ([1u32, 1], None),
     };
 
-    // Uniform (binding 2): hue/saturation divs plus the enable flag.
-    let mut uniform = [0_u8; 16];
+    // Uniform (binding 2): hue/saturation divs plus the enable flag, then
+    // the merged gamma block (exponent in x; yzw reserved).
+    let mut uniform = [0_u8; 32];
     for (slot, value) in dims.into_iter().enumerate() {
         uniform[slot * 4..slot * 4 + 4].copy_from_slice(&value.to_ne_bytes());
     }
     let enable: u32 = u32::from(hs_lut.is_some());
     uniform[8..12].copy_from_slice(&enable.to_ne_bytes());
+    uniform[16..20].copy_from_slice(&DEFAULT_GAMMA.to_ne_bytes());
     let mut packet = ModuleParameterPacket::new(module_id, method, context.identity, &uniform)?;
 
     // Matrices resource: 18 row-major f32 values.
@@ -97,6 +102,15 @@ pub(crate) fn run(
         "cr_hs_lut",
         lut_extent,
         lut_bytes,
+    ))?;
+
+    // Gamma LUT resource (merged from the standalone gamma module): nine
+    // monotone knots with fixed endpoints. Default is the identity ramp;
+    // user tuning overrides it through the frame options layer.
+    packet.push_resource(ModuleParameterResource::new(
+        "cr_gamma_lut",
+        [9, 1, 1],
+        encode_f32(&IDENTITY_GAMMA_LUT),
     ))?;
     Ok(packet)
 }

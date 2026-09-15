@@ -9,15 +9,13 @@ describe('buildDagFlow', () => {
 
     expect(flow.nodes.map((node) => node.id)).toEqual([
       'raw_source', 'blc', 'sbpc_horizontal', 'dbpc', 'sbpc', 'raw_nr', 'tintless', 'lsc',
-      'wbc', 'drc', 'cac', 'dem', 'pfr', 'color_reproduce', 'gamma',
-      'three_d_lut', 'rgb2yuv',
+      'wbc', 'drc', 'dem', 'color_reproduce', 'rgb2yuv',
     ]);
     expect(flow.edges.map((edge) => [edge.source, edge.target])).toEqual([
       ['raw_source', 'blc'], ['blc', 'sbpc_horizontal'],
       ['sbpc_horizontal', 'dbpc'], ['dbpc', 'sbpc'], ['sbpc', 'raw_nr'],
-      ['raw_nr', 'tintless'], ['tintless', 'lsc'], ['lsc', 'wbc'], ['wbc', 'drc'], ['drc', 'cac'],
-      ['cac', 'dem'], ['dem', 'pfr'], ['pfr', 'color_reproduce'],
-      ['color_reproduce', 'gamma'], ['gamma', 'three_d_lut'], ['three_d_lut', 'rgb2yuv'],
+      ['raw_nr', 'tintless'], ['tintless', 'lsc'], ['lsc', 'wbc'], ['wbc', 'drc'], ['drc', 'dem'],
+      ['dem', 'color_reproduce'], ['color_reproduce', 'rgb2yuv'],
     ]);
   });
 });

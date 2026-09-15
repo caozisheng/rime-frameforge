@@ -1,6 +1,6 @@
 //! The Normal Graph **fused view** — single-pass composition of the
-//! post-DRC chain (WBC passthrough, demosaic, color reproduce, gamma,
-//! rgb2yuv) plus the standalone pre-DRC WBC pass.
+//! post-DRC chain (WBC passthrough, demosaic, color reproduce with
+//! gamma encoding, rgb2yuv) plus the standalone pre-DRC WBC pass.
 //!
 //! This module is the single source of the fused shader *composition*
 //! (the WebGPU worker consumes `fused_pipeline.generated.ts` verbatim;
@@ -31,7 +31,7 @@ const FUSED_PARAMS: &str = r"struct FusedParams {
   ahd_l_threshold: f32,
   ahd_c_threshold_sq: f32,
   frame_index: u32,
-  quant_params: array<QuantParams, 6>,
+  quant_params: array<QuantParams, 5>,
   quant_enabled_0: vec4<u32>,
   quant_enabled_1: vec4<u32>,
   gamma_and_padding: vec4<f32>,
@@ -172,17 +172,15 @@ fn sample_color_reproduce(p: vec2<i32>) -> vec4<f32> {
   var hsv = cr_rgb_to_hsv(rgb);
   hsv = cr_hs_lut_apply(hsv);
   rgb = clamp(cr_hsv_to_rgb(hsv), vec3<f32>(0.0), vec3<f32>(1.0));
-  let srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  var srgb = clamp(cr_apply_prophoto_to_srgb(rgb), vec3<f32>(0.0), vec3<f32>(1.0));
+  // Gamma encode: color_reproduce is the linear-to-encoded boundary.
+  srgb = apply_gamma_luminance_lut(srgb);
   return quantize_rgba(vec4<f32>(srgb, 1.0), 3u, p);
 }
-fn sample_gamma(p: vec2<i32>) -> vec4<f32> {
-  let encoded = apply_gamma_luminance_lut(sample_color_reproduce(p).rgb);
-  return quantize_rgba(vec4<f32>(encoded, 1.0), 4u, p);
-}
 fn sample_rgb2yuv(p: vec2<i32>) -> vec4<f32> {
-  let rgb = sample_gamma(p).rgb;
+  let rgb = sample_color_reproduce(p).rgb;
   let yuv = vec4<f32>(dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722)), dot(rgb, vec3<f32>(-0.114572, -0.385428, 0.5)) + 0.5, dot(rgb, vec3<f32>(0.5, -0.454153, -0.045847)) + 0.5, 1.0);
-  return quantize_rgba(yuv, 5u, p);
+  return quantize_rgba(yuv, 4u, p);
 }";
 
 /// Coordinate helpers shared by fused entries.
@@ -368,45 +366,44 @@ const BINDINGS_PRE: &str = "@group(0) @binding(0) var drc_input: texture_2d<f32>
 const ENTRY_PRE: &str = "@compute @workgroup_size(8, 8)\nfn pre_demosaic_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= params.width || gid.y >= params.height) { return; }\n  let p = vec2<i32>(gid.xy);\n  textureStore(pre_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));\n}\n";
 const BINDINGS_DEM_QUANTIZE: &str = "@group(0) @binding(0) var dem_input: texture_2d<f32>;\n@group(0) @binding(1) var dem_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(2) var<uniform> params: FusedParams;\n";
 const ENTRY_DEM_QUANTIZE: &str = "@compute @workgroup_size(8, 8)\nfn quantize_dem_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= params.width || gid.y >= params.height) { return; }\n  let p = vec2<i32>(gid.xy);\n  textureStore(dem_output, p, quantize_rgba(textureLoad(dem_input, p, 0), 2u, p));\n}\n";
-const BINDINGS_POST: &str = "@group(0) @binding(0) var dem_input: texture_2d<f32>;\n@group(0) @binding(1) var color_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(2) var gamma_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(3) var yuv_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(4) var<uniform> params: FusedParams;\nstruct FloatBuffer { values: array<f32> }\n@group(0) @binding(5) var<storage, read> cr_hs_lut: FloatBuffer;\n";
-const ENTRY_POST: &str = "@compute @workgroup_size(8, 8)\nfn postprocess_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= params.width || gid.y >= params.height) { return; }\n  let p = vec2<i32>(gid.xy);\n  textureStore(color_output, p, sample_color_reproduce(p));\n  textureStore(gamma_output, p, sample_gamma(p));\n  textureStore(yuv_output, p, sample_rgb2yuv(p));\n}\n";
+const BINDINGS_POST: &str = "@group(0) @binding(0) var dem_input: texture_2d<f32>;\n@group(0) @binding(1) var color_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(2) var yuv_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(3) var<uniform> params: FusedParams;\nstruct FloatBuffer { values: array<f32> }\n@group(0) @binding(4) var<storage, read> cr_hs_lut: FloatBuffer;\n";
+const ENTRY_POST: &str = "@compute @workgroup_size(8, 8)\nfn postprocess_main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= params.width || gid.y >= params.height) { return; }\n  let p = vec2<i32>(gid.xy);\n  textureStore(color_output, p, sample_color_reproduce(p));\n  textureStore(yuv_output, p, sample_rgb2yuv(p));\n}\n";
 
-/// Renders the complete fused Normal Graph shader (post-DRC single pass).
 #[must_use]
 pub fn render_fused_normal_shader() -> String {
     let quantize_prefix = quantize_prefix();
     format!(
-        "{quantize_prefix}\n// dem-method:00\n{FUSED_PARAMS}\n@group(0) @binding(0) var drc_input: texture_2d<f32>;\n@group(0) @binding(1) var wbc_output: texture_storage_2d<r32float, write>;\n@group(0) @binding(2) var dem_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(3) var color_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(4) var gamma_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(5) var yuv_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(6) var<uniform> params: FusedParams;\nstruct FloatBuffer {{ values: array<f32> }}\n@group(0) @binding(7) var<storage, read> cr_hs_lut: FloatBuffer;\n{QUANT_HELPERS}\n{CR_HELPERS}\n{GAMMA_HELPERS}\n{SOURCE_HELPERS}\n{WBC_PASSTHROUGH}\n{}\n{POSTPROCESS_HELPERS}\n@compute @workgroup_size(8, 8)\nfn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {{\n  if (gid.x >= params.width || gid.y >= params.height) {{ return; }}\n  let p = vec2<i32>(gid.xy);\n  textureStore(wbc_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));\n  textureStore(dem_output, p, sample_dem_quantized(p));\n  textureStore(color_output, p, sample_color_reproduce(p));\n  textureStore(gamma_output, p, sample_gamma(p));\n  textureStore(yuv_output, p, sample_rgb2yuv(p));\n}}",
+        "{quantize_prefix}\n// dem-method:00\n{FUSED_PARAMS}\n@group(0) @binding(0) var drc_input: texture_2d<f32>;\n@group(0) @binding(1) var wbc_output: texture_storage_2d<r32float, write>;\n@group(0) @binding(2) var dem_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(3) var color_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(4) var yuv_output: texture_storage_2d<rgba16float, write>;\n@group(0) @binding(5) var<uniform> params: FusedParams;\nstruct FloatBuffer {{ values: array<f32> }}\n@group(0) @binding(6) var<storage, read> cr_hs_lut: FloatBuffer;\n{QUANT_HELPERS}\n{CR_HELPERS}\n{GAMMA_HELPERS}\n{SOURCE_HELPERS}\n{WBC_PASSTHROUGH}\n{}\n{POSTPROCESS_HELPERS}\n@compute @workgroup_size(8, 8)\nfn normal_fused_main(@builtin(global_invocation_id) gid: vec3<u32>) {{\n  if (gid.x >= params.width || gid.y >= params.height) {{ return; }}\n  let p = vec2<i32>(gid.xy);\n  textureStore(wbc_output, p, vec4<f32>(sample_wbc(p), 0.0, 0.0, 1.0));\n  textureStore(dem_output, p, sample_dem_quantized(p));\n  textureStore(color_output, p, sample_color_reproduce(p));\n  textureStore(yuv_output, p, sample_rgb2yuv(p));\n}}",
         adapt_bilinear_demosaic()
     )
 }
 
 /// Quantized module output ports carried in the fused super-uniform, in
 /// `FusedParams.quant_params` order.
-pub const FUSED_QUANT_MODULE_IDS: [&str; 6] =
-    ["blc", "wbc", "dem", "color_reproduce", "gamma", "rgb2yuv"];
+pub const FUSED_QUANT_MODULE_IDS: [&str; 5] =
+    ["blc", "wbc", "dem", "color_reproduce", "rgb2yuv"];
 
 /// Total byte size of the packed `FusedParams` uniform block.
-pub const FUSED_UNIFORM_BYTES: usize = 672;
+pub const FUSED_UNIFORM_BYTES: usize = 608;
 
 /// Header layout: `width..frame_index` (16 words before `quant_params`).
 const HEADER_WORDS: usize = 16;
 /// `quant_params` stride: one `QuantParams` block (16 words).
 const QUANT_BLOCK_WORDS: usize = 16;
 /// `quant_enabled_0` word offset in the packed block.
-const QUANT_ENABLED_OFFSET: usize = 448;
+const QUANT_ENABLED_OFFSET: usize = 384;
 /// `gamma_and_padding.x` word offset (gamma value; `.yzw` are padding).
-const GAMMA_OFFSET: usize = 480;
+const GAMMA_OFFSET: usize = 416;
 /// `gamma_lut` word offset: nine f32 knots packed into three `vec4<f32>`.
-const GAMMA_LUT_OFFSET: usize = 496;
+const GAMMA_LUT_OFFSET: usize = 432;
 /// `cr_sensor_to_prophoto` word offset (3×3 row-major, `vec4`-strided).
-const CR_SENSOR_TO_PROPHOTO_OFFSET: usize = 544;
+const CR_SENSOR_TO_PROPHOTO_OFFSET: usize = 480;
 /// `cr_prophoto_to_srgb` word offset.
-const CR_PROPHOTO_TO_SRGB_OFFSET: usize = 592;
+const CR_PROPHOTO_TO_SRGB_OFFSET: usize = 528;
 /// `cr_hs_dims_and_enable` word offset (x=h dims, y=v dims, z=enable).
-const CR_HS_DIMS_OFFSET: usize = 640;
+const CR_HS_DIMS_OFFSET: usize = 576;
 /// `hr_gain_enable` word offset (x = `hr_gain`, y = enable flag).
-const HR_GAIN_ENABLE_OFFSET: usize = 656;
+const HR_GAIN_ENABLE_OFFSET: usize = 592;
 
 /// Color-reproduce assets frozen at descriptor build time.
 #[derive(Clone, Copy, Debug)]
@@ -601,7 +598,7 @@ pub fn pack_fused_uniforms(request: &FusedUniformRequest) -> Result<Vec<u8>, Str
     Ok(bytes)
 }
 
-/// Packs the six per-module quantization blocks and their enable words.
+/// Packs the five per-module quantization blocks and their enable words.
 fn write_quantization_blocks(
     bytes: &mut [u8],
     request: &FusedUniformRequest,
@@ -717,29 +714,31 @@ mod tests {
         // First quant block (blc) at word 16.
         assert!((f32_at(&bytes, 16) - 16_384.0).abs() < 1.0);
         assert_eq!(u32_at(&bytes, 19), 0);
-        assert_eq!(u32_at(&bytes, 112), 1);
+        // First enable flag (blc) at word 96.
+        assert_eq!(u32_at(&bytes, 96), 1);
     }
 
     #[test]
     fn packs_gamma_cr_and_hr_tail() {
         let request = sample_request();
         let bytes = pack_fused_uniforms(&request).expect("valid request");
-        // gamma at word 120, lut at 124..133.
-        assert!((f32_at(&bytes, 120) - 2.2).abs() < f32::EPSILON);
-        assert!((f32_at(&bytes, 124) - 0.0).abs() < f32::EPSILON);
+        // gamma at word 104, lut at 108..117.
+        assert!((f32_at(&bytes, 104) - 2.2).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 108) - 0.0).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 116) - 1.0).abs() < f32::EPSILON);
+        // CR identity matrices at 120/132 (`vec4`-strided rows: diag 120/125/130, 132/137/142).
+        assert!((f32_at(&bytes, 120) - 1.0).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 125) - 1.0).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 130) - 1.0).abs() < f32::EPSILON);
         assert!((f32_at(&bytes, 132) - 1.0).abs() < f32::EPSILON);
-        // CR identity matrices at 136/148.
-        assert!((f32_at(&bytes, 136) - 1.0).abs() < f32::EPSILON);
-        assert!((f32_at(&bytes, 141) - 1.0).abs() < f32::EPSILON);
-        assert!((f32_at(&bytes, 146) - 1.0).abs() < f32::EPSILON);
-        assert!((f32_at(&bytes, 148) - 1.0).abs() < f32::EPSILON);
-        // hs dims at 160, HR block at 164.
-        assert_eq!(u32_at(&bytes, 160), 1);
-        assert_eq!(u32_at(&bytes, 161), 1);
-        assert_eq!(u32_at(&bytes, 162), 0);
+        assert!((f32_at(&bytes, 137) - 1.0).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 142) - 1.0).abs() < f32::EPSILON);
+        assert_eq!(u32_at(&bytes, 144), 1);
+        assert_eq!(u32_at(&bytes, 145), 1);
+        assert_eq!(u32_at(&bytes, 146), 0);
         // hr_gain: median(2.8046875, 1.0, 1.7421875) = 1.7421875.
-        assert!((f32_at(&bytes, 164) - 1.742_187_5).abs() < f32::EPSILON);
-        assert!((f32_at(&bytes, 165) - 1.0).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 148) - 1.742_187_5).abs() < f32::EPSILON);
+        assert!((f32_at(&bytes, 149) - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -36,13 +36,9 @@ fn normal_graph_registers_every_explicit_main_chain_operator() {
             "tintless",
             "lsc",
             "wbc",
-            "cac",
             "drc",
             "dem",
-            "pfr",
             "color_reproduce",
-            "gamma",
-            "three_d_lut",
             "rgb2yuv",
         ])
     );
@@ -55,7 +51,6 @@ fn wbc_owns_highlight_recovery_and_cac_uses_industry_name() {
         .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
     let wbc = operators.get("wbc").expect("WBC operator");
-    let cac = operators.get("cac").expect("CAC operator");
 
     assert_eq!(wbc.label, "WBC");
     assert!(
@@ -64,9 +59,7 @@ fn wbc_owns_highlight_recovery_and_cac_uses_industry_name() {
             .split_whitespace()
             .any(|parameter| parameter == "enable_highlight_recovery")
     );
-    assert_eq!(cac.label, "CAC");
-    let cac_method = cac.methods.first().expect("CAC method");
-    assert_eq!(cac_method.input, cac_method.output);
+    assert!(!operators.contains_key("cac"));
     assert!(!operators.contains_key("hr"));
     assert!(!operators.contains_key("hlr"));
     assert!(!operators.contains_key("raw_ds_cac"));
@@ -106,19 +99,17 @@ fn ce_replaces_color_as_the_vpe_operator_name() {
     assert_eq!(rime_isp::vpe::ce::METHOD_00, "00");
 }
 #[test]
-fn dem_and_pfr_have_separate_operator_contracts() {
+fn dem_contract_survives_cac_pfr_consolidation() {
     let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
         .map(|operator| (operator.definition().id, operator.definition()))
         .collect();
     let dem = operators.get("dem").expect("DEM operator");
-    let pfr = operators.get("pfr").expect("PFR operator");
     assert_eq!(dem.label, "DEM");
     assert_eq!(dem.methods.len(), 5);
-    assert_eq!(pfr.label, "PFR");
-    let pfr_method = pfr.methods.first().expect("PFR method");
-    assert_eq!(pfr_method.input.domain, rime_core::SignalDomain::LinearRgb);
-    assert_eq!(pfr_method.output, pfr_method.input);
+    // CAC/PFR are absorbed into the future DEM internals; their standalone
+    // contracts must not linger in the executable registry.
+    assert!(!operators.contains_key("pfr"));
     assert!(!operators.contains_key("demosaic"));
 }
 
@@ -135,14 +126,24 @@ fn wbc_shader_indexes_rgb_gains_by_cfa_channel() {
 }
 
 #[test]
-fn gamma_exposes_adjustable_exponent_and_luminance_lut() {
-    let gamma = normal_operators()
+fn color_reproduce_owns_gamma_exponent_and_luminance_lut() {
+    let operators: std::collections::HashMap<_, _> = normal_operators()
         .iter()
-        .find(|operator| operator.definition().id == "gamma")
-        .expect("Gamma operator")
-        .definition();
-    let method = gamma.methods.first().expect("Gamma method");
-    assert_eq!(method.parameters, "gamma gamma_lut");
+        .map(|operator| (operator.definition().id, operator.definition()))
+        .collect();
+    assert!(!operators.contains_key("gamma"));
+    let cr = operators.get("color_reproduce").expect("CR operator");
+    let method = cr.methods.first().expect("CR method");
+    assert!(
+        method
+            .parameters
+            .split_whitespace()
+            .any(|parameter| parameter == "gamma")
+            && method
+                .parameters
+                .split_whitespace()
+                .any(|parameter| parameter == "gamma_lut")
+    );
     assert_eq!(method.shader.bindings.uniform, Some(2));
 }
 
@@ -247,8 +248,15 @@ fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hs_lut() {
     assert_eq!(method.shader_entry, "color_reproduce_main");
     assert_eq!(
         method.parameters,
-        "sensor_to_prophoto hs_lut prophoto_to_srgb"
+        "sensor_to_prophoto hs_lut prophoto_to_srgb gamma gamma_lut"
     );
+    // CR is the linear-to-encoded boundary: output domain is EncodedRgb
+    // with a u0.10 output profile.
+    assert_eq!(
+        method.output.domain,
+        rime_core::SignalDomain::EncodedRgb
+    );
+    assert_eq!(method.output_rime_q_profile, Some("u0.10"));
     let source = method.shader.source;
     // Two matrix applications (sensor->ProPhoto, ProPhoto->sRGB).
     assert!(

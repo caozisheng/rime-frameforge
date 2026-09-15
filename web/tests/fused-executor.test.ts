@@ -151,7 +151,7 @@ describe('fused Normal GPU executor', () => {
     const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
     expect(() => executor.setParameter('gamma', 'ahd_l_threshold', 3)).toThrow('PARAMETER_INVALID');
     expect(() => executor.setParameter('dem', 'gamma', 2.4)).toThrow('PARAMETER_INVALID');
-    expect(() => executor.setParameter('gamma', 'gamma', 2.4)).not.toThrow();
+    expect(() => executor.setParameter('color_reproduce', 'gamma', 2.4)).not.toThrow();
   });
   it('accepts valid DRC IQ parameters and rejects invalid values', () => {
     const fake = fusedGpu();

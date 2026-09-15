@@ -120,7 +120,7 @@ function layoutSiblings(
   nodeById: ReadonlyMap<string, VisibleNormalNode>,
 ): PositionedNode[] {
   if (nodes.length === 0) return [];
-  if (parentId === 'vfe') return layoutRow(nodes, edges, parentId, FRAME_HEADER_HEIGHT);
+  if (parentId === 'vfe') return layoutVfe(nodes, edges, nodeById);
   if (parentId === 'vbe') return layoutRows(nodes, edges, parentId, 4);
   const graph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
   graph.setGraph(normalLayoutConfig(parentId));
@@ -156,6 +156,43 @@ function layoutSiblings(
       y: y - minY + offsetY,
     },
   }));
+}
+
+function layoutVfe(
+  nodes: readonly SizedNode[],
+  edges: readonly VisibleNormalEdge[],
+  _nodeById: ReadonlyMap<string, VisibleNormalNode>,
+): PositionedNode[] {
+  const statisticIds = new Set(['pdafst', 'lcst', 'cdafst']);
+  const mainNodes = nodes.filter((node) => !statisticIds.has(node.id));
+  const statisticNodes = nodes.filter((node) => statisticIds.has(node.id));
+  const main = layoutRow(mainNodes, edges, 'vfe', FRAME_HEADER_HEIGHT);
+  if (statisticNodes.length === 0) return main;
+
+  const mainById = new Map(main.map((node) => [node.id, node]));
+  const statisticById = new Map(statisticNodes.map((node) => [node.id, node]));
+  const rowGap = 36;
+  const statRowHeight = Math.max(...statisticNodes.map((node) => node.height), NODE_HEIGHT);
+  const firstStatY = FRAME_HEADER_HEIGHT + Math.max(...main.map((node) => node.height), NODE_HEIGHT) + 56;
+  const positioned: PositionedNode[] = [];
+
+  const placeBelow = (id: string, anchorId: string, y: number): void => {
+    const node = statisticById.get(id);
+    const anchor = mainById.get(anchorId) ?? positioned.find((candidate) => candidate.id === anchorId);
+    if (node === undefined || anchor === undefined) return;
+    positioned.push({
+      ...node,
+      position: {
+        x: anchor.position.x + (anchor.width - node.width) / 2,
+        y,
+      },
+    });
+  };
+
+  placeBelow('pdafst', 'dbpc', firstStatY);
+  placeBelow('lcst', 'raw_nr', firstStatY);
+  placeBelow('cdafst', 'lcst', firstStatY + statRowHeight + rowGap);
+  return [...main, ...positioned];
 }
 
 function layoutRows(nodes: readonly SizedNode[], edges: readonly VisibleNormalEdge[], parentId: string, perRow: number): PositionedNode[] {

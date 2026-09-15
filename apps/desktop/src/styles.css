@@ -282,6 +282,7 @@ button:disabled {
 .normal-node-title { display: flex; align-items: center; gap: 6px; min-height: 22px; }
 .normal-node-title strong { margin: 0; }
 .normal-group-toggle { display: grid; place-items: center; width: 20px; height: 20px; border: 0; padding: 0; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.normal-output-label { position: absolute; right: -8px; transform: translate(100%, -50%); color: var(--text-secondary); font: 9px 'DM Mono', monospace; white-space: nowrap; pointer-events: none; }
 .normal-group-toggle:hover { color: var(--selection); background: var(--selection-soft); }
 
 .react-flow-canvas .react-flow__node-normalFrame { z-index: -1 !important; }

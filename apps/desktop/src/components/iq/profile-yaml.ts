@@ -14,18 +14,18 @@ export interface TuningProfileDraft {
 
 const ALL_MODULES: readonly [string, string][] = [
   ['vfe.blc', 'blc'], ['vfe.sbpc[0]', 'sbpc'], ['vfe.dbpc', 'dbpc'], ['vfe.sbpc[1]', 'sbpc'], ['vfe.raw_nr', 'raw_nr'],
-  ['vbe.tintless', 'tintless'], ['vbe.lsc', 'lsc'], ['vbe.wbc', 'wbc'], ['vbe.cac', 'cac'], ['vbe.drc', 'drc'], ['vbe.pfr', 'pfr'], ['vbe.cr', 'cr'], ['vbe.gamma', 'gamma'], ['vbe.3dlut', '3dlut'], ['vbe.rgb2yuv', 'rgb2yuv'],
+  ['vbe.tintless', 'tintless'], ['vbe.lsc', 'lsc'], ['vbe.wbc', 'wbc'], ['vbe.drc', 'drc'], ['vbe.dem', 'dem'], ['vbe.color_reproduce', 'color_reproduce'], ['vbe.rgb2yuv', 'rgb2yuv'],
 ];
 
 export function serializeTuningProfile(draft: TuningProfileDraft): string {
   const modules: Record<string, unknown> = Object.fromEntries(ALL_MODULES.map(([address, moduleId]) => [address, { module_id: moduleId, method: '00', tuning: 'unsupported' }]));
-  modules['vbe.gamma'] = {
-    module_id: 'gamma',
+  modules['vbe.color_reproduce'] = {
+    module_id: 'color_reproduce',
     method: '00',
     tuning: 'override',
     table: {
       schema_version: 1,
-      parameter_schema_revision: 'gamma00-v1',
+      parameter_schema_revision: 'color_reproduce00-v1',
       axes: [{ id: 'linear_luminance_y', source: 'linear_rgb.luminance', unit: 'normalized', knots: (draft.gammaCurve ?? []).map((point) => point.x) }],
       effects: { gamma: { unit: 'exponent', value: draft.gamma }, gamma_lut: { unit: 'normalized_luminance_y', values: (draft.gammaCurve ?? []).map((point) => point.y) } },
       modulation_curves: [],
@@ -65,7 +65,7 @@ export function parseTuningProfile(source: string): TuningProfileDraft {
   const lValues = demTable?.effects?.ahd_l_threshold?.values;
   const cValues = demTable?.effects?.ahd_c_threshold_sq?.values;
   const knots = demTable?.axes?.[0]?.knots;
-  const gammaTable = value.modules?.['vbe.gamma']?.table;
+  const gammaTable = value.modules?.['vbe.color_reproduce']?.table;
   const gammaValues = gammaTable?.effects?.gamma_lut?.values;
   const gammaKnots = gammaTable?.axes?.find((axis) => axis.id === 'linear_luminance_y')?.knots;
   if (value.kind !== 'rime.tuning_profile' || value.profile?.id === undefined || value.profile.name === undefined || lValues === undefined || cValues === undefined || knots === undefined || knots.length !== lValues.length || knots.length !== cValues.length) {

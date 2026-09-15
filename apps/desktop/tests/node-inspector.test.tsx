@@ -307,8 +307,8 @@ describe('NodeInspector DEM controls', () => {
     const html = renderToStaticMarkup(<TuningProfilePanel canConfigure parameter="ahd_l_threshold" controlKind="curve" baseValues={{ ahd_l_threshold: 2 }} curves={{ lCurve: [{ x: -4, y: 9.25 }, { x: 4, y: 9.5 }], cCurve: [{ x: -4, y: 3 }, { x: 4, y: 3.3 }] }} onApply={() => undefined} />);
     expect(html).toContain('[0] -4: 9.2500');
   });
-  it('renders the adjustable Gamma exponent and luminance-only LUT action', () => {
-    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="gamma" parameterValues={{ gamma: 2.2, gamma_lut: '9-point Y LUT' }} appliedParameterValues={{ gamma: 2.2 }} />);
+  it('renders the adjustable Color Reproduce Gamma exponent and luminance-only LUT action', () => {
+    const html = renderToStaticMarkup(<NodeInspector {...inspectorProps} nodeId="color_reproduce" parameterValues={{ gamma: 2.2, gamma_lut: '9-point Y LUT' }} appliedParameterValues={{ gamma: 2.2 }} />);
     expect(html).toContain('aria-label="gamma"');
     expect(html).toContain('min="1.8"');
     expect(html).toContain('max="2.4"');

@@ -10,11 +10,11 @@ pub const METHOD_00: MethodManifest = method_manifest(
         format: ResourceFormat::Rgba32Float,
     },
     OperatorPort {
-        domain: SignalDomain::LinearRgb,
+        domain: SignalDomain::EncodedRgb,
         format: ResourceFormat::Rgba32Float,
     },
-    "sensor_to_prophoto hs_lut prophoto_to_srgb",
-    None,
+    "sensor_to_prophoto hs_lut prophoto_to_srgb gamma gamma_lut",
+    Some("u0.10"),
     shader(
         "00",
         include_str!("color_reproduce00.wgsl"),

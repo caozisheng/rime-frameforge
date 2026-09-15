@@ -91,16 +91,18 @@ impl GraphQuantizationConfig {
                 // every output precision derives from its input precision.
                 // - VFE (blc..raw_nr): s0.x with x = max(14, input_bits + 2);
                 //   the +2 bits reserve highlight-recovery headroom.
-                // - VBE before gamma (tintless..color_reproduce): signed
-                //   profiles — tintless/lsc/wbc/cac stay s0.14 as RAW-domain
-                //   Bayer corrections; drc..color_reproduce are s0.12.
-                // - gamma and after (gamma..rgb2yuv): u0.10; gamma removes
-                //   negatives, so the domain loses its sign bit.
+                // - VBE before the encoding boundary (tintless..dem):
+                //   signed profiles — tintless/lsc/wbc stay s0.14 as
+                //   RAW-domain Bayer corrections; drc..dem are s0.12.
+                // - color_reproduce and after (color_reproduce..rgb2yuv):
+                //   u0.10; color_reproduce is the linear-to-encoded
+                //   boundary and removes negatives, so the domain loses
+                //   its sign bit.
                 let output_profile = match module_id {
                     "blc" | "sbpc_horizontal" | "dbpc" | "sbpc" | "raw_nr" | "tintless" | "lsc"
-                    | "wbc" | "cac" => "s0.14",
-                    "drc" | "dem" | "pfr" | "color_reproduce" => "s0.12",
-                    "gamma" | "three_d_lut" | "rgb2yuv" => "u0.10",
+                    | "wbc" => "s0.14",
+                    "drc" | "dem" => "s0.12",
+                    "color_reproduce" | "rgb2yuv" => "u0.10",
                     _ => "s0.10",
                 };
                 ModuleQuantizationPreference {
@@ -417,6 +419,27 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             None,
             Some("not implemented; compatible bayer identity"),
         ),
+        statistics_operator(
+            "pdafst",
+            "pdaf statistics",
+            "sensor_correction",
+            "pdaf-stat",
+            "phase-difference AF statistics placeholder; output pdaf-stat",
+        ),
+        statistics_operator(
+            "lcst",
+            "luma-chroma statistics",
+            "sensor_correction",
+            "lc-stat",
+            "luma-chroma statistics placeholder; output lc-stat",
+        ),
+        statistics_operator(
+            "cdafst",
+            "contrast-difference AF statistics",
+            "sensor_correction",
+            "cdaf-stat",
+            "contrast-difference AF statistics placeholder; output cdaf-stat",
+        ),
         operator(
             "sbpc",
             "static bad pixel correction",
@@ -483,14 +506,6 @@ fn vbe_color_nodes() -> Vec<GraphTreeNode> {
             None,
         ),
         operator(
-            "cac",
-            "chromatic aberration correction",
-            "video_back_end",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible bayer identity"),
-        ),
-        operator(
             "dem",
             "demosaic",
             "video_back_end",
@@ -499,36 +514,12 @@ fn vbe_color_nodes() -> Vec<GraphTreeNode> {
             None,
         ),
         operator(
-            "pfr",
-            "purple-fringe removal",
-            "video_back_end",
-            NodeExecutionMode::Bypass,
-            Some("pfr"),
-            Some("not implemented; compatible linear-rgb identity"),
-        ),
-        operator(
             "color_reproduce",
             "color reproduce",
             "video_back_end",
             NodeExecutionMode::Enabled,
             Some("color_reproduce"),
             None,
-        ),
-        operator(
-            "gamma",
-            "gamma",
-            "video_back_end",
-            NodeExecutionMode::Enabled,
-            Some("gamma"),
-            None,
-        ),
-        operator(
-            "three_d_lut",
-            "3d lut",
-            "video_back_end",
-            NodeExecutionMode::Bypass,
-            None,
-            Some("not implemented; compatible encoded rgb identity"),
         ),
         operator(
             "rgb2yuv",
@@ -622,6 +613,25 @@ fn operator(
         reason: reason.map(Into::into),
         default_expanded: false,
     }
+}
+
+fn statistics_operator(
+    id: &str,
+    label: &str,
+    parent: &str,
+    output: &str,
+    reason: &str,
+) -> GraphTreeNode {
+    let mut node = operator(
+        id,
+        label,
+        parent,
+        NodeExecutionMode::Disabled,
+        None,
+        Some(reason),
+    );
+    node.outputs = vec![output.into()];
+    node
 }
 
 fn branch(id: &str, label: &str, parent: &str, reason: &str) -> GraphTreeNode {

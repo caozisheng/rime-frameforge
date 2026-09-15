@@ -25,12 +25,8 @@ fn normal_manifest_contains_the_explicit_main_chain() {
             "lsc",
             "wbc",
             "drc",
-            "cac",
             "dem",
-            "pfr",
             "color_reproduce",
-            "gamma",
-            "three_d_lut",
             "rgb2yuv",
         ]
     );
@@ -200,26 +196,20 @@ fn dem_manifest_exposes_methods_and_parameters() {
 }
 
 #[test]
-fn pfr_is_separate_from_dem_in_the_manifest() {
+fn dem_feeds_color_reproduce_directly_in_the_manifest() {
     let manifest = build_normal_manifest();
     let dem = manifest.node("dem").expect("DEM node");
-    let pfr = manifest.node("pfr").expect("PFR node");
 
     assert_eq!(dem.outputs[0].domain, rime_core::SignalDomain::LinearRgb);
-    assert_eq!(pfr.inputs[0].domain, rime_core::SignalDomain::LinearRgb);
-    assert_eq!(pfr.outputs[0].domain, rime_core::SignalDomain::LinearRgb);
-    assert!(manifest.node("demosaic").is_none());
+    assert!(manifest.node("pfr").is_none());
+    assert!(manifest.node("cac").is_none());
+    assert!(manifest.node("gamma").is_none());
+    assert!(manifest.node("three_d_lut").is_none());
     assert!(
         manifest
             .edges
             .iter()
-            .any(|edge| edge.from.node_id == "dem" && edge.to.node_id == "pfr")
-    );
-    assert!(
-        manifest
-            .edges
-            .iter()
-            .any(|edge| edge.from.node_id == "pfr" && edge.to.node_id == "color_reproduce")
+            .any(|edge| edge.from.node_id == "dem" && edge.to.node_id == "color_reproduce")
     );
 }
 
@@ -242,8 +232,6 @@ fn presentation_and_manifest_share_executable_nodes() {
         "raw_nr",
         "tintless",
         "lsc",
-        "cac",
-        "three_d_lut",
     ] {
         assert_eq!(
             presentation
@@ -274,22 +262,26 @@ fn presentation_and_manifest_share_executable_nodes() {
 }
 
 #[test]
-fn presentation_uses_dem_then_pfr_without_compound_node() {
+fn presentation_uses_dem_then_color_reproduce_without_compound_node() {
     let presentation = build_normal_graph_presentation();
     assert_eq!(presentation.node("dem").expect("DEM node").label, "DEM");
-    assert_eq!(presentation.node("pfr").expect("PFR node").label, "PFR");
-    assert!(presentation.node("demosaic").is_none());
-    assert!(
+    assert_eq!(
         presentation
-            .edges
-            .iter()
-            .any(|edge| edge.from == "cac" && edge.to == "dem")
+            .node("color_reproduce")
+            .expect("color reproduce node")
+            .label,
+        "Color Reproduce"
     );
+    assert!(presentation.node("demosaic").is_none());
+    assert!(presentation.node("cac").is_none());
+    assert!(presentation.node("pfr").is_none());
+    assert!(presentation.node("gamma").is_none());
+    assert!(presentation.node("three_d_lut").is_none());
     assert!(
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "pfr" && edge.to == "color_reproduce")
+            .any(|edge| edge.from == "dem" && edge.to == "color_reproduce")
     );
 }
 
@@ -345,13 +337,7 @@ fn presentation_uses_split_vfe_modules_without_legacy_ids() {
         presentation
             .edges
             .iter()
-            .any(|edge| edge.from == "drc" && edge.to == "cac")
-    );
-    assert!(
-        presentation
-            .edges
-            .iter()
-            .any(|edge| edge.from == "cac" && edge.to == "dem")
+            .any(|edge| edge.from == "drc" && edge.to == "dem")
     );
 }
 #[test]
@@ -453,22 +439,27 @@ fn vpe_uses_ce_between_lce_and_second_mctf() {
     }
 }
 #[test]
-fn presentation_omits_non_simulated_vfe_statistics() {
+fn presentation_includes_disabled_vfe_statistics_branches() {
     let presentation = build_normal_graph_presentation();
-    let removed = ["ae_awb_st", "afst", "spc", "lrc", "pdst"];
 
-    for id in removed {
-        assert!(
-            presentation.node(id).is_none(),
-            "{id} must not be presented"
-        );
-        assert!(
-            presentation
-                .edges
-                .iter()
-                .all(|edge| edge.from != id && edge.to != id),
-            "{id} must not have presentation edges"
-        );
+    for (id, label, source, output) in [
+        ("pdafst", "PDAFST", "sbpc_horizontal", "pdaf-stat"),
+        ("lcst", "LCST", "sbpc", "lc-stat"),
+        ("cdafst", "CDAFST", "sbpc", "cdaf-stat"),
+    ] {
+        let node = presentation.node(id).expect("statistics node");
+        assert_eq!(node.label, label);
+        assert_eq!(node.mode, NodeExecutionMode::Disabled);
+        assert_eq!(node.execution_node_id, None);
+        assert_eq!(node.inputs, ["in"]);
+        assert_eq!(node.outputs, [output]);
+        assert!(presentation.edges.iter().any(|edge| {
+            edge.from == source && edge.from_port == "out" && edge.to == id && edge.to_port == "in" && edge.label.is_none()
+        }));
+    }
+
+    for id in ["pdafst", "lcst", "cdafst"] {
+        assert!(presentation.edges.iter().all(|edge| edge.from != id));
     }
 }
 

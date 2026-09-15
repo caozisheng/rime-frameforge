@@ -5,7 +5,7 @@ import { compileBlcShader, compileFusedNormalShader, compileSegmentedNormalShade
 import { wbcPipelineWgsl } from '../src/generated/wbc_pipeline.generated.js';
 
 const bypassIds = [
-  'sbpc_horizontal', 'dbpc', 'sbpc', 'raw_nr', 'tintless', 'lsc', 'cac', 'pfr', 'three_d_lut',
+  'sbpc_horizontal', 'dbpc', 'sbpc', 'raw_nr', 'tintless', 'lsc',
 ];
 
 describe('fused Normal Graph WGSL compiler', () => {
@@ -13,7 +13,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader();
 
     expect(shader.match(/@compute/g)).toHaveLength(1);
-    expect(shader.match(/texture_storage_2d/g)).toHaveLength(5);
+    expect(shader.match(/texture_storage_2d/g)).toHaveLength(4);
     expect(shader).toContain('texture_storage_2d<rgba16float');
     expect(shader).not.toContain('texture_storage_2d<rgba32float');
     expect(shader).toContain('textureLoad(drc_input');
@@ -43,7 +43,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shaders.pre.match(/texture_storage_2d/g)).toHaveLength(1);
     expect(shaders.quantize.match(/texture_storage_2d/g)).toHaveLength(1);
     expect(shaders.quantize).toContain('quantize_rgba(textureLoad(dem_input');
-    expect(shaders.post.match(/texture_storage_2d/g)).toHaveLength(3);
+    expect(shaders.post.match(/texture_storage_2d/g)).toHaveLength(2);
     expect(shaders.post).toContain('return textureLoad(dem_input, p, 0);');
   });
 
@@ -63,7 +63,7 @@ describe('fused Normal Graph WGSL compiler', () => {
     const shader = compileFusedNormalShader();
 
     bypassIds.forEach((id) => expect(shader).not.toMatch(new RegExp(`fn (?:sample_)?${id}(?:\\(|_)`)));
-    ['sample_wbc', 'sample_dem', 'sample_color_reproduce', 'sample_gamma', 'sample_rgb2yuv']
+    ['sample_wbc', 'sample_dem', 'sample_color_reproduce', 'sample_rgb2yuv']
       .forEach((name) => expect(shader).toContain(`fn ${name}`));
   });
 
@@ -144,11 +144,11 @@ describe('fused Normal Graph WGSL compiler', () => {
     expect(shader).toContain('select(1.0, params.quant_params[index].qmax, quantization_enabled(index))');
   });
 
-  it('embeds six inline Rime.Q output plans', () => {
+  it('embeds five inline Rime.Q output plans', () => {
     const shader = compileFusedNormalShader();
 
-    expect(shader).toContain('quant_params: array<QuantParams, 6>');
-    expect(shader.match(/quantize_(?:scalar|rgba)\(/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(shader).toContain('quant_params: array<QuantParams, 5>');
+    expect(shader.match(/quantize_(?:scalar|rgba)\(/g)?.length).toBeGreaterThanOrEqual(5);
   });
 
   it('keeps WBC highlight recovery as a single pass without scratch bindings', () => {

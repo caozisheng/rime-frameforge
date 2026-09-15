@@ -111,12 +111,8 @@ pub fn build_normal_manifest() -> PipelineManifest {
         "lsc",
         "wbc",
         "drc",
-        "cac",
         "dem",
-        "pfr",
         "color_reproduce",
-        "gamma",
-        "three_d_lut",
         "rgb2yuv",
     ];
     let edges = chain
@@ -275,6 +271,27 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             Some("sbpc"),
             Some("Static Bad Pixel Correction; method 00: identity bypass"),
         ),
+        statistics_operator(
+            "pdafst",
+            "PDAFST",
+            "vfe",
+            "pdaf-stat",
+            "phase-difference AF statistics placeholder; output pdaf-stat",
+        ),
+        statistics_operator(
+            "lcst",
+            "LCST",
+            "vfe",
+            "lc-stat",
+            "luma-chroma statistics placeholder; output lc-stat",
+        ),
+        statistics_operator(
+            "cdafst",
+            "CDAFST",
+            "vfe",
+            "cdaf-stat",
+            "contrast-difference AF statistics placeholder; output cdaf-stat",
+        ),
         operator(
             "raw_nr",
             "RAW-NR",
@@ -286,10 +303,24 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
     ]
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "the fixed presentation is the single explicit topology source"
-)]
+fn statistics_operator(
+    id: &str,
+    label: &str,
+    parent: &str,
+    output: &str,
+    reason: &str,
+) -> GraphTreeNode {
+    let mut node = operator(
+        id,
+        label,
+        parent,
+        NodeExecutionMode::Disabled,
+        None,
+        Some(reason),
+    );
+    node.outputs = vec![output.into()];
+    node
+}
 fn vbe_nodes() -> Vec<GraphTreeNode> {
     vec![
         group(
@@ -332,14 +363,6 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             None,
         ),
         operator(
-            "cac",
-            "CAC",
-            "vbe",
-            NodeExecutionMode::Bypass,
-            Some("cac"),
-            Some("Chromatic Aberration Correction; method 00: identity bypass"),
-        ),
-        operator(
             "dem",
             "DEM",
             "vbe",
@@ -348,36 +371,12 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             None,
         ),
         operator(
-            "pfr",
-            "PFR",
-            "vbe",
-            NodeExecutionMode::Bypass,
-            Some("pfr"),
-            Some("Purple-Fringe Removal; method 00: identity bypass"),
-        ),
-        operator(
             "color_reproduce",
             "Color Reproduce",
             "vbe",
             NodeExecutionMode::Enabled,
             Some("color_reproduce"),
             None,
-        ),
-        operator(
-            "gamma",
-            "Gamma",
-            "vbe",
-            NodeExecutionMode::Enabled,
-            Some("gamma"),
-            None,
-        ),
-        operator(
-            "three_d_lut",
-            "3D LUT 17³",
-            "vbe",
-            NodeExecutionMode::Bypass,
-            Some("three_d_lut"),
-            Some("method 00: identity bypass"),
         ),
         operator(
             "rgb2yuv",
@@ -426,6 +425,7 @@ fn vpe_nodes() -> Vec<GraphTreeNode> {
             ("ce", "CE"),
             ("mctf_2", "MCTF"),
             ("sharpen", "Sharpen"),
+            ("sharpen", "Sharpen"),
         ] {
             let mut node = operator(
                 &format!("{prefix}_{suffix}"),
@@ -450,19 +450,18 @@ fn presentation_edges() -> Vec<GraphPresentationEdge> {
         ("raw_source", "out", "blc", "in", None),
         ("blc", "out", "sbpc_horizontal", "in", None),
         ("sbpc_horizontal", "out", "dbpc", "in", None),
+        ("sbpc_horizontal", "out", "pdafst", "in", None),
         ("dbpc", "out", "sbpc", "in", None),
         ("sbpc", "out", "raw_nr", "in", None),
+        ("sbpc", "out", "lcst", "in", None),
+        ("sbpc", "out", "cdafst", "in", None),
         ("raw_nr", "out", "tintless", "in", None),
         ("tintless", "out", "lsc", "in", None),
         ("lsc", "out", "wbc", "in", None),
         ("wbc", "out", "drc", "in", None),
-        ("drc", "out", "cac", "in", None),
-        ("cac", "out", "dem", "in", None),
-        ("dem", "out", "pfr", "in", None),
-        ("pfr", "out", "color_reproduce", "in", None),
-        ("color_reproduce", "out", "gamma", "in", None),
-        ("gamma", "out", "three_d_lut", "in", None),
-        ("three_d_lut", "out", "rgb2yuv", "in", None),
+        ("drc", "out", "dem", "in", None),
+        ("dem", "out", "color_reproduce", "in", None),
+        ("color_reproduce", "out", "rgb2yuv", "in", None),
         ("rgb2yuv", "out", "pyrd", "in", None),
         ("vpe_16_sharpen", "out", "vpe_4_pyrc", "feedback", None),
         ("vpe_4_sharpen", "out", "vpe_full_pyrc", "feedback", None),

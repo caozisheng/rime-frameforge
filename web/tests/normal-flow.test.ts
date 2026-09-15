@@ -18,17 +18,28 @@ describe('projectNormalGraph', () => {
     expect(graph.nodes.some((node) => node.id === 'vpe_full_sharpen')).toBe(true);
   });
 
-  it('merges HR into WBC and keeps CAC in the VBE chain after DRC', () => {
+  it('renders VFE statistics on module output ports without edge labels', () => {
+    const graph = projectNormalGraph(normalGraphPresentation, expanded);
+    expect(graph.nodes.find((node) => node.id === 'pdafst')?.outputs).toContain('pdaf-stat');
+    expect(graph.nodes.find((node) => node.id === 'lcst')?.outputs).toContain('lc-stat');
+    expect(graph.nodes.find((node) => node.id === 'cdafst')?.outputs).toContain('cdaf-stat');
+    for (const [source, target] of [['sbpc_horizontal', 'pdafst'], ['sbpc', 'lcst'], ['sbpc', 'cdafst']] as const) {
+      const edge = graph.edges.find((candidate) => candidate.source === source && candidate.target === target);
+      expect(edge).toBeDefined();
+      expect(edge?.label).toBeUndefined();
+    }
+  });
+
+  it('keeps the WBC-to-DEM chain direct after DRC', () => {
     const graph = projectNormalGraph(normalGraphPresentation, expanded);
 
     expect(graph.nodes.find((node) => node.id === 'wbc')?.label).toBe('WBC');
-    expect(graph.nodes.find((node) => node.id === 'cac')?.label).toBe('CAC');
-    expect(graph.nodes.some((node) => node.id === 'hr' || node.id === 'hlr' || node.id === 'raw_ds_cac')).toBe(false);
+    expect(graph.nodes.find((node) => node.id === 'drc')?.label).toBe('DRC');
+    expect(graph.nodes.some((node) => ['hr', 'hlr', 'raw_ds_cac', 'cac', 'pfr', 'gamma', 'three_d_lut'].includes(node.id))).toBe(false);
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'lsc', target: 'wbc' }),
       expect.objectContaining({ source: 'wbc', target: 'drc' }),
-      expect.objectContaining({ source: 'drc', target: 'cac' }),
-      expect.objectContaining({ source: 'cac', target: 'dem' }),
+      expect.objectContaining({ source: 'drc', target: 'dem' }),
     ]));
   });
 
@@ -73,14 +84,14 @@ describe('projectNormalGraph', () => {
     }
   });
 
-  it('uses DEM then PFR before CCM', () => {
+  it('uses DEM then Color Reproduce before RGB2YUV', () => {
     const graph = projectNormalGraph(normalGraphPresentation, expanded);
     expect(graph.nodes.find((node) => node.id === 'dem')?.label).toBe('DEM');
-    expect(graph.nodes.find((node) => node.id === 'pfr')?.label).toBe('PFR');
+    expect(graph.nodes.find((node) => node.id === 'color_reproduce')?.label).toBe('Color Reproduce');
     expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({ source: 'cac', target: 'dem' }),
-      expect.objectContaining({ source: 'dem', target: 'pfr' }),
-      expect.objectContaining({ source: 'pfr', target: 'color_reproduce' }),
+      expect.objectContaining({ source: 'drc', target: 'dem' }),
+      expect.objectContaining({ source: 'dem', target: 'color_reproduce' }),
+      expect.objectContaining({ source: 'color_reproduce', target: 'rgb2yuv' }),
     ]));
   });
 
