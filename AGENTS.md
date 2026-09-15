@@ -53,7 +53,7 @@ Unknown operator/method, missing shader, uniform size/schema mismatch, invalid m
 - Styles override by canonical module address (`<domain>[<instance>].<module>[<instance>]`, e.g. `vbe.dem`) with complete-table atomic replacement; no field-level YAML patching, no silent fallback on mismatched overrides.
 - Three-layer model, kept separate: module default IQ asset (read-only, versioned), user tuning profile YAML, per-frame resolved parameter snapshots (audit only; never re-consumed as profile input).
 - Parameter changes take effect atomically at frame boundaries; an executing module is never retro-written by new revisions.
-- Hue invariant: only Gamma applies a per-channel transfer function; every other 1-D tone/LUT curve works in luminance domain and applies one gain to all three linear RGB channels.
+- Hue invariant: only color_reproduce's gamma encoding applies a per-channel transfer function; every other 1-D tone/LUT curve works in luminance domain and applies one gain to all three linear RGB channels.
 
 ## Rime.Q quantization
 

@@ -65,6 +65,29 @@ describe('desktop workspace layout', () => {
     expect(focusedShellRule).not.toContain('calc(100vw - 24px)');
     expect(focusedShellRule).not.toContain('calc(100vh - 24px)');
   });
+  it('uses explicit lifecycle and interaction feedback styles', () => {
+    expect(styles).toContain('.status-state.state-running');
+    expect(styles).toContain('.status-state.state-error');
+    expect(styles).toContain('.log-error { border-left: 3px solid var(--error);');
+    expect(styles).toContain('.pane-separator::after');
+    expect(styles).toContain('inset: -3px');
+  });
+
+  it('uses high-contrast light workspace tokens and accessible control sizing', () => {
+    expect(styles).toContain('--surface-app: #eef1f5');
+    expect(styles).toContain('--text-secondary: #465464');
+    expect(styles).toContain('--border-subtle: #c3ccd6');
+    expect(styles).toMatch(/\.transport-toolbar button \{[^}]*min-width: 64px/);
+    expect(styles).toMatch(/\.transport-toolbar button \{[^}]*min-height: 30px/);
+    expect(styles).toContain('.graph-node.is-selected { border: 2px solid var(--selection);');
+  });
+
+  it('provides generous preview and inspector interaction targets', () => {
+    expect(styles).toMatch(/\.preview-toolbar button, \.preview-toolbar select \{[^}]*min-height: 30px/);
+    expect(styles).toContain('.preview-curtain::before');
+    expect(styles).toMatch(/\.dng-tree-toolbar button \{[^}]*min-width: 32px/);
+    expect(styles).toMatch(/\.log-toggle \{[^}]*min-height: 30px/);
+  });
   it('defines complete DRC IQ defaults and draft detection', () => {
     expect(DEFAULT_DRC_IQ_PARAMETERS).toEqual({ drc_gain_offset_ev: 0, knee: 1, amplifier: 3 });
     expect(drcIqParametersFromValues({})).toEqual(DEFAULT_DRC_IQ_PARAMETERS);
