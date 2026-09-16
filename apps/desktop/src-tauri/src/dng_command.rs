@@ -17,6 +17,31 @@ pub struct DngRawTagDescriptor {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WarpRectilinearCoefficientSetDescriptor {
+    pub radial: [f64; 4],
+    pub tangential: [f64; 2],
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WarpRectilinearDescriptor {
+    pub coefficient_sets: Vec<WarpRectilinearCoefficientSetDescriptor>,
+    pub optical_center: [f64; 2],
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DngOpcodeDescriptor {
+    pub id: u32,
+    pub spec_version: [u8; 4],
+    pub flags: u32,
+    pub parameter_length: usize,
+    pub parameters_hex: String,
+    pub warp_rectilinear: Option<WarpRectilinearDescriptor>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DngMetadataDescriptor {
     pub dng_version: [u8; 4],
     pub backward_version: Option<[u8; 4]>,
@@ -53,6 +78,9 @@ pub struct DngMetadataDescriptor {
     pub ifd0_extra: Vec<DngRawTagDescriptor>,
     pub raw_extra: Vec<DngRawTagDescriptor>,
     pub exif_extra: Vec<DngRawTagDescriptor>,
+    pub opcode_list1: Vec<DngOpcodeDescriptor>,
+    pub opcode_list2: Vec<DngOpcodeDescriptor>,
+    pub opcode_list3: Vec<DngOpcodeDescriptor>,
 }
 
 /// Invocation-frozen color reproduce assets solved from DNG metadata by the
@@ -408,6 +436,9 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
         ifd0_extra: metadata.ifd0_extra.iter().map(raw_tag_descriptor).collect(),
         raw_extra: metadata.raw_extra.iter().map(raw_tag_descriptor).collect(),
         exif_extra: metadata.exif_extra.iter().map(raw_tag_descriptor).collect(),
+        opcode_list1: opcode_descriptors(metadata, 0),
+        opcode_list2: opcode_descriptors(metadata, 1),
+        opcode_list3: opcode_descriptors(metadata, 2),
     }
 }
 
@@ -421,6 +452,48 @@ fn raw_tag_descriptor(tag: &rime_dng::DngRawTag) -> DngRawTagDescriptor {
         count: tag.count,
         value: tag.value.clone(),
     }
+}
+
+fn opcode_descriptors(
+    metadata: &rime_dng::DngMetadata,
+    list_index: usize,
+) -> Vec<DngOpcodeDescriptor> {
+    let mut warp_rectilinear = metadata.warp_rectilinear.iter();
+    metadata.opcode_lists[list_index]
+        .opcodes
+        .iter()
+        .map(|opcode| DngOpcodeDescriptor {
+            id: opcode.id,
+            spec_version: opcode.spec_version,
+            flags: opcode.flags,
+            parameter_length: opcode.parameters.len(),
+            parameters_hex: hex_parameters(&opcode.parameters),
+            warp_rectilinear: (list_index == 2 && opcode.id == 1)
+                .then(|| warp_rectilinear.next())
+                .flatten()
+                .map(|warp| WarpRectilinearDescriptor {
+                    coefficient_sets: warp
+                        .coefficient_sets
+                        .iter()
+                        .map(|set| WarpRectilinearCoefficientSetDescriptor {
+                            radial: set.radial,
+                            tangential: set.tangential,
+                        })
+                        .collect(),
+                    optical_center: warp.optical_center,
+                }),
+        })
+        .collect()
+}
+
+fn hex_parameters(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
 }
 
 #[cfg(test)]

@@ -3109,6 +3109,7 @@ name = "rime-desktop"
 version = "0.1.23"
 dependencies = [
  "base64 0.22.1",
+ "gamut-dng",
  "image",
  "rime-dng",
  "rime-isp",

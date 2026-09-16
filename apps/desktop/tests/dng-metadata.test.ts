@@ -47,7 +47,7 @@ describe('DNG metadata tree model', () => {
 
   it('builds stable semantic groups with required defaults', () => {
     const groups = buildDngMetadataGroups(descriptor);
-    expect(groups.map((group) => group.id)).toEqual(['runtime', 'frame', 'image', 'sensor', 'calibration', 'exposure', 'lens', 'exif', 'tiff', 'dng', 'integrity']);
+    expect(groups.map((group) => group.id)).toEqual(['runtime', 'frame', 'image', 'sensor', 'calibration', 'exposure', 'lens', 'exif', 'tiff', 'dng', 'opcodes', 'integrity']);
     expect(groups.find((group) => group.id === 'runtime')?.defaultExpanded).toBe(true);
     expect(groups.find((group) => group.id === 'calibration')?.defaultExpanded).toBe(false);
     expect(groups.find((group) => group.id === 'frame')?.children.map((child) => child.label)).toContain('File name');
@@ -79,6 +79,68 @@ describe('DNG metadata tree model', () => {
     expect(groups.find((group) => group.id === 'tiff')?.children[0]?.label).toBe('ImageWidth (256)');
     expect(groups.find((group) => group.id === 'exif')?.children.find((child) => child.label === 'DNGVersion (50706)')?.label).toBe('DNGVersion (50706)');
     expect(groups.find((group) => group.id === 'tiff')?.children[1]?.label).toBe('Tag 65535');
+  });
+
+
+  it('labels every standard DNG opcode id', () => {
+    const standardOpcode = {
+      id: 14,
+      specVersion: [1, 6, 0, 0],
+      flags: 0,
+      parameterLength: 0,
+      parametersHex: '',
+      warpRectilinear: null,
+    };
+    const groups = buildDngMetadataGroups({
+      ...descriptor,
+      metadata: { ...descriptor.metadata, opcodeList3: [standardOpcode] },
+    });
+
+    expect(groups.find((group) => group.id === 'opcodes')?.children[2]?.children?.[0]?.label)
+      .toBe('WarpRectilinear2 (14) [0]');
+  });
+  it('renders all opcode lists with raw and structured parameters', () => {
+    const groups = buildDngMetadataGroups({
+      ...descriptor,
+      metadata: {
+        ...descriptor.metadata,
+        opcodeList1: [{
+          id: 65000,
+          specVersion: [1, 4, 0, 0],
+          flags: 3,
+          parametersHex: 'deadbeef',
+          warpRectilinear: null,
+        }],
+        opcodeList2: [],
+        opcodeList3: [{
+          id: 1,
+          specVersion: [1, 3, 0, 0],
+          flags: 1,
+          parametersHex: '00000001',
+          warpRectilinear: {
+            coefficientSets: [{
+              radial: [1, 0.01, 0.001, 0],
+              tangential: [0.0001, 0.00001],
+            }],
+            opticalCenter: [0.49, 0.51],
+          },
+        }],
+      },
+    } as unknown as DngFrameDescriptor);
+
+    const opcodes = groups.find((group) => group.id === 'opcodes');
+    expect(opcodes?.children.map((child) => child.label)).toEqual([
+      'OpcodeList1',
+      'OpcodeList2',
+      'OpcodeList3',
+    ]);
+    expect(opcodes?.children[0]?.summary).toBe('1 opcode');
+    expect(opcodes?.children[1]?.summary).toBe('0 opcodes');
+    expect(opcodes?.children[0]?.children?.[0]?.label).toBe('Opcode 65000 [0]');
+    expect(opcodes?.children[0]?.children?.[0]?.children?.find((child) => child.label === 'Raw parameters')?.children?.[0]?.value).toBe('deadbeef');
+    expect(opcodes?.children[2]?.children?.[0]?.label).toBe('WarpRectilinear (1) [0]');
+    expect(opcodes?.children[2]?.children?.[0]?.children?.find((child) => child.label === 'Flags')?.summary).toBe('optional');
+    expect(opcodes?.children[2]?.children?.[0]?.children?.find((child) => child.label === 'WarpRectilinear')?.children?.find((child) => child.label === 'Coefficient sets')?.summary).toBe('1 set');
   });
   it('renders missing optional metadata arrays as unavailable', () => {
     const incomplete = {

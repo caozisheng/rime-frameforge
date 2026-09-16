@@ -1,4 +1,4 @@
-import type { DngFrameDescriptor, DngRawTagDescriptor } from '../runtime/worker-bridge.js';
+import type { DngFrameDescriptor, DngOpcodeDescriptor, DngRawTagDescriptor } from '../runtime/worker-bridge.js';
 import { resolveDngTagName } from './dng-tag-names.js';
 export { resolveDngTagName } from './dng-tag-names.js';
 
@@ -61,6 +61,99 @@ function tagNodes(prefix: string, tags: readonly DngRawTagDescriptor[] | null | 
       ],
     };
   });
+}
+
+const OPCODE_NAMES: Readonly<Record<number, string>> = {
+  1: 'WarpRectilinear',
+  2: 'WarpFisheye',
+  3: 'FixVignetteRadial',
+  4: 'FixBadPixelsConstant',
+  5: 'FixBadPixelsList',
+  6: 'TrimBounds',
+  7: 'MapTable',
+  8: 'MapPolynomial',
+  9: 'GainMap',
+  10: 'DeltaPerRow',
+  11: 'DeltaPerColumn',
+  12: 'ScalePerRow',
+  13: 'ScalePerColumn',
+  14: 'WarpRectilinear2',
+};
+
+function opcodeFlags(flags: number): string {
+  const names = [
+    ...(flags & 1 ? ['optional'] : []),
+    ...(flags & 2 ? ['preview-skip'] : []),
+  ];
+  const unknown = flags & ~3;
+  if (unknown !== 0) names.push(`unknown 0x${unknown.toString(16)}`);
+  return names.length === 0 ? 'required' : names.join(', ');
+}
+
+function rawParameterNodes(id: string, hex: string): readonly DngTreeNode[] {
+  if (hex.length === 0) return [leaf(`${id}.empty`, '[empty]', '')];
+  const chunks: DngTreeNode[] = [];
+  for (let offset = 0; offset < hex.length; offset += 64) {
+    const byteStart = offset / 2;
+    const value = hex.slice(offset, offset + 64);
+    chunks.push(leaf(`${id}.${byteStart}`, `[${byteStart.toString(16).padStart(4, '0')}]`, value));
+  }
+  return chunks;
+}
+
+function opcodeNode(list: number, opcode: DngOpcodeDescriptor, index: number): DngTreeNode {
+  const id = `opcodes.${list}.${index}`;
+  const name = OPCODE_NAMES[opcode.id];
+  const children: DngTreeNode[] = [
+    leaf(`${id}.id`, 'Opcode ID', opcode.id),
+    leaf(`${id}.version`, 'DNG version', formatVersion(opcode.specVersion)),
+    { id: `${id}.flags`, label: 'Flags', value: formatValue(opcode.flags), summary: opcodeFlags(opcode.flags) },
+    leaf(`${id}.length`, 'Parameter length', `${opcode.parameterLength} bytes`),
+  ];
+  if (opcode.warpRectilinear !== null && opcode.warpRectilinear !== undefined) {
+    const sets = opcode.warpRectilinear.coefficientSets ?? [];
+    children.push({
+      id: `${id}.warpRectilinear`,
+      label: 'WarpRectilinear',
+      children: [
+        {
+          id: `${id}.warpRectilinear.sets`,
+          label: 'Coefficient sets',
+          summary: `${sets.length} ${sets.length === 1 ? 'set' : 'sets'}`,
+          children: sets.map((set, setIndex) => ({
+            id: `${id}.warpRectilinear.sets.${setIndex}`,
+            label: `Plane [${setIndex}]`,
+            children: [
+              arrayNode(`${id}.warpRectilinear.sets.${setIndex}.radial`, 'Radial', set.radial),
+              arrayNode(`${id}.warpRectilinear.sets.${setIndex}.tangential`, 'Tangential', set.tangential),
+            ],
+          })),
+        },
+        arrayNode(`${id}.warpRectilinear.center`, 'Optical center', opcode.warpRectilinear.opticalCenter),
+      ],
+    });
+  }
+  children.push({
+    id: `${id}.raw`,
+    label: 'Raw parameters',
+    summary: `${opcode.parameterLength} bytes`,
+    children: rawParameterNodes(`${id}.raw`, opcode.parametersHex),
+  });
+  return {
+    id,
+    label: name === undefined ? `Opcode ${opcode.id} [${index}]` : `${name} (${opcode.id}) [${index}]`,
+    children,
+  };
+}
+
+function opcodeListNode(list: number, opcodes: readonly DngOpcodeDescriptor[] | null | undefined): DngTreeNode {
+  const values = opcodes ?? [];
+  return {
+    id: `opcodes.${list}`,
+    label: `OpcodeList${list}`,
+    summary: `${values.length} ${values.length === 1 ? 'opcode' : 'opcodes'}`,
+    children: values.map((opcode, index) => opcodeNode(list, opcode, index)),
+  };
 }
 
 function formatVersion(value: readonly number[] | null): string {
@@ -154,6 +247,11 @@ export function buildDngMetadataGroups(
     group('dng', 'DNG', false, [
       leaf('dng.version', 'DNG version', formatVersion(metadata.dngVersion)),
       leaf('dng.backwardVersion', 'Backward version', formatVersion(metadata.backwardVersion)),
+    ]),
+    group('opcodes', 'Opcodes', false, [
+      opcodeListNode(1, metadata.opcodeList1),
+      opcodeListNode(2, metadata.opcodeList2),
+      opcodeListNode(3, metadata.opcodeList3),
     ]),
     group('integrity', 'Integrity', false, [
       leaf('integrity.metadataHash', 'Metadata hash', descriptor.metadataHash),

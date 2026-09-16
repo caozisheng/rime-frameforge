@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use gamut_dng::{DngRewrite, Value, tags};
+use gamut_dng::{DngRewrite, Opcode, OpcodeList, Value, opcode_id, tags};
 
 use rime_dng::{BayerCfa, DngReader, DngReaderError, RawFrameLayout};
 
@@ -21,6 +21,70 @@ fn gh5s_sample_decodes_as_bayer_raw() {
         frame.layout.cfa,
         BayerCfa::Rggb | BayerCfa::Grbg | BayerCfa::Gbrg | BayerCfa::Bggr
     ));
+}
+
+#[test]
+fn warp_rectilinear_is_typed_and_changes_metadata_identity() {
+    let data = std::fs::read(GH5S_SAMPLE).expect("GH5S fixture must exist");
+    let baseline = DngReader::new()
+        .decode_bytes(Path::new("baseline.dng"), &data, 0)
+        .expect("baseline DNG must decode");
+    let mut parameters = Vec::new();
+    parameters.extend_from_slice(&3_u32.to_be_bytes());
+    for coefficients in [
+        [1.0_f64, 0.01, 0.001, 0.0, 0.0, 0.0],
+        [1.0_f64, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [1.0_f64, -0.01, -0.001, 0.0, 0.0, 0.0],
+    ] {
+        for coefficient in coefficients {
+            parameters.extend_from_slice(&coefficient.to_be_bytes());
+        }
+    }
+    parameters.extend_from_slice(&0.49_f64.to_be_bytes());
+    parameters.extend_from_slice(&0.51_f64.to_be_bytes());
+    let mut opcodes = OpcodeList::new();
+    opcodes.push(Opcode {
+        id: opcode_id::WARP_RECTILINEAR,
+        spec_version: [1, 3, 0, 0],
+        flags: Opcode::FLAG_OPTIONAL,
+        parameters,
+    });
+    let mut rewrite = DngRewrite::open(&data).expect("fixture must be rewriteable");
+    rewrite
+        .file_mut()
+        .ifds
+        .first_mut()
+        .expect("IFD0")
+        .sub_ifds_mut()
+        .first_mut()
+        .expect("raw SubIFD group")
+        .ifds
+        .first_mut()
+        .expect("raw IFD")
+        .set(tags::OPCODE_LIST3, Value::Undefined(opcodes.to_bytes()));
+    let warped_bytes = rewrite.write().expect("warp fixture rewrite").bytes;
+
+    let warped = DngReader::new()
+        .decode_bytes(Path::new("warped.dng"), &warped_bytes, 0)
+        .expect("WarpRectilinear DNG must decode");
+
+    assert_eq!(warped.metadata.warp_rectilinear.len(), 1);
+    assert_eq!(
+        warped.metadata.warp_rectilinear[0].coefficient_sets[0]
+            .radial
+            .map(f64::to_bits),
+        [1.0, 0.01, 0.001, 0.0].map(f64::to_bits)
+    );
+    assert_eq!(
+        warped.metadata.warp_rectilinear[0]
+            .optical_center
+            .map(f64::to_bits),
+        [0.49, 0.51].map(f64::to_bits)
+    );
+    assert_ne!(
+        warped.metadata.metadata_hash,
+        baseline.metadata.metadata_hash
+    );
 }
 
 #[test]

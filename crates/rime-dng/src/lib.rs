@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use std::path::{Path, PathBuf};
 
-use gamut_dng::{DngDecoder, RawPhotometry, Value, cfa_color, tags};
+use gamut_dng::{DngDecoder, OpcodeList, RawPhotometry, Value, cfa_color, opcode_id, tags};
 use gamut_ifd::{IfdReader, RawIfd, ReadAt, Variant};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -60,6 +60,32 @@ pub struct DngRawTag {
     pub value: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DngOpcode {
+    pub id: u32,
+    pub spec_version: [u8; 4],
+    pub flags: u32,
+    pub parameters: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DngOpcodeList {
+    pub opcodes: Vec<DngOpcode>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WarpRectilinearCoefficientSet {
+    pub radial: [f64; 4],
+    pub tangential: [f64; 2],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WarpRectilinearOpcode {
+    pub spec_version: [u8; 4],
+    pub flags: u32,
+    pub coefficient_sets: Vec<WarpRectilinearCoefficientSet>,
+    pub optical_center: [f64; 2],
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DngMetadata {
     pub dng_version: [u8; 4],
@@ -104,6 +130,8 @@ pub struct DngMetadata {
     pub ifd0_extra: Vec<DngRawTag>,
     pub raw_extra: Vec<DngRawTag>,
     pub exif_extra: Vec<DngRawTag>,
+    pub warp_rectilinear: Vec<WarpRectilinearOpcode>,
+    pub opcode_lists: [DngOpcodeList; 3],
     pub metadata_hash: String,
 }
 
@@ -163,6 +191,11 @@ pub enum DngReaderError {
     SampleCountMismatch,
     #[error("DNG camera profile is missing required calibration data")]
     MissingCalibration,
+    #[error("invalid WarpRectilinear opcode at OpcodeList3 index {opcode_index}: {reason}")]
+    InvalidWarpRectilinear {
+        opcode_index: usize,
+        reason: &'static str,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -252,8 +285,16 @@ impl DngReader {
             return Err(DngReaderError::MissingCalibration);
         }
         let raw_digest = digest_u16(raw.samples());
-        let metadata =
-            metadata_from_decoded(&decoded, raw, source_white_balance, color_calibration);
+        let opcode_lists = raw_opcode_lists(raw);
+        let warp_rectilinear = parse_warp_rectilinear_opcodes(raw.opcode_list3())?;
+        let metadata = metadata_from_decoded(
+            &decoded,
+            raw,
+            source_white_balance,
+            color_calibration,
+            warp_rectilinear,
+            opcode_lists,
+        );
         let storage_bits = u8::try_from(storage_bits)
             .map_err(|_| DngReaderError::UnsupportedBitDepth(storage_bits))?;
         Ok(DecodedRawFrame {
@@ -317,7 +358,10 @@ fn bayer_cfa(photometry: &RawPhotometry) -> Result<BayerCfa, DngReaderError> {
     else {
         return Err(DngReaderError::UnsupportedPhotometry);
     };
-    if *repeat != (2, 2) || plane_color.len() != 3 || pattern.len() != 4 {
+    if *repeat != (2, 2)
+        || plane_color.as_slice() != [cfa_color::RED, cfa_color::GREEN, cfa_color::BLUE]
+        || pattern.len() != 4
+    {
         return Err(DngReaderError::UnsupportedCfa);
     }
     let cfa = match pattern.as_slice() {
@@ -358,6 +402,8 @@ fn metadata_from_decoded(
     raw: &gamut_dng::RawImage,
     source_white_balance: SourceWhiteBalance,
     calibration: ColorCalibration,
+    warp_rectilinear: Vec<WarpRectilinearOpcode>,
+    opcode_lists: [DngOpcodeList; 3],
 ) -> DngMetadata {
     let levels = raw.levels();
     let exif = &decoded.metadata.exif;
@@ -414,8 +460,131 @@ fn metadata_from_decoded(
             .collect(),
         raw_extra: decoded.raw_extra.iter().map(raw_tag).collect(),
         exif_extra: decoded.exif_extra.iter().map(raw_tag).collect(),
-        metadata_hash: digest_bytes(&metadata_bytes(decoded, source_white_balance)),
+        metadata_hash: digest_bytes(&metadata_bytes(
+            decoded,
+            source_white_balance,
+            &opcode_lists,
+        )),
+        warp_rectilinear,
+        opcode_lists,
     }
+}
+
+fn raw_opcode_lists(raw: &gamut_dng::RawImage) -> [DngOpcodeList; 3] {
+    [raw.opcode_list1(), raw.opcode_list2(), raw.opcode_list3()].map(|list| DngOpcodeList {
+        opcodes: list
+            .opcodes()
+            .iter()
+            .map(|opcode| DngOpcode {
+                id: opcode.id,
+                spec_version: opcode.spec_version,
+                flags: opcode.flags,
+                parameters: opcode.parameters.clone(),
+            })
+            .collect(),
+    })
+}
+
+fn parse_warp_rectilinear_opcodes(
+    list: &OpcodeList,
+) -> Result<Vec<WarpRectilinearOpcode>, DngReaderError> {
+    list.opcodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, opcode)| opcode.id == opcode_id::WARP_RECTILINEAR)
+        .map(|(opcode_index, opcode)| {
+            let parameters = &opcode.parameters;
+            let set_count =
+                read_be_u32(parameters, 0).ok_or(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "missing coefficient-set count",
+                })? as usize;
+            if !matches!(set_count, 1 | 3) {
+                return Err(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "coefficient-set count must be one or three for Bayer RGB",
+                });
+            }
+            let expected_len = set_count
+                .checked_mul(6)
+                .and_then(|count| count.checked_mul(size_of::<f64>()))
+                .and_then(|bytes| bytes.checked_add(4 + 2 * size_of::<f64>()))
+                .ok_or(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "parameter byte length overflows",
+                })?;
+            if parameters.len() != expected_len {
+                return Err(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "parameter byte length does not match coefficient-set count",
+                });
+            }
+
+            let mut offset = 4;
+            let mut coefficient_sets = Vec::with_capacity(set_count);
+            for _ in 0..set_count {
+                let mut values = [0.0; 6];
+                for value in &mut values {
+                    *value = read_be_f64(parameters, offset).ok_or(
+                        DngReaderError::InvalidWarpRectilinear {
+                            opcode_index,
+                            reason: "truncated coefficient set",
+                        },
+                    )?;
+                    offset += size_of::<f64>();
+                }
+                if values.iter().any(|value| !value.is_finite()) {
+                    return Err(DngReaderError::InvalidWarpRectilinear {
+                        opcode_index,
+                        reason: "coefficient values must be finite",
+                    });
+                }
+                coefficient_sets.push(WarpRectilinearCoefficientSet {
+                    radial: [values[0], values[1], values[2], values[3]],
+                    tangential: [values[4], values[5]],
+                });
+            }
+
+            let optical_center = [
+                read_be_f64(parameters, offset).ok_or(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "missing optical-center x coordinate",
+                })?,
+                read_be_f64(parameters, offset + size_of::<f64>()).ok_or(
+                    DngReaderError::InvalidWarpRectilinear {
+                        opcode_index,
+                        reason: "missing optical-center y coordinate",
+                    },
+                )?,
+            ];
+            if optical_center
+                .iter()
+                .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+            {
+                return Err(DngReaderError::InvalidWarpRectilinear {
+                    opcode_index,
+                    reason: "optical-center coordinates must be finite and within [0, 1]",
+                });
+            }
+
+            Ok(WarpRectilinearOpcode {
+                spec_version: opcode.spec_version,
+                flags: opcode.flags,
+                coefficient_sets,
+                optical_center,
+            })
+        })
+        .collect()
+}
+
+fn read_be_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    let value: [u8; 4] = bytes.get(offset..offset + 4)?.try_into().ok()?;
+    Some(u32::from_be_bytes(value))
+}
+
+fn read_be_f64(bytes: &[u8], offset: usize) -> Option<f64> {
+    let value: [u8; 8] = bytes.get(offset..offset + 8)?.try_into().ok()?;
+    Some(f64::from_be_bytes(value))
 }
 
 fn raw_tag(tag: &gamut_dng::RawTag) -> DngRawTag {
@@ -639,6 +808,7 @@ fn ratio(numerator: f64, denominator: f64) -> f64 {
 fn metadata_bytes(
     decoded: &gamut_dng::DecodedDng,
     source_white_balance: SourceWhiteBalance,
+    opcode_lists: &[DngOpcodeList; 3],
 ) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&decoded.dng_version);
@@ -654,6 +824,25 @@ fn metadata_bytes(
     if let Some(white_xy) = source_white_balance.as_shot_white_xy {
         for value in white_xy {
             bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    for (list_index, list) in opcode_lists.iter().enumerate() {
+        bytes.push(u8::try_from(list_index).expect("three opcode lists fit u8"));
+        bytes.extend_from_slice(
+            &u32::try_from(list.opcodes.len())
+                .expect("opcode-list length was decoded from u32")
+                .to_le_bytes(),
+        );
+        for opcode in &list.opcodes {
+            bytes.extend_from_slice(&opcode.id.to_le_bytes());
+            bytes.extend_from_slice(&opcode.spec_version);
+            bytes.extend_from_slice(&opcode.flags.to_le_bytes());
+            bytes.extend_from_slice(
+                &u32::try_from(opcode.parameters.len())
+                    .expect("opcode parameter length was decoded from u32")
+                    .to_le_bytes(),
+            );
+            bytes.extend_from_slice(&opcode.parameters);
         }
     }
     bytes
@@ -680,8 +869,43 @@ fn digest_u16(samples: &[u16]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BRIGHTNESS_VALUE_TAG, EXPOSURE_BIAS_VALUE_TAG, exif_scalar};
-    use gamut_dng::{RawTag, Value};
+    use super::{
+        BRIGHTNESS_VALUE_TAG, DngReaderError, EXPOSURE_BIAS_VALUE_TAG, exif_scalar,
+        parse_warp_rectilinear_opcodes,
+    };
+    use gamut_dng::{Opcode, OpcodeList, RawTag, Value, opcode_id};
+
+    fn warp_rectilinear_parameters(
+        coefficient_sets: &[[f64; 6]],
+        optical_center: [f64; 2],
+    ) -> Vec<u8> {
+        let mut parameters = Vec::new();
+        parameters.extend_from_slice(
+            &u32::try_from(coefficient_sets.len())
+                .expect("test coefficient count fits u32")
+                .to_be_bytes(),
+        );
+        for coefficients in coefficient_sets {
+            for coefficient in coefficients {
+                parameters.extend_from_slice(&coefficient.to_be_bytes());
+            }
+        }
+        for coordinate in optical_center {
+            parameters.extend_from_slice(&coordinate.to_be_bytes());
+        }
+        parameters
+    }
+
+    fn opcode_list(parameters: Vec<u8>) -> OpcodeList {
+        let mut list = OpcodeList::new();
+        list.push(Opcode {
+            id: opcode_id::WARP_RECTILINEAR,
+            spec_version: [1, 3, 0, 0],
+            flags: Opcode::FLAG_OPTIONAL,
+            parameters,
+        });
+        list
+    }
 
     #[test]
     fn reads_signed_and_unsigned_exif_apex_values() {
@@ -709,5 +933,134 @@ mod tests {
 
         assert_eq!(exif_scalar(&tags, EXPOSURE_BIAS_VALUE_TAG), None);
         assert_eq!(exif_scalar(&tags, BRIGHTNESS_VALUE_TAG), None);
+    }
+
+    #[test]
+    fn decodes_warp_rectilinear_parameters_as_big_endian_values() {
+        let coefficients = [
+            [1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001],
+            [1.0, 0.2, 0.02, 0.002, 0.0002, 0.00002],
+            [1.0, 0.3, 0.03, 0.003, 0.0003, 0.00003],
+        ];
+        let list = opcode_list(warp_rectilinear_parameters(&coefficients, [0.49, 0.51]));
+
+        let decoded = parse_warp_rectilinear_opcodes(&list).expect("valid opcode");
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].spec_version, [1, 3, 0, 0]);
+        assert_eq!(decoded[0].flags, Opcode::FLAG_OPTIONAL);
+        assert_eq!(decoded[0].coefficient_sets.len(), 3);
+        assert_eq!(
+            decoded[0].coefficient_sets[1].radial.map(f64::to_bits),
+            [1.0, 0.2, 0.02, 0.002].map(f64::to_bits)
+        );
+        assert_eq!(
+            decoded[0].coefficient_sets[1].tangential.map(f64::to_bits),
+            [0.0002, 0.00002].map(f64::to_bits)
+        );
+        assert_eq!(
+            decoded[0].optical_center.map(f64::to_bits),
+            [0.49, 0.51].map(f64::to_bits)
+        );
+    }
+
+    #[test]
+    fn rejects_warp_rectilinear_parameter_size_mismatch() {
+        let mut parameters =
+            warp_rectilinear_parameters(&[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        parameters.pop();
+        let error = parse_warp_rectilinear_opcodes(&opcode_list(parameters))
+            .expect_err("truncated optical center must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidWarpRectilinear { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_empty_warp_rectilinear_coefficient_sets() {
+        let parameters = warp_rectilinear_parameters(&[], [0.5, 0.5]);
+        let error = parse_warp_rectilinear_opcodes(&opcode_list(parameters))
+            .expect_err("zero coefficient sets must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidWarpRectilinear { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_non_rgb_warp_rectilinear_coefficient_counts() {
+        let coefficients = [
+            [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [1.0, 0.1, 0.0, 0.0, 0.0, 0.0],
+        ];
+        let parameters = warp_rectilinear_parameters(&coefficients, [0.5, 0.5]);
+
+        let error = parse_warp_rectilinear_opcodes(&opcode_list(parameters))
+            .expect_err("Bayer RGB requires one shared or three plane coefficient sets");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidWarpRectilinear { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_warp_rectilinear_center_outside_image() {
+        let parameters =
+            warp_rectilinear_parameters(&[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]], [1.01, 0.5]);
+        let error = parse_warp_rectilinear_opcodes(&opcode_list(parameters))
+            .expect_err("out-of-range optical center must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidWarpRectilinear { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_warp_rectilinear_non_finite_values() {
+        let parameters =
+            warp_rectilinear_parameters(&[[1.0, 0.0, f64::NAN, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        let error = parse_warp_rectilinear_opcodes(&opcode_list(parameters))
+            .expect_err("non-finite coefficient must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidWarpRectilinear { .. }
+        ));
+    }
+
+    #[test]
+    fn ignores_other_opcode_ids_without_reordering_warps() {
+        let first = warp_rectilinear_parameters(&[[1.0, 0.1, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        let second = warp_rectilinear_parameters(&[[1.0, 0.2, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        let mut list = opcode_list(first);
+        list.push(Opcode {
+            id: opcode_id::TRIM_BOUNDS,
+            spec_version: [1, 3, 0, 0],
+            flags: 0,
+            parameters: vec![0; 16],
+        });
+        list.push(Opcode {
+            id: opcode_id::WARP_RECTILINEAR,
+            spec_version: [1, 3, 0, 0],
+            flags: 0,
+            parameters: second,
+        });
+
+        let decoded = parse_warp_rectilinear_opcodes(&list).expect("valid opcodes");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(
+            decoded[0].coefficient_sets[0].radial[1].to_bits(),
+            0.1_f64.to_bits()
+        );
+        assert_eq!(
+            decoded[1].coefficient_sets[0].radial[1].to_bits(),
+            0.2_f64.to_bits()
+        );
     }
 }

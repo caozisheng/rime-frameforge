@@ -8,6 +8,25 @@ export interface DngRawTagDescriptor {
   readonly value: string;
 }
 
+export interface WarpRectilinearCoefficientSetDescriptor {
+  readonly radial: readonly [number, number, number, number];
+  readonly tangential: readonly [number, number];
+}
+
+export interface WarpRectilinearDescriptor {
+  readonly coefficientSets: readonly WarpRectilinearCoefficientSetDescriptor[];
+  readonly opticalCenter: readonly [number, number];
+}
+
+export interface DngOpcodeDescriptor {
+  readonly id: number;
+  readonly specVersion: readonly [number, number, number, number];
+  readonly flags: number;
+  readonly parameterLength: number;
+  readonly parametersHex: string;
+  readonly warpRectilinear: WarpRectilinearDescriptor | null;
+}
+
 export interface DngMetadataDescriptor {
   readonly dngVersion: readonly number[];
   readonly backwardVersion: readonly number[] | null;
@@ -44,6 +63,9 @@ export interface DngMetadataDescriptor {
   readonly ifd0Extra: readonly DngRawTagDescriptor[];
   readonly rawExtra: readonly DngRawTagDescriptor[];
   readonly exifExtra: readonly DngRawTagDescriptor[];
+  readonly opcodeList1: readonly DngOpcodeDescriptor[];
+  readonly opcodeList2: readonly DngOpcodeDescriptor[];
+  readonly opcodeList3: readonly DngOpcodeDescriptor[];
 }
 
 export interface DngFrameDescriptor {

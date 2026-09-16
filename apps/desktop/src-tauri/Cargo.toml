@@ -19,3 +19,6 @@ serde = { workspace = true }
 tauri = { version = "2.8", features = [] }
 tauri-plugin-dialog = "2.4"
 serde_json = { workspace = true }
+
+[dev-dependencies]
+gamut-dng = "=1.0.0"
