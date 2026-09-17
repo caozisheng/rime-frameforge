@@ -115,7 +115,9 @@ export class WasmRuntimeAuthority {
       return {
         blcUniform: copyPacketBytes(packets.blc_uniform()),
         lscUniform: copyPacketBytes(packets.lsc_uniform()),
-        lscVignetteRadial: copyPacketBytes(packets.lsc_vignette_radial()),
+        lscMeshHeaders: copyPacketBytes(packets.lsc_mesh_headers()),
+        lscMeshEntries: copyPacketBytes(packets.lsc_mesh_entries()),
+        lscActive: packets.lsc_active(),
         wbcUniform: copyPacketBytes(packets.wbc_uniform()),
         drcUniform: copyPacketBytes(packets.drc_uniform()),
         demUniform: copyPacketBytes(packets.dem_uniform()),

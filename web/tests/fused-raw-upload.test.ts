@@ -17,8 +17,10 @@ const descriptor: RawFrameDescriptor = {
 };
 const packetProvider: FramePacketProvider = () => ({
   blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(16),
-  lscVignetteRadial: new Uint8Array(28),
+  lscUniform: new Uint8Array(32),
+  lscMeshHeaders: new Uint8Array(32),
+  lscMeshEntries: new Uint8Array(120),
+  lscActive: false,
   wbcUniform: new Uint8Array(48),
   drcUniform: new Uint8Array(32),
   demUniform: new Uint8Array(32),

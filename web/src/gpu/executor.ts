@@ -46,10 +46,12 @@ export class NormalGpuExecutor {
   #drcMethod: DrcMethod = '00';
   #drcBypassed = false;
   #lscBypassed = false;
+  #lscActive = false;
   #moduleShaders: ModuleShaderRuntime | null = null;
   #blcUniform: GPUBuffer | null = null;
   #lscUniform: GPUBuffer | null = null;
-  #lscVignetteRadial: GPUBuffer | null = null;
+  #lscMeshHeaders: GPUBuffer | null = null;
+  #lscMeshEntries: GPUBuffer | null = null;
   #wbcUniform: GPUBuffer | null = null;
   #fullPipeline: GPUComputePipeline | null = null;
   #prePipeline: GPUComputePipeline | null = null;
@@ -110,22 +112,30 @@ export class NormalGpuExecutor {
 
   public prepare(identity: ExecutionIdentity): void {
     const packets = this.#packetProvider(identity);
+    this.#lscActive = packets.lscActive;
+    this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
     this.#uniforms ??= this.#gpu.device.createBuffer({ label: 'normal-fused-params', size: packets.fusedUniform.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packets.fusedUniform);
     if (packets.colorReproduceHsLut.byteLength > 0) this.#gpu.device.queue.writeBuffer(this.#crHsLut, 0, packets.colorReproduceHsLut);
-    this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
     this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-blc-params', size: Math.max(packets.blcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#lscUniform ??= this.#gpu.device.createBuffer({ label: 'normal-lsc-params', size: Math.max(packets.lscUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const lscVignetteRadialBytes = Math.max(packets.lscVignetteRadial.byteLength, 28);
-    if (this.#lscVignetteRadial === null || this.#lscVignetteRadial.size < lscVignetteRadialBytes) {
-      this.#lscVignetteRadial?.destroy();
-      this.#lscVignetteRadial = this.#gpu.device.createBuffer({ label: 'normal-lsc-vignette-radial', size: lscVignetteRadialBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    const lscMeshHeadersBytes = Math.max(packets.lscMeshHeaders.byteLength, 32);
+    if (this.#lscMeshHeaders === null || this.#lscMeshHeaders.size < lscMeshHeadersBytes) {
+      this.#lscMeshHeaders?.destroy();
+      this.#lscMeshHeaders = this.#gpu.device.createBuffer({ label: 'normal-lsc-mesh-headers', size: lscMeshHeadersBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    }
+    const lscMeshEntriesBytes = Math.max(packets.lscMeshEntries.byteLength, 16);
+    if (this.#lscMeshEntries === null || this.#lscMeshEntries.size < lscMeshEntriesBytes) {
+      this.#lscMeshEntries?.destroy();
+      this.#lscMeshEntries = this.#gpu.device.createBuffer({ label: 'normal-lsc-mesh-entries', size: lscMeshEntriesBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     }
     this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-wbc-params', size: Math.max(packets.wbcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
     this.#gpu.device.queue.writeBuffer(this.#lscUniform, 0, packets.lscUniform);
-    this.#gpu.device.queue.writeBuffer(this.#lscVignetteRadial, 0, packets.lscVignetteRadial);
+    this.#gpu.device.queue.writeBuffer(this.#lscMeshHeaders, 0, packets.lscMeshHeaders);
+    this.#gpu.device.queue.writeBuffer(this.#lscMeshEntries, 0, packets.lscMeshEntries);
     this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
+
     if (!this.#drcBypassed) {
       this.#drc.setMethod(this.#drcMethod);
       this.#drc.preparePackets(packets.drcUniform, packets.drcGlobalLut, packets.drcLocalLut, packets.drcModulationLuts);
@@ -167,9 +177,11 @@ export class NormalGpuExecutor {
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
     });
-    if (this.#lscUniform === null || this.#lscVignetteRadial === null) throw new Error('FUSED_GRAPH_INVALID: LSC pipeline was not prepared');
-    const lscOutput = this.#lscBypassed ? this.#blcTexture : this.#lscTexture;
-    if (!this.#lscBypassed) {
+
+    if (this.#lscUniform === null || this.#lscMeshHeaders === null || this.#lscMeshEntries === null) throw new Error('FUSED_GRAPH_INVALID: LSC pipeline was not prepared');
+    const lscExecuted = !this.#lscBypassed && this.#lscActive;
+    const lscOutput = lscExecuted ? this.#lscTexture : this.#blcTexture;
+    if (lscExecuted) {
       this.#moduleShaders.encode(encoder, {
         label: 'normal-lsc',
         source: lscPipelineWgsl,
@@ -178,7 +190,8 @@ export class NormalGpuExecutor {
           { binding: 0, resource: { texture: this.#blcTexture } },
           { binding: 1, resource: { texture: this.#lscTexture } },
           { binding: 2, resource: { buffer: this.#lscUniform } },
-          { binding: 3, resource: { buffer: this.#lscVignetteRadial } },
+          { binding: 3, resource: { buffer: this.#lscMeshHeaders } },
+          { binding: 4, resource: { buffer: this.#lscMeshEntries } },
         ],
         workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
       });
@@ -259,7 +272,8 @@ export class NormalGpuExecutor {
     this.#uniforms?.destroy();
     this.#crHsLut.destroy();
     this.#lscUniform?.destroy();
-    this.#lscVignetteRadial?.destroy();
+    this.#lscMeshHeaders?.destroy();
+    this.#lscMeshEntries?.destroy();
     this.#demUniforms?.destroy();
     this.#sampleBuffer?.destroy();
     this.#drc.dispose();
@@ -372,7 +386,7 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = this.#lscBypassed && cursor === 'lsc'
+      const texture = (this.#lscBypassed || !this.#lscActive) && cursor === 'lsc'
         ? this.#blcTexture
         : this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
@@ -422,8 +436,10 @@ export class NormalGpuExecutor {
     this.#blcUniform = null;
     this.#lscUniform?.destroy();
     this.#lscUniform = null;
-    this.#lscVignetteRadial?.destroy();
-    this.#lscVignetteRadial = null;
+    this.#lscMeshHeaders?.destroy();
+    this.#lscMeshHeaders = null;
+    this.#lscMeshEntries?.destroy();
+    this.#lscMeshEntries = null;
     this.#wbcUniform?.destroy();
     this.#wbcUniform = null;
     this.#demQuantizeBindGroup = null;

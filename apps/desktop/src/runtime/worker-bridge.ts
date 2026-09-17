@@ -22,6 +22,18 @@ export interface FixVignetteRadialDescriptor {
   readonly opticalCenter: readonly [number, number];
 }
 
+export interface GainMapDescriptor {
+  readonly area: readonly [number, number, number, number];
+  readonly firstPlane: number;
+  readonly planeCount: number;
+  readonly rowPitch: number;
+  readonly colPitch: number;
+  readonly points: readonly [number, number];
+  readonly spacing: readonly [number, number];
+  readonly origin: readonly [number, number];
+  readonly planes: number;
+  readonly entries: readonly number[];
+}
 
 export interface DngOpcodeDescriptor {
   readonly id: number;
@@ -31,6 +43,7 @@ export interface DngOpcodeDescriptor {
   readonly parametersHex: string;
   readonly warpRectilinear: WarpRectilinearDescriptor | null;
   readonly fixVignetteRadial: FixVignetteRadialDescriptor | null;
+  readonly gainMap: GainMapDescriptor | null;
 }
 
 export interface DngMetadataDescriptor {
@@ -73,6 +86,7 @@ export interface DngMetadataDescriptor {
   readonly opcodeList2: readonly DngOpcodeDescriptor[];
   readonly opcodeList3: readonly DngOpcodeDescriptor[];
   readonly vignetteRadial: readonly FixVignetteRadialDescriptor[];
+  readonly gainMaps: readonly GainMapDescriptor[];
 }
 
 export interface DngFrameDescriptor {

@@ -17,8 +17,10 @@ const descriptor: RawFrameDescriptor = {
 };
 const packetProvider: FramePacketProvider = () => ({
   blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(16),
-  lscVignetteRadial: new Uint8Array(28),
+  lscUniform: new Uint8Array(32),
+  lscMeshHeaders: new Uint8Array(32),
+  lscMeshEntries: new Uint8Array(120),
+  lscActive: false,
   wbcUniform: new Uint8Array(48),
   drcUniform: new Uint8Array(32),
   demUniform: new Uint8Array(32),
@@ -116,11 +118,11 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     expect(fake.counts().rawUploads).toBe(1);
   });
-  it('grows the LSC opcode buffer when a later packet has more records', () => {
-    let vignetteBytes = 28;
+  it('grows the LSC mesh buffers when a later packet has more records', () => {
+    let entryBytes = 120;
     const dynamicPacketProvider: FramePacketProvider = (identity) => ({
       ...packetProvider(identity),
-      lscVignetteRadial: new Uint8Array(vignetteBytes),
+      lscMeshEntries: new Uint8Array(entryBytes),
     });
     const fake = fakeGpu();
     const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, dynamicPacketProvider);
@@ -128,7 +130,7 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     executor.prepare(identity);
     const before = fake.counts();
-    vignetteBytes = 56;
+    entryBytes = 240;
     executor.prepare({ ...identity, frameIndex: 1 });
     const after = fake.counts();
 

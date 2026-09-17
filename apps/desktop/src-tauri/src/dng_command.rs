@@ -37,6 +37,20 @@ pub struct FixVignetteRadialDescriptor {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GainMapDescriptor {
+    pub area: [i32; 4],
+    pub first_plane: u32,
+    pub plane_count: u32,
+    pub row_pitch: u32,
+    pub col_pitch: u32,
+    pub points: [u32; 2],
+    pub spacing: [f64; 2],
+    pub origin: [f64; 2],
+    pub planes: u32,
+    pub entries: Vec<f32>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DngOpcodeDescriptor {
     pub id: u32,
     pub spec_version: [u8; 4],
@@ -45,6 +59,7 @@ pub struct DngOpcodeDescriptor {
     pub parameters_hex: String,
     pub warp_rectilinear: Option<WarpRectilinearDescriptor>,
     pub fix_vignette_radial: Option<FixVignetteRadialDescriptor>,
+    pub gain_map: Option<GainMapDescriptor>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,6 +104,7 @@ pub struct DngMetadataDescriptor {
     pub opcode_list2: Vec<DngOpcodeDescriptor>,
     pub opcode_list3: Vec<DngOpcodeDescriptor>,
     pub vignette_radial: Vec<FixVignetteRadialDescriptor>,
+    pub gain_maps: Vec<GainMapDescriptor>,
 }
 
 /// Invocation-frozen color reproduce assets solved from DNG metadata by the
@@ -329,6 +345,22 @@ fn color_reproduce_assets(
                 optical_center: vignette.optical_center,
             })
             .collect(),
+        gain_maps: metadata
+            .gain_map
+            .iter()
+            .filter(|gain| !gain.skip_for_preview()
+                && gain.is_whole_image(
+                    i32::try_from(frame.layout.width).unwrap_or(i32::MAX),
+                    i32::try_from(frame.layout.height).unwrap_or(i32::MAX),
+                ))
+            .map(|gain| rime_isp::GainMapParameters {
+                points: gain.points,
+                spacing: gain.spacing,
+                origin: gain.origin,
+                planes: gain.map_planes,
+                entries: gain.entries.clone(),
+            })
+            .collect(),
     };
     let operator = rime_isp::operator_by_id("color_reproduce")
         .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: operator missing".to_owned())?;
@@ -392,6 +424,18 @@ pub fn descriptor_from_frame(
         analog_balance: metadata.analog_balance,
     })
     .map_err(|error| format!("DNG_WHITE_BALANCE_INVALID: {error}"))?;
+    let width = i32::try_from(frame.layout.width).unwrap_or(i32::MAX);
+    let height = i32::try_from(frame.layout.height).unwrap_or(i32::MAX);
+    if metadata
+        .gain_map
+        .iter()
+        .filter(|gain| !gain.skip_for_preview())
+        .any(|gain| !gain.is_whole_image(width, height))
+    {
+        return Err(
+            "DNG_GAIN_MAP_INVALID: gain map opcode has an unsupported area spec".to_owned(),
+        );
+    }
     Ok(DngFrameDescriptor {
         frame_index: frame.frame_index,
         file_name: path.file_name().map_or_else(
@@ -465,6 +509,12 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
                 optical_center: vignette.optical_center,
             })
             .collect(),
+        gain_maps: metadata
+            .gain_map
+            .iter()
+            .filter(|gain| !gain.skip_for_preview())
+            .map(gain_map_descriptor)
+            .collect(),
     }
 }
 
@@ -486,6 +536,7 @@ fn opcode_descriptors(
 ) -> Vec<DngOpcodeDescriptor> {
     let mut warp_rectilinear = metadata.warp_rectilinear.iter();
     let mut fix_vignette_radial = metadata.fix_vignette_radial.iter();
+    let mut gain_map = metadata.gain_map.iter();
     metadata.opcode_lists[list_index]
         .opcodes
         .iter()
@@ -516,10 +567,28 @@ fn opcode_descriptors(
                     coefficients: vignette.coefficients,
                     optical_center: vignette.optical_center,
                 }),
+            gain_map: (list_index == 1 && opcode.id == 9)
+                .then(|| gain_map.next())
+                .flatten()
+                .map(gain_map_descriptor),
         })
         .collect()
 }
 
+fn gain_map_descriptor(gain: &rime_dng::GainMapOpcode) -> GainMapDescriptor {
+    GainMapDescriptor {
+        area: gain.area,
+        first_plane: gain.first_plane,
+        plane_count: gain.plane_count,
+        row_pitch: gain.row_pitch,
+        col_pitch: gain.col_pitch,
+        points: gain.points,
+        spacing: gain.spacing,
+        origin: gain.origin,
+        planes: gain.map_planes,
+        entries: gain.entries.clone(),
+    }
+}
 fn hex_parameters(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);

@@ -12,8 +12,10 @@ const descriptor: RawFrameDescriptor = {
 };
 const packetProvider: FramePacketProvider = () => ({
   blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(16),
-  lscVignetteRadial: new Uint8Array(28),
+  lscUniform: new Uint8Array(32),
+  lscMeshHeaders: new Uint8Array(32),
+  lscMeshEntries: new Uint8Array(120),
+  lscActive: false,
   wbcUniform: new Uint8Array(48),
   drcUniform: new Uint8Array(32),
   demUniform: new Uint8Array(32),
@@ -151,9 +153,10 @@ describe('fused Normal GPU executor', () => {
   });
   it('skips LSC compute work and retains a presentable LSC preview alias', async () => {
     const normal = fusedGpu();
-    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const activeProvider: FramePacketProvider = (identity) => ({ ...packetProvider(identity), lscActive: true });
+    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, activeProvider);
     const bypassed = fusedGpu();
-    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, activeProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     const bypassConfig = defaultGraphBypassConfig();
 

@@ -99,6 +99,30 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
         flags: Opcode::FLAG_PREVIEW_SKIP,
         parameters: skipped_vignette_parameters,
     });
+    let mut gain_map_parameters = Vec::new();
+    // area_spec: t, l, b, r, plane, planes, rowPitch, colPitch (DNG SDK).
+    for value in [0_i32, 0, 2776, 3744] {
+        gain_map_parameters.extend_from_slice(&value.to_be_bytes());
+    }
+    for value in [0_u32, 1, 1, 1] {
+        gain_map_parameters.extend_from_slice(&value.to_be_bytes());
+    }
+    // Mesh: points 2x3, spacing (0.5, 0.25), origin (0.1, 0.05), planes 2.
+    gain_map_parameters.extend_from_slice(&2_u32.to_be_bytes());
+    gain_map_parameters.extend_from_slice(&3_u32.to_be_bytes());
+    for value in [0.5_f64, 0.25, 0.1, 0.05] {
+        gain_map_parameters.extend_from_slice(&value.to_be_bytes());
+    }
+    gain_map_parameters.extend_from_slice(&2_u32.to_be_bytes());
+    for entry in [1.0_f32, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75] {
+        gain_map_parameters.extend_from_slice(&entry.to_be_bytes());
+    }
+    list2.push(Opcode {
+        id: opcode_id::GAIN_MAP,
+        spec_version: [1, 3, 0, 0],
+        flags: 0,
+        parameters: gain_map_parameters,
+    });
     raw_ifd.set(tags::OPCODE_LIST2, Value::Undefined(list2.to_bytes()));
     let mut warp_parameters = 1_u32.to_be_bytes().to_vec();
     for value in [1.0_f64, 0.01, 0.001, 0.0, 0.0, 0.0, 0.49, 0.51] {
@@ -129,6 +153,33 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
     assert_eq!(json["metadata"]["opcodeList1"][0]["id"], 65_001);
     assert_eq!(json["metadata"]["opcodeList1"][0]["parameterLength"], 2);
     assert_eq!(json["metadata"]["opcodeList1"][0]["parametersHex"], "dead");
+    assert_eq!(json["metadata"]["opcodeList2"][3]["id"], 9);
+    assert_eq!(
+        json["metadata"]["opcodeList2"][3]["gainMap"]["points"],
+        serde_json::json!([2, 3])
+    );
+    assert_eq!(
+        json["metadata"]["opcodeList2"][3]["gainMap"]["spacing"],
+        serde_json::json!([0.5, 0.25])
+    );
+    assert_eq!(
+        json["metadata"]["opcodeList2"][3]["gainMap"]["origin"],
+        serde_json::json!([0.1, 0.05])
+    );
+    assert_eq!(
+        json["metadata"]["opcodeList2"][3]["gainMap"]["mapPlanes"],
+        2
+    );
+    assert_eq!(
+        json["metadata"]["opcodeList2"][3]["gainMap"]["entries"]
+            .as_array()
+            .map(Vec::len),
+        Some(12)
+    );
+    assert_eq!(
+        json["metadata"]["gainMaps"].as_array().map(Vec::len),
+        Some(1)
+    );
     assert_eq!(json["metadata"]["opcodeList2"][0]["id"], 65_002);
     assert_eq!(
         json["metadata"]["opcodeList2"][0]["parametersHex"],

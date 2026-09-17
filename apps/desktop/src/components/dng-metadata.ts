@@ -143,6 +143,32 @@ function opcodeNode(list: number, opcode: DngOpcodeDescriptor, index: number): D
       ],
     });
   }
+  if (opcode.gainMap !== null && opcode.gainMap !== undefined) {
+    const gain = opcode.gainMap;
+    children.push({
+      id: `${id}.gainMap`,
+      label: 'GainMap',
+      children: [
+        arrayNode(`${id}.gainMap.area`, 'Area (t,l,b,r)', gain.area),
+        leaf(`${id}.gainMap.firstPlane`, 'First plane', gain.firstPlane),
+        leaf(`${id}.gainMap.planeCount`, 'Plane count', gain.planeCount),
+        leaf(`${id}.gainMap.rowPitch`, 'Row pitch', gain.rowPitch),
+        leaf(`${id}.gainMap.colPitch`, 'Col pitch', gain.colPitch),
+        arrayNode(`${id}.gainMap.points`, 'Mesh points (v,h)', gain.points),
+        arrayNode(`${id}.gainMap.spacing`, 'Mesh spacing', gain.spacing),
+        arrayNode(`${id}.gainMap.origin`, 'Mesh origin', gain.origin),
+        leaf(`${id}.gainMap.planes`, 'Map planes', gain.planes),
+        {
+          id: `${id}.gainMap.entries`,
+          label: 'Entries',
+          summary: `${gain.entries.length} values`,
+          children: gain.entries.map((value, entryIndex) => (
+            leaf(`${id}.gainMap.entries.${entryIndex}`, `[${entryIndex}]`, value)
+          )),
+        },
+      ],
+    });
+  }
   children.push({
     id: `${id}.raw`,
     label: 'Raw parameters',

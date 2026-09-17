@@ -36,6 +36,14 @@ export interface VignetteRadialParameters {
   readonly opticalCenter: readonly [number, number];
 }
 
+export interface GainMapMesh {
+  readonly points: readonly [number, number];
+  readonly spacing: readonly [number, number];
+  readonly origin: readonly [number, number];
+  readonly planes: number;
+  readonly entries: readonly number[];
+}
+
 export interface FramePreprocessMetadata {
   readonly colorMatrix1: readonly number[];
   readonly colorMatrix2?: readonly number[] | null;
@@ -51,6 +59,7 @@ export interface FramePreprocessMetadata {
   readonly exifBrightnessValue?: number | null;
   readonly exifExposureBiasValue?: number | null;
   readonly vignetteRadial?: readonly VignetteRadialParameters[] | null;
+  readonly gainMaps?: readonly GainMapMesh[] | null;
 }
 
 
@@ -70,7 +79,9 @@ export interface RawFrameDescriptor {
 export interface FramePacketBytes {
   readonly blcUniform: Uint8Array<ArrayBuffer>;
   readonly lscUniform: Uint8Array<ArrayBuffer>;
-  readonly lscVignetteRadial: Uint8Array<ArrayBuffer>;
+  readonly lscMeshHeaders: Uint8Array<ArrayBuffer>;
+  readonly lscMeshEntries: Uint8Array<ArrayBuffer>;
+  readonly lscActive: boolean;
   readonly wbcUniform: Uint8Array<ArrayBuffer>;
   readonly drcUniform: Uint8Array<ArrayBuffer>;
   readonly demUniform: Uint8Array<ArrayBuffer>;
