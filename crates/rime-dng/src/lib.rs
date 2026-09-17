@@ -102,6 +102,41 @@ impl FixVignetteRadialOpcode {
     }
 }
 
+/// Typed DNG `GainMap` opcode (opcode id 9) from `OpcodeList2` — a spatially
+/// varying gain mesh, in normalized pixel coordinates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GainMapOpcode {
+    pub spec_version: [u8; 4],
+    pub flags: u32,
+    /// Top, left, bottom, right bounds in pixels, exclusive at bottom/right.
+    pub area: [i32; 4],
+    /// First plane index the map applies to.
+    pub first_plane: u32,
+    /// Number of planes the map applies to (at least 1).
+    pub plane_count: u32,
+    /// Row and column pitch of the application grid.
+    pub row_pitch: u32,
+    pub col_pitch: u32,
+    /// Mesh size, [vertical, horizontal] entries.
+    pub points: [u32; 2],
+    /// Mesh grid spacing in normalized image coordinates.
+    pub spacing: [f64; 2],
+    /// Mesh grid origin in normalized image coordinates.
+    pub origin: [f64; 2],
+    /// Number of planes in the mesh data.
+    pub map_planes: u32,
+    /// Mesh entries, `[row][col][plane]` order, `points.v * points.h * map_planes` values.
+    pub entries: Vec<f32>,
+}
+
+impl GainMapOpcode {
+    /// Returns whether preview-quality rendering may skip this opcode.
+    #[must_use]
+    pub fn skip_for_preview(&self) -> bool {
+        self.flags & gamut_dng::Opcode::FLAG_PREVIEW_SKIP != 0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DngMetadata {
     pub dng_version: [u8; 4],
@@ -149,9 +184,9 @@ pub struct DngMetadata {
     pub warp_rectilinear: Vec<WarpRectilinearOpcode>,
     pub fix_vignette_radial: Vec<FixVignetteRadialOpcode>,
     pub opcode_lists: [DngOpcodeList; 3],
+    pub gain_map: Vec<GainMapOpcode>,
     pub metadata_hash: String,
 }
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedRawFrame {
     pub frame_index: u64,
@@ -210,6 +245,12 @@ pub enum DngReaderError {
     MissingCalibration,
     #[error("invalid WarpRectilinear opcode at OpcodeList3 index {opcode_index}: {reason}")]
     InvalidWarpRectilinear {
+        opcode_index: usize,
+        reason: &'static str,
+    },
+
+    #[error("invalid GainMap opcode at OpcodeList2 index {opcode_index}: {reason}")]
+    InvalidGainMap {
         opcode_index: usize,
         reason: &'static str,
     },
@@ -308,15 +349,17 @@ impl DngReader {
         }
         let raw_digest = digest_u16(raw.samples());
         let opcode_lists = raw_opcode_lists(raw);
-        let warp_rectilinear = parse_warp_rectilinear_opcodes(raw.opcode_list3())?;
-        let fix_vignette_radial = parse_fix_vignette_radial_opcodes(raw.opcode_list2())?;
+        let typed_opcodes = TypedOpcodes {
+            warp_rectilinear: parse_warp_rectilinear_opcodes(raw.opcode_list3())?,
+            fix_vignette_radial: parse_fix_vignette_radial_opcodes(raw.opcode_list2())?,
+            gain_map: parse_gain_map_opcodes(raw.opcode_list2())?,
+        };
         let metadata = metadata_from_decoded(
             &decoded,
             raw,
             source_white_balance,
             color_calibration,
-            warp_rectilinear,
-            fix_vignette_radial,
+            typed_opcodes,
             opcode_lists,
         );
         let storage_bits = u8::try_from(storage_bits)
@@ -420,14 +463,19 @@ fn bayer_cfa(photometry: &RawPhotometry) -> Result<BayerCfa, DngReaderError> {
     }
     Ok(cfa)
 }
+/// Typed opcode payloads extracted from the raw IFD's opcode lists.
+struct TypedOpcodes {
+    warp_rectilinear: Vec<WarpRectilinearOpcode>,
+    fix_vignette_radial: Vec<FixVignetteRadialOpcode>,
+    gain_map: Vec<GainMapOpcode>,
+}
 
 fn metadata_from_decoded(
     decoded: &gamut_dng::DecodedDng,
     raw: &gamut_dng::RawImage,
     source_white_balance: SourceWhiteBalance,
     calibration: ColorCalibration,
-    warp_rectilinear: Vec<WarpRectilinearOpcode>,
-    fix_vignette_radial: Vec<FixVignetteRadialOpcode>,
+    typed_opcodes: TypedOpcodes,
     opcode_lists: [DngOpcodeList; 3],
 ) -> DngMetadata {
     let levels = raw.levels();
@@ -490,8 +538,9 @@ fn metadata_from_decoded(
             source_white_balance,
             &opcode_lists,
         )),
-        warp_rectilinear,
-        fix_vignette_radial,
+        warp_rectilinear: typed_opcodes.warp_rectilinear,
+        fix_vignette_radial: typed_opcodes.fix_vignette_radial,
+        gain_map: typed_opcodes.gain_map,
         opcode_lists,
     }
 }
@@ -655,6 +704,161 @@ fn parse_fix_vignette_radial_opcodes(
             })
         })
         .collect()
+}
+/// Parses DNG `GainMap` opcodes (opcode id 9) from `OpcodeList2` into typed
+/// metadata. Parameter layout per the Adobe DNG SDK (`dng_gain_map.cpp`):
+/// `area_spec` (32 bytes) + mesh header (44 bytes) + `points_v * points_h *
+/// map_planes` big-endian `f32` entries.
+fn parse_gain_map_opcodes(list: &OpcodeList) -> Result<Vec<GainMapOpcode>, DngReaderError> {
+    const AREA_SPEC_BYTES: usize = 32;
+    const MESH_HEADER_BYTES: usize = 44;
+
+    list.opcodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, opcode)| opcode.id == opcode_id::GAIN_MAP)
+        .map(|(opcode_index, opcode)| {
+            let parameters = &opcode.parameters;
+            let header_bytes = AREA_SPEC_BYTES + MESH_HEADER_BYTES;
+            if parameters.len() < header_bytes {
+                return Err(DngReaderError::InvalidGainMap {
+                    opcode_index,
+                    reason: "parameter block shorter than the area spec and mesh header",
+                });
+            }
+            let u32_at = |offset: usize| {
+                u32::from_be_bytes(
+                    parameters[offset..offset + 4]
+                        .try_into()
+                        .expect("offset is within the checked header"),
+                )
+            };
+            let f64_at = |offset: usize| {
+                f64::from_be_bytes(
+                    parameters[offset..offset + 8]
+                        .try_into()
+                        .expect("offset is within the checked header"),
+                )
+            };
+            let area = [
+                i32::from_ne_bytes(u32_at(0).to_ne_bytes()),
+                i32::from_ne_bytes(u32_at(4).to_ne_bytes()),
+                i32::from_ne_bytes(u32_at(8).to_ne_bytes()),
+                i32::from_ne_bytes(u32_at(12).to_ne_bytes()),
+            ];
+            let first_plane = u32_at(16);
+            let plane_count = u32_at(20);
+            let row_pitch = u32_at(24);
+            let col_pitch = u32_at(28);
+            let points = [u32_at(AREA_SPEC_BYTES), u32_at(AREA_SPEC_BYTES + 4)];
+            let spacing = [f64_at(AREA_SPEC_BYTES + 8), f64_at(AREA_SPEC_BYTES + 16)];
+            let origin = [f64_at(AREA_SPEC_BYTES + 24), f64_at(AREA_SPEC_BYTES + 32)];
+            let map_planes = u32_at(AREA_SPEC_BYTES + 40);
+            validate_gain_map_mesh(
+                opcode_index,
+                parameters,
+                points,
+                spacing,
+                origin,
+                map_planes,
+            )?;
+            let entries: Vec<f32> = parameters[header_bytes..]
+                .chunks_exact(4)
+                .map(|bytes| {
+                    f32::from_be_bytes(bytes.try_into().expect("chunk is four bytes"))
+                })
+                .collect();
+            if entries.iter().any(|entry| !entry.is_finite()) {
+                return Err(DngReaderError::InvalidGainMap {
+                    opcode_index,
+                    reason: "mesh entries must be finite",
+                });
+            }
+            Ok(GainMapOpcode {
+                spec_version: opcode.spec_version,
+                flags: opcode.flags,
+                area,
+                first_plane,
+                plane_count,
+                row_pitch,
+                col_pitch,
+                points,
+                spacing,
+                origin,
+                map_planes,
+                entries,
+            })
+        })
+        .collect()
+}
+
+/// Validates the mesh geometry and total parameter length of one `GainMap`
+/// opcode; returns a stable `InvalidGainMap` error when the DNG is malformed.
+fn validate_gain_map_mesh(
+    opcode_index: usize,
+    parameters: &[u8],
+    points: [u32; 2],
+    spacing: [f64; 2],
+    origin: [f64; 2],
+    map_planes: u32,
+) -> Result<(), DngReaderError> {
+    const AREA_SPEC_BYTES: usize = 32;
+    const MESH_HEADER_BYTES: usize = 44;
+    let header_bytes = AREA_SPEC_BYTES + MESH_HEADER_BYTES;
+    let invalid = |reason: &'static str| DngReaderError::InvalidGainMap {
+        opcode_index,
+        reason,
+    };
+    if points[0] == 0 || points[1] == 0 {
+        return Err(invalid("mesh points must be at least 1 in each dimension"));
+    }
+    if map_planes == 0 {
+        return Err(invalid("mesh plane count must be at least 1"));
+    }
+    let entry_count = (usize::try_from(points[0])
+        .expect("u32 fits usize on supported targets")
+        .checked_mul(usize::try_from(points[1]).expect("u32 fits usize"))
+        .and_then(|value| {
+            value.checked_mul(usize::try_from(map_planes).expect("u32 fits usize"))
+        })
+        .and_then(|value| value.checked_mul(size_of::<f32>()))
+        .and_then(|value| value.checked_add(header_bytes))
+        .ok_or(DngReaderError::InvalidGainMap {
+            opcode_index,
+            reason: "declared mesh dimensions overflow",
+        }))?;
+    if parameters.len() != entry_count {
+        return Err(invalid(
+            "parameter byte length does not match the declared mesh dimensions",
+        ));
+    }
+    if !(spacing[0].is_finite()
+        && spacing[0] > 0.0
+        && spacing[1].is_finite()
+        && spacing[1] > 0.0)
+    {
+        return Err(invalid("mesh spacing must be finite and positive"));
+    }
+    if !(origin[0].is_finite() && origin[1].is_finite()) {
+        return Err(invalid("mesh origin must be finite"));
+    }
+    // Bit-exact comparisons against the exact spec values (spacing 1, origin 0)
+    // are intentional: these are serialized f64 constants, not computed ones.
+    if points[0] == 1
+        && (spacing[0].to_bits() != f64::to_bits(1.0) || origin[0].to_bits() != f64::to_bits(0.0))
+    {
+        return Err(invalid(
+            "a single-row mesh must use spacing 1 and origin 0",
+        ));
+    }
+    if points[1] == 1
+        && (spacing[1].to_bits() != f64::to_bits(1.0) || origin[1].to_bits() != f64::to_bits(0.0))
+    {
+        return Err(invalid(
+            "a single-column mesh must use spacing 1 and origin 0",
+        ));
+    }
+    Ok(())
 }
 
 fn read_be_u32(bytes: &[u8], offset: usize) -> Option<u32> {
