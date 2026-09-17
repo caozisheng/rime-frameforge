@@ -135,6 +135,19 @@ impl GainMapOpcode {
     pub fn skip_for_preview(&self) -> bool {
         self.flags & gamut_dng::Opcode::FLAG_PREVIEW_SKIP != 0
     }
+
+    /// Returns whether this opcode applies uniformly to the whole image —
+    /// the only composition the LSC whole-image mesh supports. Partial
+    /// areas, non-zero first planes, multi-plane spans, or pitched grids
+    /// must be rejected rather than silently mis-applied.
+    #[must_use]
+    pub fn is_whole_image(&self, width: i32, height: i32) -> bool {
+        self.area == [0, 0, height, width]
+            && self.first_plane == 0
+            && self.plane_count == 1
+            && self.row_pitch == 1
+            && self.col_pitch == 1
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

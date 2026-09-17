@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "63ec1b42e29b5a5512943edcd15169671cf7bcba83ab2e040ac69e061a8f2abd",
+  "manifest_hash": "8a2d51a9389a2db6a05e3bd3f3f03a4318f318c2c97e1f2fce1ae3ed36920705",
   "nodes": [
     {
       "id": "raw_source",
@@ -280,10 +280,10 @@ export const normalManifest = {
           "method": "00",
           "shader_entry": "lsc_main",
           "parameters": [
-            "opcode_count",
-            "width",
-            "height",
-            "vignette_radial"
+            "mesh_count",
+            "cfa_phase",
+            "gain_mesh_headers",
+            "gain_mesh_entries"
           ]
         }
       ]

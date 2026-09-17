@@ -167,7 +167,7 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
         serde_json::json!([0.1, 0.05])
     );
     assert_eq!(
-        json["metadata"]["opcodeList2"][3]["gainMap"]["mapPlanes"],
+        json["metadata"]["opcodeList2"][3]["gainMap"]["planes"],
         2
     );
     assert_eq!(

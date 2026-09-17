@@ -348,7 +348,39 @@ impl WgpuReadbackExecutor {
                     optical_center: vignette.optical_center,
                 })
                 .collect(),
+            gain_maps: frame
+                .metadata
+                .gain_map
+                .iter()
+                .filter(|opcode| !opcode.skip_for_preview())
+                .map(|opcode| rime_isp::GainMapParameters {
+                    points: opcode.points,
+                    spacing: opcode.spacing,
+                    origin: opcode.origin,
+                    planes: opcode.map_planes,
+                    entries: opcode.entries.clone(),
+                })
+                .collect(),
         };
+
+        // GainMap opcodes with a partial area spec cannot be composed into the
+        // whole-image LSC mesh — reject instead of silently mis-applying gain.
+        if frame
+            .metadata
+            .gain_map
+            .iter()
+            .filter(|opcode| !opcode.skip_for_preview())
+            .any(|opcode| {
+                !opcode.is_whole_image(
+                    i32::try_from(frame.layout.width).unwrap_or(i32::MAX),
+                    i32::try_from(frame.layout.height).unwrap_or(i32::MAX),
+                )
+            })
+        {
+            return Err(WgpuReadbackError::Resource(
+                "gain map opcode has an unsupported area spec".to_owned(),
+            ));
+        }
         let plan = super::build_normal_graph_plan()?;
         let order = plan
             .execution_order()
@@ -388,6 +420,12 @@ impl WgpuReadbackExecutor {
                     module_id: operator.definition().id,
                     reason: "operator method has no compiled GPU pipeline",
                 })?;
+            // LSC with no gain sources (no GainMap, no FixVignetteRadial) is
+            // an identity pass: skip the dispatch entirely instead of binding
+            // empty storage buffers.
+            if operator.definition().id == "lsc" && lsc_packet_is_bypassed(packet) {
+                return Ok(());
+            }
             let input = current
                 .as_ref()
                 .map_or(&raw_texture, |resource| &resource.texture);
@@ -961,6 +999,16 @@ impl WgpuReadbackExecutor {
             BayerCfa::Unsupported => None,
         }
     }
+}
+
+/// Returns whether the LSC packet has no gain sources — `mesh_count` 0 means
+/// no `GainMap` and no `FixVignetteRadial` reached the preprocess.
+fn lsc_packet_is_bypassed(packet: &ModuleParameterPacket) -> bool {
+    let Some(count_bytes) = packet.bytes().get(..4) else {
+        return false;
+    };
+    let count = u32::from_ne_bytes(count_bytes.try_into().expect("four bytes"));
+    count == 0
 }
 
 fn positive_ratio(value: Option<(u32, u32)>) -> Option<f64> {

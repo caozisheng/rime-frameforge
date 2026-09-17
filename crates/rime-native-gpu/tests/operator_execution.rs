@@ -50,6 +50,7 @@ fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     };
     let events = execute_operator_phases(&["blc", "wbc"], &context, |_operator, _packet| Ok(()))
         .expect("operator phases must succeed");
@@ -119,6 +120,7 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     };
     let events = rime_native_gpu::execute_operator_methods(
         &[("dem", "04")],
@@ -182,6 +184,7 @@ fn ahd_preprocess_accepts_scene_brightness_without_iso() {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     };
     let result = rime_isp::operator_by_id("dem")
         .expect("DEM")
@@ -238,6 +241,7 @@ fn color_reproduce_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     };
     let packet = rime_isp::operator_by_id("color_reproduce")
         .expect("color_reproduce")
