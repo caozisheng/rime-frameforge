@@ -57,7 +57,7 @@ Run the desktop web surface:
 npm run dev -w @rime/desktop
 ```
 
-Open `http://127.0.0.1:1420` in a WebGPU-capable browser.
+Open `http://127.0.0.1:15200` in a WebGPU-capable browser.
 
 Run the Tauri application:
 
