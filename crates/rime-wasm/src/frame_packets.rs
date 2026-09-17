@@ -96,7 +96,9 @@ impl FramePacketDeriver {
 pub struct FramePackets {
     blc_uniform: Vec<u8>,
     lsc_uniform: Vec<u8>,
-    lsc_vignette_radial: Vec<u8>,
+    lsc_mesh_headers: Vec<u8>,
+    lsc_mesh_entries: Vec<u8>,
+    lsc_active: bool,
     wbc_uniform: Vec<u8>,
     drc_uniform: Vec<u8>,
     dem_uniform: Vec<u8>,
@@ -122,8 +124,18 @@ impl FramePackets {
     }
 
     #[must_use]
-    pub fn lsc_vignette_radial(&self) -> Vec<u8> {
-        self.lsc_vignette_radial.clone()
+    pub fn lsc_mesh_headers(&self) -> Vec<u8> {
+        self.lsc_mesh_headers.clone()
+    }
+
+    #[must_use]
+    pub fn lsc_mesh_entries(&self) -> Vec<u8> {
+        self.lsc_mesh_entries.clone()
+    }
+
+    #[must_use]
+    pub fn lsc_active(&self) -> bool {
+        self.lsc_active
     }
 
     #[must_use]
@@ -207,6 +219,17 @@ struct VignetteRadialDescriptor {
     optical_center: [f64; 2],
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GainMapMeshDescriptor {
+    points: [u32; 2],
+    spacing: [f64; 2],
+    origin: [f64; 2],
+    planes: u32,
+    entries: Vec<f32>,
+}
+
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MetadataDescriptor {
@@ -231,6 +254,8 @@ struct MetadataDescriptor {
     exif_f_number: Option<[u32; 2]>,
     #[serde(default)]
     exif_iso_speed: Option<u16>,
+    #[serde(default)]
+    gain_maps: Vec<GainMapMeshDescriptor>,
     #[serde(default)]
     exif_brightness_value: Option<f64>,
     #[serde(default)]
@@ -377,6 +402,18 @@ fn preprocess_context(
                 optical_center: vignette.optical_center,
             })
             .collect(),
+        gain_maps: descriptor
+            .metadata
+            .gain_maps
+            .iter()
+            .map(|mesh| rime_isp::GainMapParameters {
+                points: mesh.points,
+                spacing: mesh.spacing,
+                origin: mesh.origin,
+                planes: mesh.planes,
+                entries: mesh.entries.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -460,7 +497,14 @@ fn build_frame_packets(
     Ok(FramePackets {
         blc_uniform: blc.bytes().to_vec(),
         lsc_uniform: lsc.bytes().to_vec(),
-        lsc_vignette_radial: resource_bytes(lsc, "vignette_radial")?,
+        lsc_mesh_headers: resource_bytes(lsc, "gain_mesh_headers")?,
+        lsc_mesh_entries: resource_bytes(lsc, "gain_mesh_entries")?,
+        lsc_active: lsc
+            .bytes()
+            .get(..4)
+            .and_then(|slice| slice.try_into().ok())
+            .map_or(0_u32, u32::from_ne_bytes)
+            != 0,
         wbc_uniform: wbc.bytes().to_vec(),
         drc_uniform: drc.bytes().to_vec(),
         dem_uniform: padded_dem_uniform(dem.bytes()),

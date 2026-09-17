@@ -135,6 +135,7 @@ fn direct_context() -> rime_isp::PreprocessContext {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     }
 }
 
@@ -213,12 +214,20 @@ fn wasm_deriver_returns_rust_preprocess_packets() {
     assert_eq!(packets.blc_uniform(), packet("blc").bytes());
     assert_eq!(packets.lsc_uniform(), packet("lsc").bytes());
     assert_eq!(
-        packets.lsc_vignette_radial(),
+        packets.lsc_mesh_headers(),
         packet("lsc")
-            .resource("vignette_radial")
-            .expect("LSC vignette records")
+            .resource("gain_mesh_headers")
+            .expect("LSC mesh headers")
             .bytes()
     );
+    assert_eq!(
+        packets.lsc_mesh_entries(),
+        packet("lsc")
+            .resource("gain_mesh_entries")
+            .expect("LSC mesh entries")
+            .bytes()
+    );
+    assert!(!packets.lsc_active());
     assert_eq!(packets.wbc_uniform(), packet("wbc").bytes());
     assert_eq!(packets.drc_uniform(), drc.bytes());
     assert_eq!(packets.dem_uniform(), packet("dem").bytes());
