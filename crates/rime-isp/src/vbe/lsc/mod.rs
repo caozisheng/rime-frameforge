@@ -1,12 +1,14 @@
 mod lsc00;
 mod lsc00_postprocess;
 mod lsc00_preprocess;
+mod lsc_common;
 
 use crate::operator::OperatorDefinition;
 use rime_core::NodeExecutionMode;
 
-pub use crate::operator::VignetteRadialParameters;
+pub use crate::operator::{GainMapParameters, VignetteRadialParameters};
 pub use lsc00::METHOD_00;
+pub use lsc_common::{MeshGeometry, VIGNETTE_MESH_POINTS, mesh_gain};
 
 pub const LSC_PIPELINE_WGSL: &str = include_str!("lsc00.wgsl");
 

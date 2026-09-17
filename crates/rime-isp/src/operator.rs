@@ -116,6 +116,22 @@ pub struct VignetteRadialParameters {
     pub optical_center: [f64; 2],
 }
 
+/// A frozen whole-image gain mesh for the LSC stage: passthrough DNG
+/// `GainMap` opcodes or rasterized `FixVignetteRadial` polynomials.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GainMapParameters {
+    /// Mesh size, `[vertical, horizontal]` node counts (at least 1 each).
+    pub points: [u32; 2],
+    /// Node spacing in normalized image coordinates (positive).
+    pub spacing: [f64; 2],
+    /// Grid origin in normalized image coordinates.
+    pub origin: [f64; 2],
+    /// Interleaved plane count per mesh node (at least 1).
+    pub planes: u32,
+    /// Row-major entries: `points[0] * points[1] * planes` values.
+    pub entries: Vec<f32>,
+}
+
 #[derive(Clone, Debug)]
 pub struct PreprocessContext {
     pub identity: FrameIdentity,
@@ -171,6 +187,8 @@ pub struct PreprocessContext {
     pub dem_thresholds: Option<DemosaicThresholds>,
     /// Ordered DNG `FixVignetteRadial` opcodes frozen for the LSC stage.
     pub vignette_radial: Vec<VignetteRadialParameters>,
+    /// Ordered whole-image DNG `GainMap` meshes frozen for the LSC stage.
+    pub gain_maps: Vec<GainMapParameters>,
 }
 
 /// User-level demosaic threshold overrides threaded through the preprocess

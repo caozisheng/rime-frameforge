@@ -16,7 +16,7 @@ pub use fused_view::{
 };
 pub use graph::{build_normal_graph_presentation, build_normal_manifest};
 pub use operator::{
-    DemosaicThresholds, FrameIdentity, MethodManifest, ModuleParameterPacket,
+    DemosaicThresholds, FrameIdentity, GainMapParameters, MethodManifest, ModuleParameterPacket,
     ModuleParameterResource, Operator, OperatorDefinition, OperatorError, OperatorPort,
     PostprocessContext, PreprocessContext, ShaderAsset, ShaderBindingAccess, ShaderBindingKind,
     ShaderBindings, ShaderStageAsset, ShaderStageBinding, VignetteRadialParameters,

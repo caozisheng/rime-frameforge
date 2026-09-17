@@ -13,7 +13,7 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "opcode_count width height vignette_radial",
+    "mesh_count cfa_phase gain_mesh_headers gain_mesh_entries",
     Some("s0.14"),
     shader(
         "00",

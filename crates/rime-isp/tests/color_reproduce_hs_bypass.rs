@@ -71,6 +71,7 @@ fn base_context() -> PreprocessContext {
         drc_details_amplify: true,
         dem_thresholds: None,
         vignette_radial: Vec::new(),
+        gain_maps: Vec::new(),
     }
 }
 
