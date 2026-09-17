@@ -3,7 +3,7 @@
     reason = "packet bytes round-trip exact f32 bit patterns; no arithmetic occurs"
 )]
 
-use rime_wasm::{FramePacketDeriver, NormalRuntime};
+use rime_wasm::{FramePacketDeriver, FramePackets, NormalRuntime};
 
 #[test]
 fn wasm_runtime_exposes_the_normal_manifest() {
@@ -134,7 +134,29 @@ fn direct_context() -> rime_isp::PreprocessContext {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     }
+}
+
+fn assert_preprocess_snapshot(packets: &FramePackets) {
+    let snapshot: serde_json::Value = serde_json::from_str(&packets.preprocess_snapshot_json())
+        .expect("valid preprocess snapshot JSON");
+    assert_eq!(snapshot["frameIndex"], 11);
+    assert_eq!(snapshot["modules"]["wbc"]["parameters"]["red_gain"], 2.0);
+    assert_eq!(
+        snapshot["modules"]["drc"]["parameters"]["luma_guard"],
+        1.0 / 65_536.0
+    );
+    assert_eq!(snapshot["modules"]["dem"]["method"], "00");
+    assert_eq!(
+        snapshot["modules"]["dem"]["parameters"]["cfa_pattern"],
+        serde_json::json!([0, 1, 1, 2])
+    );
+    assert!(
+        snapshot["modules"]["dem"]["parameters"]
+            .get("ahd_l_threshold")
+            .is_none()
+    );
 }
 
 #[test]
@@ -169,7 +191,13 @@ fn wasm_deriver_returns_rust_preprocess_packets() {
         .expect("valid frame packets");
     let direct_context = direct_context();
     let direct = rime_isp::prepare_operator_methods(
-        &[("blc", "00"), ("wbc", "00"), ("drc", "00"), ("dem", "00")],
+        &[
+            ("blc", "00"),
+            ("lsc", "00"),
+            ("wbc", "00"),
+            ("drc", "00"),
+            ("dem", "00"),
+        ],
         &direct_context,
     )
     .expect("direct Rust preprocess packets");
@@ -183,6 +211,14 @@ fn wasm_deriver_returns_rust_preprocess_packets() {
     let drc = packet("drc");
 
     assert_eq!(packets.blc_uniform(), packet("blc").bytes());
+    assert_eq!(packets.lsc_uniform(), packet("lsc").bytes());
+    assert_eq!(
+        packets.lsc_vignette_radial(),
+        packet("lsc")
+            .resource("vignette_radial")
+            .expect("LSC vignette records")
+            .bytes()
+    );
     assert_eq!(packets.wbc_uniform(), packet("wbc").bytes());
     assert_eq!(packets.drc_uniform(), drc.bytes());
     assert_eq!(packets.dem_uniform(), packet("dem").bytes());
@@ -209,16 +245,7 @@ fn wasm_deriver_returns_rust_preprocess_packets() {
     assert!(packets.drc_local_lut().is_empty());
     assert_eq!(packets.fused_uniform().len(), rime_isp::FUSED_UNIFORM_BYTES);
     assert!(packets.color_reproduce_hs_lut().is_empty());
-    let snapshot: serde_json::Value = serde_json::from_str(&packets.preprocess_snapshot_json()).expect("valid preprocess snapshot JSON");
-    assert_eq!(snapshot["frameIndex"], 11);
-    assert_eq!(snapshot["modules"]["wbc"]["parameters"]["red_gain"], 2.0);
-    assert_eq!(snapshot["modules"]["drc"]["parameters"]["luma_guard"], 1.0 / 65_536.0);
-    assert_eq!(snapshot["modules"]["dem"]["method"], "00");
-    assert_eq!(
-        snapshot["modules"]["dem"]["parameters"]["cfa_pattern"],
-        serde_json::json!([0, 1, 1, 2])
-    );
-    assert!(snapshot["modules"]["dem"]["parameters"].get("ahd_l_threshold").is_none());
+    assert_preprocess_snapshot(&packets);
     deriver.complete_frame().expect("postprocess hooks");
 }
 
@@ -302,7 +329,10 @@ fn wasm_deriver_applies_dem_threshold_overrides() {
     assert_eq!(f32_at(&packets.dem_uniform(), 16), 3.25);
     let snapshot: serde_json::Value =
         serde_json::from_str(&packets.preprocess_snapshot_json()).expect("snapshot JSON");
-    assert_eq!(snapshot["modules"]["dem"]["parameters"]["vng_threshold"], 3.25);
+    assert_eq!(
+        snapshot["modules"]["dem"]["parameters"]["vng_threshold"],
+        3.25
+    );
 
     let mut without_override = base_options.clone();
     without_override["dem_method"] = serde_json::json!("03");

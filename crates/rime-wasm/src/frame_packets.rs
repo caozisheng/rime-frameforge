@@ -4,9 +4,7 @@ use rime_isp::{
     FusedHighlightRecovery, FusedUniformRequest, ModuleParameterPacket, PreparedOperatorMethods,
     PreprocessContext, build_normal_graph_presentation, complete_operator_methods,
     pack_fused_uniforms, prepare_operator_methods,
-    vbe::dem::{
-        DEFAULT_AHD_C_THRESHOLD_SQ, DEFAULT_AHD_L_THRESHOLD, DEFAULT_VNG_THRESHOLD,
-    },
+    vbe::dem::{DEFAULT_AHD_C_THRESHOLD_SQ, DEFAULT_AHD_L_THRESHOLD, DEFAULT_VNG_THRESHOLD},
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -54,6 +52,7 @@ impl FramePacketDeriver {
         let context = preprocess_context(&descriptor, &options, raw_samples, frame_index)?;
         let selected = [
             ("blc", "00"),
+            ("lsc", "00"),
             ("wbc", "00"),
             ("drc", options.drc_method.as_str()),
             ("dem", options.dem_method.as_str()),
@@ -96,6 +95,8 @@ impl FramePacketDeriver {
 #[wasm_bindgen]
 pub struct FramePackets {
     blc_uniform: Vec<u8>,
+    lsc_uniform: Vec<u8>,
+    lsc_vignette_radial: Vec<u8>,
     wbc_uniform: Vec<u8>,
     drc_uniform: Vec<u8>,
     dem_uniform: Vec<u8>,
@@ -113,6 +114,16 @@ impl FramePackets {
     #[must_use]
     pub fn blc_uniform(&self) -> Vec<u8> {
         self.blc_uniform.clone()
+    }
+
+    #[must_use]
+    pub fn lsc_uniform(&self) -> Vec<u8> {
+        self.lsc_uniform.clone()
+    }
+
+    #[must_use]
+    pub fn lsc_vignette_radial(&self) -> Vec<u8> {
+        self.lsc_vignette_radial.clone()
     }
 
     #[must_use]
@@ -189,6 +200,13 @@ struct ColorReproduceDescriptor {
     hs_lut: Option<Vec<f32>>,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VignetteRadialDescriptor {
+    coefficients: [f64; 5],
+    optical_center: [f64; 2],
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MetadataDescriptor {
@@ -217,6 +235,8 @@ struct MetadataDescriptor {
     exif_brightness_value: Option<f64>,
     #[serde(default)]
     exif_exposure_bias_value: Option<f64>,
+    #[serde(default)]
+    vignette_radial: Vec<VignetteRadialDescriptor>,
 }
 
 #[derive(Deserialize)]
@@ -348,6 +368,15 @@ fn preprocess_context(
         wbc_hr_gain: None,
         drc_details_amplify: options.drc_details_amplify,
         dem_thresholds: options.dem_thresholds.as_ref().map(Into::into),
+        vignette_radial: descriptor
+            .metadata
+            .vignette_radial
+            .iter()
+            .map(|vignette| rime_isp::VignetteRadialParameters {
+                coefficients: vignette.coefficients,
+                optical_center: vignette.optical_center,
+            })
+            .collect(),
     })
 }
 
@@ -358,6 +387,7 @@ fn build_frame_packets(
     prepared: &PreparedOperatorMethods,
 ) -> Result<FramePackets, JsValue> {
     let blc = packet(prepared, "blc")?;
+    let lsc = packet(prepared, "lsc")?;
     let wbc = packet(prepared, "wbc")?;
     let drc = packet(prepared, "drc")?;
     let dem = packet(prepared, "dem")?;
@@ -429,6 +459,8 @@ fn build_frame_packets(
     let preprocess_snapshot = preprocess_snapshot_json(frame_index, options, blc, wbc, drc, dem)?;
     Ok(FramePackets {
         blc_uniform: blc.bytes().to_vec(),
+        lsc_uniform: lsc.bytes().to_vec(),
+        lsc_vignette_radial: resource_bytes(lsc, "vignette_radial")?,
         wbc_uniform: wbc.bytes().to_vec(),
         drc_uniform: drc.bytes().to_vec(),
         dem_uniform: padded_dem_uniform(dem.bytes()),
@@ -440,7 +472,6 @@ fn build_frame_packets(
         wbc_hr_gain,
         preprocess_snapshot,
     })
-
 }
 
 fn packet<'a>(
@@ -476,19 +507,31 @@ fn preprocess_snapshot_json(
     dem: &ModuleParameterPacket,
 ) -> Result<String, JsValue> {
     let mut modules = serde_json::Map::new();
-    modules.insert("blc".to_owned(), module_snapshot(blc, &serde_json::json!({
-        "black_level": f32_at(blc.bytes(), 0)?,
-        "white_level": f32_at(blc.bytes(), 4)?,
-        "width": u32_at(blc.bytes(), 8)?,
-        "height": u32_at(blc.bytes(), 12)?,
-    })));
-    modules.insert("wbc".to_owned(), module_snapshot(wbc, &serde_json::json!({
-        "red_gain": f32_at(wbc.bytes(), 0)?,
-        "green_gain": f32_at(wbc.bytes(), 4)?,
-        "blue_gain": f32_at(wbc.bytes(), 8)?,
-        "hr_gain": f32_at(wbc.bytes(), 12)?,
-        "enable_highlight_recovery": f32_at(wbc.bytes(), 32)? != 0.0,
-    })));
+    modules.insert(
+        "blc".to_owned(),
+        module_snapshot(
+            blc,
+            &serde_json::json!({
+                "black_level": f32_at(blc.bytes(), 0)?,
+                "white_level": f32_at(blc.bytes(), 4)?,
+                "width": u32_at(blc.bytes(), 8)?,
+                "height": u32_at(blc.bytes(), 12)?,
+            }),
+        ),
+    );
+    modules.insert(
+        "wbc".to_owned(),
+        module_snapshot(
+            wbc,
+            &serde_json::json!({
+                "red_gain": f32_at(wbc.bytes(), 0)?,
+                "green_gain": f32_at(wbc.bytes(), 4)?,
+                "blue_gain": f32_at(wbc.bytes(), 8)?,
+                "hr_gain": f32_at(wbc.bytes(), 12)?,
+                "enable_highlight_recovery": f32_at(wbc.bytes(), 32)? != 0.0,
+            }),
+        ),
+    );
     modules.insert("drc".to_owned(), module_snapshot(drc, &serde_json::json!({
         "drc_gain": f32_at(drc.bytes(), 0)?,
         "hr_gain": f32_at(wbc.bytes(), 12)?,
@@ -524,7 +567,10 @@ fn preprocess_snapshot_json(
         .map_err(|error| js_error(&format!("WASM_PREPROCESS_SNAPSHOT_SERIALIZE: {error}")))
 }
 
-fn module_snapshot(packet: &ModuleParameterPacket, parameters: &serde_json::Value) -> serde_json::Value {
+fn module_snapshot(
+    packet: &ModuleParameterPacket,
+    parameters: &serde_json::Value,
+) -> serde_json::Value {
     serde_json::json!({ "method": packet.method(), "parameters": parameters })
 }
 

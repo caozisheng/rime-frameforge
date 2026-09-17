@@ -163,5 +163,6 @@ fn gpu_suite_context() -> rime_isp::PreprocessContext {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     }
 }

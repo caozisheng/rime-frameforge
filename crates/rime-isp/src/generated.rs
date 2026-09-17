@@ -111,6 +111,16 @@ pub fn render_wbc_pipeline_typescript() -> Result<String, Diagnostic> {
     Ok(format!("export const wbcPipelineWgsl = {source};\n"))
 }
 
+/// Renders the LSC single-source WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_lsc_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source = serialize_wgsl(crate::vbe::lsc::LSC_PIPELINE_WGSL, "LSC pipeline WGSL")?;
+    Ok(format!("export const lscPipelineWgsl = {source};\n"))
+}
+
 /// Renders the fused-view Normal Graph WGSL as a TypeScript string asset.
 ///
 /// # Errors

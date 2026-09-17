@@ -19,8 +19,8 @@ pub use operator::{
     DemosaicThresholds, FrameIdentity, MethodManifest, ModuleParameterPacket,
     ModuleParameterResource, Operator, OperatorDefinition, OperatorError, OperatorPort,
     PostprocessContext, PreprocessContext, ShaderAsset, ShaderBindingAccess, ShaderBindingKind,
-    ShaderBindings, ShaderStageAsset, ShaderStageBinding, empty_postprocess, empty_preprocess,
-    shader_plan,
+    ShaderBindings, ShaderStageAsset, ShaderStageBinding, VignetteRadialParameters,
+    empty_postprocess, empty_preprocess, shader_plan,
 };
 pub use operator_lifecycle::{
     OperatorPhase, OperatorPhaseEvent, PreparedOperatorMethods, complete_operator_methods,
@@ -29,10 +29,10 @@ pub use operator_lifecycle::{
 
 pub use generated::{
     render_blc_pipeline_typescript, render_drc_pipeline_typescript,
-    render_fused_pipeline_typescript, render_normal_graph_presentation_typescript,
-    render_normal_graph_quantization_typescript, render_normal_manifest_json,
-    render_normal_manifest_typescript, render_segmented_fused_typescript,
-    render_wbc_pipeline_typescript,
+    render_fused_pipeline_typescript, render_lsc_pipeline_typescript,
+    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
+    render_normal_manifest_json, render_normal_manifest_typescript,
+    render_segmented_fused_typescript, render_wbc_pipeline_typescript,
 };
 /// Shared fixed-grid quantization and deterministic dither utilities.
 pub use rime_quant;

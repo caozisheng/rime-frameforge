@@ -90,6 +90,7 @@ describe('DNG metadata tree model', () => {
       parameterLength: 0,
       parametersHex: '',
       warpRectilinear: null,
+      fixVignetteRadial: null,
     };
     const groups = buildDngMetadataGroups({
       ...descriptor,
@@ -110,8 +111,20 @@ describe('DNG metadata tree model', () => {
           flags: 3,
           parametersHex: 'deadbeef',
           warpRectilinear: null,
+          fixVignetteRadial: null,
         }],
-        opcodeList2: [],
+        opcodeList2: [{
+          id: 3,
+          specVersion: [1, 3, 0, 0],
+          flags: 0,
+          parameterLength: 56,
+          parametersHex: '00'.repeat(56),
+          warpRectilinear: null,
+          fixVignetteRadial: {
+            coefficients: [0.1, 0.02, 0.003, 0.0004, 0.00005],
+            opticalCenter: [0.45, 0.55],
+          },
+        }],
         opcodeList3: [{
           id: 1,
           specVersion: [1, 3, 0, 0],
@@ -124,6 +137,7 @@ describe('DNG metadata tree model', () => {
             }],
             opticalCenter: [0.49, 0.51],
           },
+            fixVignetteRadial: null,
         }],
       },
     } as unknown as DngFrameDescriptor);
@@ -135,12 +149,14 @@ describe('DNG metadata tree model', () => {
       'OpcodeList3',
     ]);
     expect(opcodes?.children[0]?.summary).toBe('1 opcode');
-    expect(opcodes?.children[1]?.summary).toBe('0 opcodes');
+    expect(opcodes?.children[1]?.summary).toBe('1 opcode');
     expect(opcodes?.children[0]?.children?.[0]?.label).toBe('Opcode 65000 [0]');
     expect(opcodes?.children[0]?.children?.[0]?.children?.find((child) => child.label === 'Raw parameters')?.children?.[0]?.value).toBe('deadbeef');
     expect(opcodes?.children[2]?.children?.[0]?.label).toBe('WarpRectilinear (1) [0]');
     expect(opcodes?.children[2]?.children?.[0]?.children?.find((child) => child.label === 'Flags')?.summary).toBe('optional');
     expect(opcodes?.children[2]?.children?.[0]?.children?.find((child) => child.label === 'WarpRectilinear')?.children?.find((child) => child.label === 'Coefficient sets')?.summary).toBe('1 set');
+    expect(opcodes?.children[1]?.children?.[0]?.children?.find((child) => child.label === 'FixVignetteRadial')?.children?.find((child) => child.label === 'Coefficients')?.summary).toBe('[0.1, 0.02, 0.003, 0.0004, 0.00005]');
+    expect(opcodes?.children[1]?.children?.[0]?.children?.find((child) => child.label === 'FixVignetteRadial')?.children?.find((child) => child.label === 'Optical center')?.summary).toBe('[0.45, 0.55]');
   });
   it('renders missing optional metadata arrays as unavailable', () => {
     const incomplete = {

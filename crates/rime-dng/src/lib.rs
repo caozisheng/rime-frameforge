@@ -86,6 +86,22 @@ pub struct WarpRectilinearOpcode {
     pub optical_center: [f64; 2],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FixVignetteRadialOpcode {
+    pub spec_version: [u8; 4],
+    pub flags: u32,
+    pub coefficients: [f64; 5],
+    pub optical_center: [f64; 2],
+}
+
+impl FixVignetteRadialOpcode {
+    /// Returns whether preview-quality rendering may skip this opcode.
+    #[must_use]
+    pub const fn skip_for_preview(self) -> bool {
+        self.flags & gamut_dng::Opcode::FLAG_PREVIEW_SKIP != 0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DngMetadata {
     pub dng_version: [u8; 4],
@@ -131,6 +147,7 @@ pub struct DngMetadata {
     pub raw_extra: Vec<DngRawTag>,
     pub exif_extra: Vec<DngRawTag>,
     pub warp_rectilinear: Vec<WarpRectilinearOpcode>,
+    pub fix_vignette_radial: Vec<FixVignetteRadialOpcode>,
     pub opcode_lists: [DngOpcodeList; 3],
     pub metadata_hash: String,
 }
@@ -193,6 +210,11 @@ pub enum DngReaderError {
     MissingCalibration,
     #[error("invalid WarpRectilinear opcode at OpcodeList3 index {opcode_index}: {reason}")]
     InvalidWarpRectilinear {
+        opcode_index: usize,
+        reason: &'static str,
+    },
+    #[error("invalid FixVignetteRadial opcode at OpcodeList2 index {opcode_index}: {reason}")]
+    InvalidFixVignetteRadial {
         opcode_index: usize,
         reason: &'static str,
     },
@@ -287,12 +309,14 @@ impl DngReader {
         let raw_digest = digest_u16(raw.samples());
         let opcode_lists = raw_opcode_lists(raw);
         let warp_rectilinear = parse_warp_rectilinear_opcodes(raw.opcode_list3())?;
+        let fix_vignette_radial = parse_fix_vignette_radial_opcodes(raw.opcode_list2())?;
         let metadata = metadata_from_decoded(
             &decoded,
             raw,
             source_white_balance,
             color_calibration,
             warp_rectilinear,
+            fix_vignette_radial,
             opcode_lists,
         );
         let storage_bits = u8::try_from(storage_bits)
@@ -403,6 +427,7 @@ fn metadata_from_decoded(
     source_white_balance: SourceWhiteBalance,
     calibration: ColorCalibration,
     warp_rectilinear: Vec<WarpRectilinearOpcode>,
+    fix_vignette_radial: Vec<FixVignetteRadialOpcode>,
     opcode_lists: [DngOpcodeList; 3],
 ) -> DngMetadata {
     let levels = raw.levels();
@@ -466,6 +491,7 @@ fn metadata_from_decoded(
             &opcode_lists,
         )),
         warp_rectilinear,
+        fix_vignette_radial,
         opcode_lists,
     }
 }
@@ -571,6 +597,60 @@ fn parse_warp_rectilinear_opcodes(
                 spec_version: opcode.spec_version,
                 flags: opcode.flags,
                 coefficient_sets,
+                optical_center,
+            })
+        })
+        .collect()
+}
+
+fn parse_fix_vignette_radial_opcodes(
+    list: &OpcodeList,
+) -> Result<Vec<FixVignetteRadialOpcode>, DngReaderError> {
+    const VALUE_COUNT: usize = 7;
+    const PARAMETER_BYTES: usize = VALUE_COUNT * size_of::<f64>();
+
+    list.opcodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, opcode)| opcode.id == opcode_id::FIX_VIGNETTE_RADIAL)
+        .map(|(opcode_index, opcode)| {
+            if opcode.parameters.len() != PARAMETER_BYTES {
+                return Err(DngReaderError::InvalidFixVignetteRadial {
+                    opcode_index,
+                    reason: "parameter byte length must be exactly 56 bytes",
+                });
+            }
+            let mut values = [0.0; VALUE_COUNT];
+            for (index, value) in values.iter_mut().enumerate() {
+                *value = read_be_f64(&opcode.parameters, index * size_of::<f64>()).ok_or(
+                    DngReaderError::InvalidFixVignetteRadial {
+                        opcode_index,
+                        reason: "truncated parameter value",
+                    },
+                )?;
+            }
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(DngReaderError::InvalidFixVignetteRadial {
+                    opcode_index,
+                    reason: "coefficient and optical-center values must be finite",
+                });
+            }
+            let optical_center = [values[5], values[6]];
+            if optical_center
+                .iter()
+                .any(|value| !(0.0..=1.0).contains(value))
+            {
+                return Err(DngReaderError::InvalidFixVignetteRadial {
+                    opcode_index,
+                    reason: "optical-center coordinates must be within [0, 1]",
+                });
+            }
+            Ok(FixVignetteRadialOpcode {
+                spec_version: opcode.spec_version,
+                flags: opcode.flags,
+                coefficients: values[..5]
+                    .try_into()
+                    .expect("five coefficient values are present"),
                 optical_center,
             })
         })
@@ -871,7 +951,7 @@ fn digest_u16(samples: &[u16]) -> String {
 mod tests {
     use super::{
         BRIGHTNESS_VALUE_TAG, DngReaderError, EXPOSURE_BIAS_VALUE_TAG, exif_scalar,
-        parse_warp_rectilinear_opcodes,
+        parse_fix_vignette_radial_opcodes, parse_warp_rectilinear_opcodes,
     };
     use gamut_dng::{Opcode, OpcodeList, RawTag, Value, opcode_id};
 
@@ -900,6 +980,25 @@ mod tests {
         let mut list = OpcodeList::new();
         list.push(Opcode {
             id: opcode_id::WARP_RECTILINEAR,
+            spec_version: [1, 3, 0, 0],
+            flags: Opcode::FLAG_OPTIONAL,
+            parameters,
+        });
+        list
+    }
+
+    fn fix_vignette_parameters(coefficients: [f64; 5], optical_center: [f64; 2]) -> Vec<u8> {
+        coefficients
+            .into_iter()
+            .chain(optical_center)
+            .flat_map(f64::to_be_bytes)
+            .collect()
+    }
+
+    fn fix_vignette_opcode_list(parameters: Vec<u8>) -> OpcodeList {
+        let mut list = OpcodeList::new();
+        list.push(Opcode {
+            id: opcode_id::FIX_VIGNETTE_RADIAL,
             spec_version: [1, 3, 0, 0],
             flags: Opcode::FLAG_OPTIONAL,
             parameters,
@@ -1061,6 +1160,97 @@ mod tests {
         assert_eq!(
             decoded[1].coefficient_sets[0].radial[1].to_bits(),
             0.2_f64.to_bits()
+        );
+    }
+
+    #[test]
+    fn decodes_fix_vignette_radial_parameters_as_big_endian_values() {
+        let list = fix_vignette_opcode_list(fix_vignette_parameters(
+            [0.1, 0.02, 0.003, 0.0004, 0.00005],
+            [0.49, 0.51],
+        ));
+
+        let decoded = parse_fix_vignette_radial_opcodes(&list).expect("valid opcode");
+
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].spec_version, [1, 3, 0, 0]);
+        assert_eq!(decoded[0].flags, Opcode::FLAG_OPTIONAL);
+        assert_eq!(
+            decoded[0].coefficients.map(f64::to_bits),
+            [0.1, 0.02, 0.003, 0.0004, 0.00005].map(f64::to_bits)
+        );
+        assert_eq!(
+            decoded[0].optical_center.map(f64::to_bits),
+            [0.49, 0.51].map(f64::to_bits)
+        );
+    }
+
+    #[test]
+    fn rejects_fix_vignette_radial_parameter_size_mismatch() {
+        let mut parameters = fix_vignette_parameters([0.0; 5], [0.5, 0.5]);
+        parameters.pop();
+
+        let error = parse_fix_vignette_radial_opcodes(&fix_vignette_opcode_list(parameters))
+            .expect_err("truncated optical center must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidFixVignetteRadial { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_fix_vignette_radial_non_finite_values() {
+        let parameters = fix_vignette_parameters([0.0, f64::NAN, 0.0, 0.0, 0.0], [0.5, 0.5]);
+
+        let error = parse_fix_vignette_radial_opcodes(&fix_vignette_opcode_list(parameters))
+            .expect_err("non-finite coefficient must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidFixVignetteRadial { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_fix_vignette_radial_center_outside_image() {
+        let parameters = fix_vignette_parameters([0.0; 5], [-0.01, 0.5]);
+
+        let error = parse_fix_vignette_radial_opcodes(&fix_vignette_opcode_list(parameters))
+            .expect_err("out-of-range optical center must fail");
+
+        assert!(matches!(
+            error,
+            DngReaderError::InvalidFixVignetteRadial { .. }
+        ));
+    }
+
+    #[test]
+    fn preserves_fix_vignette_radial_opcode_order() {
+        let first = fix_vignette_parameters([0.1, 0.0, 0.0, 0.0, 0.0], [0.5, 0.5]);
+        let second = fix_vignette_parameters([0.2, 0.0, 0.0, 0.0, 0.0], [0.4, 0.6]);
+        let mut list = fix_vignette_opcode_list(first);
+        list.push(Opcode {
+            id: opcode_id::TRIM_BOUNDS,
+            spec_version: [1, 3, 0, 0],
+            flags: 0,
+            parameters: vec![0; 16],
+        });
+        list.push(Opcode {
+            id: opcode_id::FIX_VIGNETTE_RADIAL,
+            spec_version: [1, 3, 0, 0],
+            flags: 0,
+            parameters: second,
+        });
+
+        let decoded = parse_fix_vignette_radial_opcodes(&list).expect("valid opcodes");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].coefficients[0].to_bits(), 0.1_f64.to_bits());
+        assert_eq!(decoded[1].coefficients[0].to_bits(), 0.2_f64.to_bits());
+        assert_eq!(
+            decoded[1].optical_center.map(f64::to_bits),
+            [0.4, 0.6].map(f64::to_bits)
         );
     }
 }

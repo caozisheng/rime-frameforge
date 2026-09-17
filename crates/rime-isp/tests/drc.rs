@@ -313,6 +313,7 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -429,6 +430,7 @@ fn drc00_baseline_context() -> rime_isp::PreprocessContext {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     }
 }
 
@@ -539,6 +541,7 @@ fn drc01_preprocess_freezes_local_lut_field() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
 
     let packet = rime_isp::vbe::drc::OPERATOR
@@ -613,6 +616,7 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     let packet = rime_isp::vbe::drc::OPERATOR
         .preprocess("00", &context)
@@ -699,6 +703,7 @@ fn drc_iq_rejects_non_finite_and_out_of_range_values() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     for (name, context) in [
         (

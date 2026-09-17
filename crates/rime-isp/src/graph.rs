@@ -342,9 +342,9 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             "lsc",
             "LSC",
             "vbe",
-            NodeExecutionMode::Bypass,
+            NodeExecutionMode::Enabled,
             Some("lsc"),
-            Some("luma shading correction; method 00: identity bypass"),
+            None,
         ),
         operator(
             "wbc",

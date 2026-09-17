@@ -40,7 +40,7 @@ export const normalGraphQuantization = {
     },
     {
       "module_id": "lsc",
-      "output_enabled": false,
+      "output_enabled": true,
       "output_profile": "s0.14",
       "clip_type": "truncate"
     },

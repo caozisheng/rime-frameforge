@@ -110,6 +110,12 @@ pub struct FrameIdentity {
     pub method_revision: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VignetteRadialParameters {
+    pub coefficients: [f64; 5],
+    pub optical_center: [f64; 2],
+}
+
 #[derive(Clone, Debug)]
 pub struct PreprocessContext {
     pub identity: FrameIdentity,
@@ -163,6 +169,8 @@ pub struct PreprocessContext {
     /// Optional demosaic threshold overrides (dem03 VNG gradient, dem04 AHD
     /// luminance/chroma); omitted uses the per-method IQ default.
     pub dem_thresholds: Option<DemosaicThresholds>,
+    /// Ordered DNG `FixVignetteRadial` opcodes frozen for the LSC stage.
+    pub vignette_radial: Vec<VignetteRadialParameters>,
 }
 
 /// User-level demosaic threshold overrides threaded through the preprocess

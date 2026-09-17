@@ -49,6 +49,7 @@ fn context() -> PreprocessContext {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     }
 }
 
@@ -59,7 +60,10 @@ fn ahd_preprocess_rejects_missing_scene_brightness() {
         .preprocess("04", &context())
         .expect_err("AHD requires scene brightness");
 
-    assert_eq!(error.to_string(), "operator `dem` preprocessing failed: AHD IQ requires scene brightness EV");
+    assert_eq!(
+        error.to_string(),
+        "operator `dem` preprocessing failed: AHD IQ requires scene brightness EV"
+    );
 }
 
 #[test]

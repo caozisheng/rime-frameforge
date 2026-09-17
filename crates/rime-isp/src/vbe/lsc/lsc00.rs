@@ -4,7 +4,7 @@ use rime_core::{ResourceFormat, SignalDomain};
 
 pub const METHOD_00: MethodManifest = method_manifest(
     "00",
-    "identity_r32_main",
+    "lsc_main",
     OperatorPort {
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
@@ -13,16 +13,16 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "identity",
-    None,
+    "opcode_count width height vignette_radial",
+    Some("s0.14"),
     shader(
         "00",
         include_str!("lsc00.wgsl"),
-        "identity_r32_main",
+        "lsc_main",
         ShaderBindings {
             input: 0,
             output: 1,
-            uniform: None,
+            uniform: Some(2),
         },
     ),
     lsc00_preprocess::run,

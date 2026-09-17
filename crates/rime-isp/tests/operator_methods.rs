@@ -252,10 +252,7 @@ fn color_reproduce_applies_two_matrices_and_nearest_neighbor_hs_lut() {
     );
     // CR is the linear-to-encoded boundary: output domain is EncodedRgb
     // with a u0.10 output profile.
-    assert_eq!(
-        method.output.domain,
-        rime_core::SignalDomain::EncodedRgb
-    );
+    assert_eq!(method.output.domain, rime_core::SignalDomain::EncodedRgb);
     assert_eq!(method.output_rime_q_profile, Some("u0.10"));
     let source = method.shader.source;
     // Two matrix applications (sensor->ProPhoto, ProPhoto->sRGB).

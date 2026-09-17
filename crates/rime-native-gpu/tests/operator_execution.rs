@@ -49,6 +49,7 @@ fn scheduler_runs_all_cpu_preprocess_before_compute_and_postprocess() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     let events = execute_operator_phases(&["blc", "wbc"], &context, |_operator, _packet| Ok(()))
         .expect("operator phases must succeed");
@@ -117,6 +118,7 @@ fn scheduler_uses_the_selected_method_for_all_three_phases() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     let events = rime_native_gpu::execute_operator_methods(
         &[("dem", "04")],
@@ -179,6 +181,7 @@ fn ahd_preprocess_accepts_scene_brightness_without_iso() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     let result = rime_isp::operator_by_id("dem")
         .expect("DEM")
@@ -234,6 +237,7 @@ fn color_reproduce_preprocess_emits_default_gamma_and_identity_luminance_lut() {
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: Vec::new(),
     };
     let packet = rime_isp::operator_by_id("color_reproduce")
         .expect("color_reproduce")
@@ -245,7 +249,9 @@ fn color_reproduce_preprocess_emits_default_gamma_and_identity_luminance_lut() {
     let gamma = f32::from_ne_bytes(packet.bytes()[16..20].try_into().expect("gamma bytes"));
     assert!((gamma - 2.2).abs() < f32::EPSILON);
     // Gamma LUT resource: identity ramp, 9 knots covering [0,1].
-    let lut = packet.resource("cr_gamma_lut").expect("cr_gamma_lut resource");
+    let lut = packet
+        .resource("cr_gamma_lut")
+        .expect("cr_gamma_lut resource");
     let values = (0..9)
         .map(|index| {
             f32::from_ne_bytes(

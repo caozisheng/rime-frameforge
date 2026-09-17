@@ -31,6 +31,11 @@ export interface ColorReproduceAssets {
   readonly hsEnable: boolean;
   readonly hsLut?: readonly number[] | null;
 }
+export interface VignetteRadialParameters {
+  readonly coefficients: readonly [number, number, number, number, number];
+  readonly opticalCenter: readonly [number, number];
+}
+
 export interface FramePreprocessMetadata {
   readonly colorMatrix1: readonly number[];
   readonly colorMatrix2?: readonly number[] | null;
@@ -45,6 +50,7 @@ export interface FramePreprocessMetadata {
   readonly exifIsoSpeed?: number | null;
   readonly exifBrightnessValue?: number | null;
   readonly exifExposureBiasValue?: number | null;
+  readonly vignetteRadial?: readonly VignetteRadialParameters[] | null;
 }
 
 
@@ -63,6 +69,8 @@ export interface RawFrameDescriptor {
 }
 export interface FramePacketBytes {
   readonly blcUniform: Uint8Array<ArrayBuffer>;
+  readonly lscUniform: Uint8Array<ArrayBuffer>;
+  readonly lscVignetteRadial: Uint8Array<ArrayBuffer>;
   readonly wbcUniform: Uint8Array<ArrayBuffer>;
   readonly drcUniform: Uint8Array<ArrayBuffer>;
   readonly demUniform: Uint8Array<ArrayBuffer>;

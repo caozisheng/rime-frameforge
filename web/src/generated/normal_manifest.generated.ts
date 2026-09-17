@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "9c59154d83af8e8dd2d4d030844b864faa34dab5af00aeaa1e9526b3db906460",
+  "manifest_hash": "63ec1b42e29b5a5512943edcd15169671cf7bcba83ab2e040ac69e061a8f2abd",
   "nodes": [
     {
       "id": "raw_source",
@@ -251,7 +251,7 @@ export const normalManifest = {
     {
       "id": "lsc",
       "display_name": "LSC",
-      "shader_entry": "identity_r32_main",
+      "shader_entry": "lsc_main",
       "inputs": [
         {
           "id": "in",
@@ -278,9 +278,12 @@ export const normalManifest = {
       "methods": [
         {
           "method": "00",
-          "shader_entry": "identity_r32_main",
+          "shader_entry": "lsc_main",
           "parameters": [
-            "identity"
+            "opcode_count",
+            "width",
+            "height",
+            "vignette_radial"
           ]
         }
       ]

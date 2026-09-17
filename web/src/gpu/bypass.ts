@@ -32,7 +32,7 @@ export function canUserBypassModule(moduleId: string): boolean {
 export function defaultGraphBypassConfig(): GraphBypassConfig {
   return {
     graph_id: normalGraphPresentation.graph_id,
-    modules: userBypassModuleIds.map((module_id) => ({ module_id, bypass: module_id !== 'drc' })),
+    modules: userBypassModuleIds.map((module_id) => ({ module_id, bypass: module_id !== 'drc' && module_id !== 'lsc' })),
   };
 }
 

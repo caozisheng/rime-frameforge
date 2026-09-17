@@ -338,6 +338,16 @@ impl WgpuReadbackExecutor {
             wbc_hr_gain: None,
             drc_details_amplify: setup.drc_details_amplify,
             dem_thresholds: None,
+            vignette_radial: frame
+                .metadata
+                .fix_vignette_radial
+                .iter()
+                .filter(|vignette| !vignette.skip_for_preview())
+                .map(|vignette| rime_isp::VignetteRadialParameters {
+                    coefficients: vignette.coefficients,
+                    optical_center: vignette.optical_center,
+                })
+                .collect(),
         };
         let plan = super::build_normal_graph_plan()?;
         let order = plan

@@ -17,6 +17,11 @@ export interface WarpRectilinearDescriptor {
   readonly coefficientSets: readonly WarpRectilinearCoefficientSetDescriptor[];
   readonly opticalCenter: readonly [number, number];
 }
+export interface FixVignetteRadialDescriptor {
+  readonly coefficients: readonly [number, number, number, number, number];
+  readonly opticalCenter: readonly [number, number];
+}
+
 
 export interface DngOpcodeDescriptor {
   readonly id: number;
@@ -25,6 +30,7 @@ export interface DngOpcodeDescriptor {
   readonly parameterLength: number;
   readonly parametersHex: string;
   readonly warpRectilinear: WarpRectilinearDescriptor | null;
+  readonly fixVignetteRadial: FixVignetteRadialDescriptor | null;
 }
 
 export interface DngMetadataDescriptor {
@@ -66,6 +72,7 @@ export interface DngMetadataDescriptor {
   readonly opcodeList1: readonly DngOpcodeDescriptor[];
   readonly opcodeList2: readonly DngOpcodeDescriptor[];
   readonly opcodeList3: readonly DngOpcodeDescriptor[];
+  readonly vignetteRadial: readonly FixVignetteRadialDescriptor[];
 }
 
 export interface DngFrameDescriptor {

@@ -225,14 +225,7 @@ fn presentation_and_manifest_share_executable_nodes() {
         .collect();
 
     assert_eq!(presented, executable);
-    for id in [
-        "sbpc_horizontal",
-        "dbpc",
-        "sbpc",
-        "raw_nr",
-        "tintless",
-        "lsc",
-    ] {
+    for id in ["sbpc_horizontal", "dbpc", "sbpc", "raw_nr", "tintless"] {
         assert_eq!(
             presentation
                 .node(id)
@@ -241,6 +234,13 @@ fn presentation_and_manifest_share_executable_nodes() {
             NodeExecutionMode::Bypass
         );
     }
+    assert_eq!(
+        presentation
+            .node("lsc")
+            .expect("LSC presentation node")
+            .mode,
+        NodeExecutionMode::Enabled
+    );
     assert_eq!(
         presentation
             .node("drc")
@@ -454,7 +454,11 @@ fn presentation_includes_disabled_vfe_statistics_branches() {
         assert_eq!(node.inputs, ["in"]);
         assert_eq!(node.outputs, [output]);
         assert!(presentation.edges.iter().any(|edge| {
-            edge.from == source && edge.from_port == "out" && edge.to == id && edge.to_port == "in" && edge.label.is_none()
+            edge.from == source
+                && edge.from_port == "out"
+                && edge.to == id
+                && edge.to_port == "in"
+                && edge.label.is_none()
         }));
     }
 

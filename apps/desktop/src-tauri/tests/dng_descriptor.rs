@@ -63,19 +63,43 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
         .ifds
         .first_mut()
         .expect("raw IFD");
-    for (tag, id, parameters) in [
-        (tags::OPCODE_LIST1, 65_001, vec![0xde, 0xad]),
-        (tags::OPCODE_LIST2, 65_002, vec![0xbe, 0xef, 0x01]),
-    ] {
-        let mut list = OpcodeList::new();
-        list.push(Opcode {
-            id,
-            spec_version: [1, 4, 0, 0],
-            flags: Opcode::FLAG_OPTIONAL | Opcode::FLAG_PREVIEW_SKIP,
-            parameters,
-        });
-        raw_ifd.set(tag, Value::Undefined(list.to_bytes()));
+    let mut list1 = OpcodeList::new();
+    list1.push(Opcode {
+        id: 65_001,
+        spec_version: [1, 4, 0, 0],
+        flags: Opcode::FLAG_OPTIONAL | Opcode::FLAG_PREVIEW_SKIP,
+        parameters: vec![0xde, 0xad],
+    });
+    raw_ifd.set(tags::OPCODE_LIST1, Value::Undefined(list1.to_bytes()));
+
+    let mut list2 = OpcodeList::new();
+    list2.push(Opcode {
+        id: 65_002,
+        spec_version: [1, 4, 0, 0],
+        flags: Opcode::FLAG_OPTIONAL | Opcode::FLAG_PREVIEW_SKIP,
+        parameters: vec![0xbe, 0xef, 0x01],
+    });
+    let mut vignette_parameters = Vec::new();
+    for value in [0.1_f64, 0.02, 0.003, 0.0004, 0.00005, 0.45, 0.55] {
+        vignette_parameters.extend_from_slice(&value.to_be_bytes());
     }
+    list2.push(Opcode {
+        id: opcode_id::FIX_VIGNETTE_RADIAL,
+        spec_version: [1, 3, 0, 0],
+        flags: 0,
+        parameters: vignette_parameters,
+    });
+    let mut skipped_vignette_parameters = Vec::new();
+    for value in [0.2_f64, 0.03, 0.004, 0.0005, 0.00006, 0.4, 0.6] {
+        skipped_vignette_parameters.extend_from_slice(&value.to_be_bytes());
+    }
+    list2.push(Opcode {
+        id: opcode_id::FIX_VIGNETTE_RADIAL,
+        spec_version: [1, 3, 0, 0],
+        flags: Opcode::FLAG_PREVIEW_SKIP,
+        parameters: skipped_vignette_parameters,
+    });
+    raw_ifd.set(tags::OPCODE_LIST2, Value::Undefined(list2.to_bytes()));
     let mut warp_parameters = 1_u32.to_be_bytes().to_vec();
     for value in [1.0_f64, 0.01, 0.001, 0.0, 0.0, 0.0, 0.49, 0.51] {
         warp_parameters.extend_from_slice(&value.to_be_bytes());
@@ -109,6 +133,21 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
     assert_eq!(
         json["metadata"]["opcodeList2"][0]["parametersHex"],
         "beef01"
+    );
+    assert_eq!(json["metadata"]["opcodeList2"][1]["id"], 3);
+    assert_eq!(
+        json["metadata"]["opcodeList2"][1]["fixVignetteRadial"]["coefficients"],
+        serde_json::json!([0.1, 0.02, 0.003, 0.0004, 0.00005])
+    );
+    assert_eq!(
+        json["metadata"]["opcodeList2"][1]["fixVignetteRadial"]["opticalCenter"],
+        serde_json::json!([0.45, 0.55])
+    );
+    assert_eq!(json["metadata"]["opcodeList2"][2]["id"], 3);
+    assert_eq!(json["metadata"]["opcodeList2"][2]["flags"], 2);
+    assert_eq!(
+        json["metadata"]["vignetteRadial"].as_array().map(Vec::len),
+        Some(1)
     );
     assert_eq!(json["metadata"]["opcodeList3"][0]["id"], 65_003);
     assert_eq!(json["metadata"]["opcodeList3"][0]["parametersHex"], "");

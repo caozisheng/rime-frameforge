@@ -227,7 +227,7 @@ export const normalGraphPresentation = {
       "label": "LSC",
       "parent_id": "vbe",
       "kind": "operator",
-      "mode": "bypass",
+      "mode": "enabled",
       "execution_node_id": "lsc",
       "module_id": null,
       "iq_override_id": null,
@@ -237,7 +237,7 @@ export const normalGraphPresentation = {
       "outputs": [
         "out"
       ],
-      "reason": "luma shading correction; method 00: identity bypass",
+      "reason": null,
       "default_expanded": false
     },
     {

@@ -5,6 +5,7 @@ import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
 import { validateGraphBypassConfig, type GraphBypassConfig } from './bypass.js';
 import { blcPipelineWgsl } from '../generated/blc_pipeline.generated.js';
+import { lscPipelineWgsl } from '../generated/lsc_pipeline.generated.js';
 import { wbcPipelineWgsl } from '../generated/wbc_pipeline.generated.js';
 import { compileFusedNormalShader, compileSegmentedNormalShaders, isSegmentedDemMethod } from './fused-normal-shader.js';
 import { ModuleShaderRuntime } from './module-shader.js';
@@ -26,6 +27,7 @@ export class NormalGpuExecutor {
   readonly #presenter: GpuPreviewPresenter;
   readonly #rawTexture: GPUTexture;
   readonly #blcTexture: GPUTexture;
+  readonly #lscTexture: GPUTexture;
   readonly #drcTexture: GPUTexture;
   readonly #wbcTexture: GPUTexture;
   readonly #demTexture: GPUTexture;
@@ -43,8 +45,11 @@ export class NormalGpuExecutor {
   #demMethod: DemMethod = '00';
   #drcMethod: DrcMethod = '00';
   #drcBypassed = false;
+  #lscBypassed = false;
   #moduleShaders: ModuleShaderRuntime | null = null;
   #blcUniform: GPUBuffer | null = null;
+  #lscUniform: GPUBuffer | null = null;
+  #lscVignetteRadial: GPUBuffer | null = null;
   #wbcUniform: GPUBuffer | null = null;
   #fullPipeline: GPUComputePipeline | null = null;
   #prePipeline: GPUComputePipeline | null = null;
@@ -66,6 +71,7 @@ export class NormalGpuExecutor {
     const previewUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
     this.#rawTexture = this.createTexture('normal-raw-source', 'r16uint', GPUTextureUsage.COPY_DST | previewUsage);
     this.#blcTexture = this.createTexture('normal-blc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#lscTexture = this.createTexture('normal-lsc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#drcTexture = this.createTexture('normal-drc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#wbcTexture = this.createTexture('normal-wbc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#demTexture = this.createTexture('normal-dem', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
@@ -75,6 +81,7 @@ export class NormalGpuExecutor {
     this.#previewTextures = {
       raw_source: this.#rawTexture,
       blc: this.#blcTexture,
+      lsc: this.#lscTexture,
       drc: this.#drcTexture,
       wbc: this.#wbcTexture,
       dem: this.#demTexture,
@@ -108,8 +115,16 @@ export class NormalGpuExecutor {
     if (packets.colorReproduceHsLut.byteLength > 0) this.#gpu.device.queue.writeBuffer(this.#crHsLut, 0, packets.colorReproduceHsLut);
     this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
     this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-blc-params', size: Math.max(packets.blcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#lscUniform ??= this.#gpu.device.createBuffer({ label: 'normal-lsc-params', size: Math.max(packets.lscUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const lscVignetteRadialBytes = Math.max(packets.lscVignetteRadial.byteLength, 28);
+    if (this.#lscVignetteRadial === null || this.#lscVignetteRadial.size < lscVignetteRadialBytes) {
+      this.#lscVignetteRadial?.destroy();
+      this.#lscVignetteRadial = this.#gpu.device.createBuffer({ label: 'normal-lsc-vignette-radial', size: lscVignetteRadialBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    }
     this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-wbc-params', size: Math.max(packets.wbcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
+    this.#gpu.device.queue.writeBuffer(this.#lscUniform, 0, packets.lscUniform);
+    this.#gpu.device.queue.writeBuffer(this.#lscVignetteRadial, 0, packets.lscVignetteRadial);
     this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
     if (!this.#drcBypassed) {
       this.#drc.setMethod(this.#drcMethod);
@@ -152,6 +167,22 @@ export class NormalGpuExecutor {
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
     });
+    if (this.#lscUniform === null || this.#lscVignetteRadial === null) throw new Error('FUSED_GRAPH_INVALID: LSC pipeline was not prepared');
+    const lscOutput = this.#lscBypassed ? this.#blcTexture : this.#lscTexture;
+    if (!this.#lscBypassed) {
+      this.#moduleShaders.encode(encoder, {
+        label: 'normal-lsc',
+        source: lscPipelineWgsl,
+        entryPoint: 'lsc_main',
+        bindings: [
+          { binding: 0, resource: { texture: this.#blcTexture } },
+          { binding: 1, resource: { texture: this.#lscTexture } },
+          { binding: 2, resource: { buffer: this.#lscUniform } },
+          { binding: 3, resource: { buffer: this.#lscVignetteRadial } },
+        ],
+        workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
+      });
+    }
     // Manifest order: WBC precedes DRC (wbc -> drc -> dem). Native and web
     // share the identical dataflow — DRC consumes the white-balanced Bayer,
     // post-DRC passes read the DRC output without re-applying phase gains.
@@ -162,7 +193,7 @@ export class NormalGpuExecutor {
       source: wbcPipelineWgsl,
       entryPoint: 'wbc_main',
       bindings: [
-        { binding: 0, resource: { texture: this.#blcTexture } },
+        { binding: 0, resource: { texture: lscOutput } },
         { binding: 1, resource: { texture: this.#drcBypassed ? this.#drcTexture : this.#wbcTexture } },
         { binding: 2, resource: { buffer: this.#wbcUniform } },
       ],
@@ -218,6 +249,7 @@ export class NormalGpuExecutor {
   public dispose(): void {
     this.#rawTexture.destroy();
     this.#blcTexture.destroy();
+    this.#lscTexture.destroy();
     this.#drcTexture.destroy();
     this.#wbcTexture.destroy();
     this.#demTexture.destroy();
@@ -226,6 +258,8 @@ export class NormalGpuExecutor {
     this.#outputTexture.destroy();
     this.#uniforms?.destroy();
     this.#crHsLut.destroy();
+    this.#lscUniform?.destroy();
+    this.#lscVignetteRadial?.destroy();
     this.#demUniforms?.destroy();
     this.#sampleBuffer?.destroy();
     this.#drc.dispose();
@@ -256,6 +290,7 @@ export class NormalGpuExecutor {
   public setBypassConfig(config: GraphBypassConfig): void {
     validateGraphBypassConfig(config);
     this.#drcBypassed = config.modules.find((module) => module.module_id === 'drc')?.bypass === true;
+    this.#lscBypassed = config.modules.find((module) => module.module_id === 'lsc')?.bypass === true;
     this.invalidateBindings();
   }
 
@@ -337,7 +372,9 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
+      const texture = this.#lscBypassed && cursor === 'lsc'
+        ? this.#blcTexture
+        : this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
       const incoming = normalManifest.edges.find((edge) => edge.to.node_id === cursor);
       if (incoming === undefined) return null;
@@ -383,6 +420,10 @@ export class NormalGpuExecutor {
     this.#uniforms = null;
     this.#blcUniform?.destroy();
     this.#blcUniform = null;
+    this.#lscUniform?.destroy();
+    this.#lscUniform = null;
+    this.#lscVignetteRadial?.destroy();
+    this.#lscVignetteRadial = null;
     this.#wbcUniform?.destroy();
     this.#wbcUniform = null;
     this.#demQuantizeBindGroup = null;

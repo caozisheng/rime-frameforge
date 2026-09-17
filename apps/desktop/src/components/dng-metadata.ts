@@ -133,6 +133,16 @@ function opcodeNode(list: number, opcode: DngOpcodeDescriptor, index: number): D
       ],
     });
   }
+  if (opcode.fixVignetteRadial !== null && opcode.fixVignetteRadial !== undefined) {
+    children.push({
+      id: `${id}.fixVignetteRadial`,
+      label: 'FixVignetteRadial',
+      children: [
+        arrayNode(`${id}.fixVignetteRadial.coefficients`, 'Coefficients', opcode.fixVignetteRadial.coefficients),
+        arrayNode(`${id}.fixVignetteRadial.center`, 'Optical center', opcode.fixVignetteRadial.opticalCenter),
+      ],
+    });
+  }
   children.push({
     id: `${id}.raw`,
     label: 'Raw parameters',

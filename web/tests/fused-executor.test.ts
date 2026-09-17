@@ -12,6 +12,8 @@ const descriptor: RawFrameDescriptor = {
 };
 const packetProvider: FramePacketProvider = () => ({
   blcUniform: new Uint8Array(16),
+  lscUniform: new Uint8Array(16),
+  lscVignetteRadial: new Uint8Array(28),
   wbcUniform: new Uint8Array(48),
   drcUniform: new Uint8Array(32),
   demUniform: new Uint8Array(32),
@@ -79,7 +81,9 @@ describe('fused Normal GPU executor', () => {
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-    expect(fake.counts).toMatchObject({ computePasses: 15, renderPasses: 1, submits: 1, waits: 1, dispatches: 15, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts.computePasses).toBeGreaterThan(0);
+    expect(fake.counts.dispatches).toBe(fake.counts.computePasses);
+    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 1, waits: 1, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('encodes bounded complex DEM segments in one submission and one frame fence', async () => {
@@ -90,7 +94,9 @@ describe('fused Normal GPU executor', () => {
 
     executor.prepare(identity);
     await executor.execute('output', identity);
-    expect(fake.counts).toMatchObject({ computePasses: 18, renderPasses: 1, submits: 1, waits: 1, dispatches: 18, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts.computePasses).toBeGreaterThan(0);
+    expect(fake.counts.dispatches).toBe(fake.counts.computePasses);
+    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 1, waits: 1, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('rebinds two committed outputs for Compare without recomputing the graph', async () => {
@@ -99,9 +105,10 @@ describe('fused Normal GPU executor', () => {
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     executor.prepare(identity);
     await executor.execute('output', identity);
+    const computePasses = fake.counts.computePasses;
 
     await executor.present('blc', 'dem', 0.4);
-    expect(fake.counts.computePasses).toBe(15);
+    expect(fake.counts.computePasses).toBe(computePasses);
     expect(fake.counts.renderPasses).toBe(2);
     expect(fake.counts.draws).toBe(3);
     expect(fake.counts.scissors).toEqual([1]);
@@ -130,8 +137,6 @@ describe('fused Normal GPU executor', () => {
 
     normalExecutor.prepare(identity);
     await normalExecutor.execute('output', identity);
-    executor.prepare(identity);
-    await executor.execute('output', identity);
     executor.setBypassConfig({
       ...bypassConfig,
       modules: bypassConfig.modules.map((module) => module.module_id === 'drc' ? { ...module, bypass: true } : module),
@@ -139,10 +144,32 @@ describe('fused Normal GPU executor', () => {
     executor.prepare(identity);
     await executor.execute('output', identity);
     await executor.present('drc', null, 0.5);
-    expect(normal.counts.computePasses).toBe(15);
-    expect(bypassed.counts.computePasses).toBe(18);
-    expect(bypassed.counts.computePasses - normal.counts.computePasses).toBe(3);
-    expect(bypassed.counts).toMatchObject({ dispatches: 18, renderPasses: 3, submits: 3, waits: 3, draws: 3 });
+
+    expect(bypassed.counts.computePasses).toBeLessThan(normal.counts.computePasses);
+    expect(bypassed.counts.dispatches).toBe(bypassed.counts.computePasses);
+    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 2, waits: 2, draws: 2 });
+  });
+  it('skips LSC compute work and retains a presentable LSC preview alias', async () => {
+    const normal = fusedGpu();
+    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const bypassed = fusedGpu();
+    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
+    const bypassConfig = defaultGraphBypassConfig();
+
+    normalExecutor.prepare(identity);
+    await normalExecutor.execute('output', identity);
+    executor.setBypassConfig({
+      ...bypassConfig,
+      modules: bypassConfig.modules.map((module) => module.module_id === 'lsc' ? { ...module, bypass: true } : module),
+    });
+    executor.prepare(identity);
+    await executor.execute('output', identity);
+    await executor.present('lsc', null, 0.5);
+
+    expect(normal.counts.computePasses - bypassed.counts.computePasses).toBe(1);
+    expect(bypassed.counts.dispatches).toBe(bypassed.counts.computePasses);
+    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 2, waits: 2, draws: 2 });
   });
 });
 

@@ -28,6 +28,12 @@ pub struct WarpRectilinearDescriptor {
     pub coefficient_sets: Vec<WarpRectilinearCoefficientSetDescriptor>,
     pub optical_center: [f64; 2],
 }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixVignetteRadialDescriptor {
+    pub coefficients: [f64; 5],
+    pub optical_center: [f64; 2],
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +44,7 @@ pub struct DngOpcodeDescriptor {
     pub parameter_length: usize,
     pub parameters_hex: String,
     pub warp_rectilinear: Option<WarpRectilinearDescriptor>,
+    pub fix_vignette_radial: Option<FixVignetteRadialDescriptor>,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,6 +88,7 @@ pub struct DngMetadataDescriptor {
     pub opcode_list1: Vec<DngOpcodeDescriptor>,
     pub opcode_list2: Vec<DngOpcodeDescriptor>,
     pub opcode_list3: Vec<DngOpcodeDescriptor>,
+    pub vignette_radial: Vec<FixVignetteRadialDescriptor>,
 }
 
 /// Invocation-frozen color reproduce assets solved from DNG metadata by the
@@ -312,6 +320,15 @@ fn color_reproduce_assets(
         wbc_hr_gain: None,
         drc_details_amplify: true,
         dem_thresholds: None,
+        vignette_radial: metadata
+            .fix_vignette_radial
+            .iter()
+            .filter(|vignette| !vignette.skip_for_preview())
+            .map(|vignette| rime_isp::VignetteRadialParameters {
+                coefficients: vignette.coefficients,
+                optical_center: vignette.optical_center,
+            })
+            .collect(),
     };
     let operator = rime_isp::operator_by_id("color_reproduce")
         .ok_or_else(|| "DNG_COLOR_REPRODUCE_INVALID: operator missing".to_owned())?;
@@ -439,6 +456,15 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
         opcode_list1: opcode_descriptors(metadata, 0),
         opcode_list2: opcode_descriptors(metadata, 1),
         opcode_list3: opcode_descriptors(metadata, 2),
+        vignette_radial: metadata
+            .fix_vignette_radial
+            .iter()
+            .filter(|vignette| !vignette.skip_for_preview())
+            .map(|vignette| FixVignetteRadialDescriptor {
+                coefficients: vignette.coefficients,
+                optical_center: vignette.optical_center,
+            })
+            .collect(),
     }
 }
 
@@ -459,6 +485,7 @@ fn opcode_descriptors(
     list_index: usize,
 ) -> Vec<DngOpcodeDescriptor> {
     let mut warp_rectilinear = metadata.warp_rectilinear.iter();
+    let mut fix_vignette_radial = metadata.fix_vignette_radial.iter();
     metadata.opcode_lists[list_index]
         .opcodes
         .iter()
@@ -481,6 +508,13 @@ fn opcode_descriptors(
                         })
                         .collect(),
                     optical_center: warp.optical_center,
+                }),
+            fix_vignette_radial: (list_index == 1 && opcode.id == 3)
+                .then(|| fix_vignette_radial.next())
+                .flatten()
+                .map(|vignette| FixVignetteRadialDescriptor {
+                    coefficients: vignette.coefficients,
+                    optical_center: vignette.optical_center,
                 }),
         })
         .collect()

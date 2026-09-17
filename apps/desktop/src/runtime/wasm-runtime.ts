@@ -114,6 +114,8 @@ export class WasmRuntimeAuthority {
       const preprocessSnapshotJson = packets.preprocess_snapshot_json();
       return {
         blcUniform: copyPacketBytes(packets.blc_uniform()),
+        lscUniform: copyPacketBytes(packets.lsc_uniform()),
+        lscVignetteRadial: copyPacketBytes(packets.lsc_vignette_radial()),
         wbcUniform: copyPacketBytes(packets.wbc_uniform()),
         drcUniform: copyPacketBytes(packets.drc_uniform()),
         demUniform: copyPacketBytes(packets.dem_uniform()),

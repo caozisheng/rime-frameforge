@@ -17,6 +17,8 @@ const descriptor: RawFrameDescriptor = {
 };
 const packetProvider: FramePacketProvider = () => ({
   blcUniform: new Uint8Array(16),
+  lscUniform: new Uint8Array(16),
+  lscVignetteRadial: new Uint8Array(28),
   wbcUniform: new Uint8Array(48),
   drcUniform: new Uint8Array(32),
   demUniform: new Uint8Array(32),
@@ -42,7 +44,10 @@ function fakeGpu() {
   const device = {
     limits: { maxTextureDimension2D: 8192 },
     queue: {
-      writeBuffer: () => undefined,
+      writeBuffer: (buffer: GPUBuffer, offset: number, data: AllowSharedBufferSource) => {
+        const byteLength = ArrayBuffer.isView(data) ? data.byteLength : data.byteLength;
+        if (offset + byteLength > buffer.size) throw new Error('GPU_BUFFER_OVERFLOW');
+      },
       writeTexture: () => { rawUploads += 1; },
       submit: () => undefined,
       onSubmittedWorkDone: async () => undefined,
@@ -51,9 +56,9 @@ function fakeGpu() {
       textureCreates += 1;
       return { createView: () => ({}), destroy: () => { textureDestroys += 1; } };
     },
-    createBuffer: () => {
+    createBuffer: (descriptor: GPUBufferDescriptor) => {
       bufferCreates += 1;
-      return { destroy: () => { bufferDestroys += 1; } };
+      return { size: descriptor.size, destroy: () => { bufferDestroys += 1; } };
     },
     createBindGroup: () => ({}),
     createCommandEncoder: () => ({
@@ -86,9 +91,15 @@ describe('NormalGpuExecutor frame reuse', () => {
     const fake = fakeGpu();
     const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, packetProvider);
 
+    const before = fake.counts();
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
+    const after = fake.counts();
 
-    expect(fake.counts()).toEqual({ textureCreates: 19, textureDestroys: 0, bufferCreates: 5, bufferDestroys: 0, rawUploads: 2 });
+    expect(after.textureCreates).toBe(before.textureCreates);
+    expect(after.textureDestroys).toBe(before.textureDestroys);
+    expect(after.bufferCreates).toBe(before.bufferCreates);
+    expect(after.bufferDestroys).toBe(before.bufferDestroys);
+    expect(after.rawUploads).toBe(before.rawUploads + 1);
   });
   it('reuses the uploaded raw source across reset and repeated graph execution', async () => {
     const fake = fakeGpu();
@@ -104,6 +115,25 @@ describe('NormalGpuExecutor frame reuse', () => {
     await executor.execute('output', secondIdentity);
 
     expect(fake.counts().rawUploads).toBe(1);
+  });
+  it('grows the LSC opcode buffer when a later packet has more records', () => {
+    let vignetteBytes = 28;
+    const dynamicPacketProvider: FramePacketProvider = (identity) => ({
+      ...packetProvider(identity),
+      lscVignetteRadial: new Uint8Array(vignetteBytes),
+    });
+    const fake = fakeGpu();
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, dynamicPacketProvider);
+    const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
+
+    executor.prepare(identity);
+    const before = fake.counts();
+    vignetteBytes = 56;
+    executor.prepare({ ...identity, frameIndex: 1 });
+    const after = fake.counts();
+
+    expect(after.bufferCreates).toBe(before.bufferCreates + 1);
+    expect(after.bufferDestroys).toBe(before.bufferDestroys + 1);
   });
 
   it('requires resource rebuild when frame extent changes', () => {
