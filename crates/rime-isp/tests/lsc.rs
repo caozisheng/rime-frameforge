@@ -1,5 +1,5 @@
 use rime_isp::GainMapParameters;
-use rime_isp::vbe::lsc::VignetteRadialParameters;
+use rime_isp::vbe::lsc::{MeshGeometry, VignetteRadialParameters, mesh_gain};
 use rime_isp::{FrameIdentity, PreprocessContext};
 
 fn context(
@@ -62,6 +62,9 @@ fn empty_mesh() -> GainMapParameters {
         spacing: [0.5, 0.25],
         origin: [0.0, 0.0],
         planes: 1,
+        area: [0, 0, 0, 0],
+        row_pitch: 1,
+        col_pitch: 1,
         entries: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
     }
 }
@@ -97,7 +100,9 @@ fn constant_vignette(gain: f64) -> VignetteRadialParameters {
     reason = "test helper generates small sequential f32 values by design"
 )]
 fn expected_entries(count: usize) -> Vec<f32> {
-    (0..count).map(|index| 1.0 + (index as f32) * 0.01).collect()
+    (0..count)
+        .map(|index| 1.0 + (index as f32) * 0.01)
+        .collect()
 }
 
 #[test]
@@ -109,6 +114,9 @@ fn lsc_preprocess_freezes_gain_map_meshes() {
         spacing: [0.25, 0.5],
         origin: [0.1, 0.05],
         planes: 2,
+        area: [0, 0, 0, 0],
+        row_pitch: 1,
+        col_pitch: 1,
         entries: expected_entries(3 * 5 * 2),
     };
     let packet = preprocess(Vec::new(), vec![mesh]);
@@ -122,7 +130,15 @@ fn lsc_preprocess_freezes_gain_map_meshes() {
     assert_eq!(f32_at(header, 16).to_bits(), 0.25_f32.to_bits());
     assert_eq!(f32_at(header, 20).to_bits(), 0.5_f32.to_bits());
     assert_eq!(f32_at(header, 24).to_bits(), 0.1_f32.to_bits());
-    assert_eq!(f32_at(header, 28).to_bits(), 0.05_f32.to_bits());
+    // All-zero area spec normalizes to the whole 3(h)×4(w) frame:
+    // [top, left, bottom, right] = [0, 0, 3, 4] at header bytes 32..48;
+    // unpitched 1×1 application grid at bytes 48..56.
+    assert_eq!(u32_at(header, 32), 0);
+    assert_eq!(u32_at(header, 36), 0);
+    assert_eq!(u32_at(header, 40), 3);
+    assert_eq!(u32_at(header, 44), 4);
+    assert_eq!(u32_at(header, 48), 1);
+    assert_eq!(u32_at(header, 52), 1);
     assert_eq!(u32_at(header, 12), 0);
     let entries = packet.resource("gain_mesh_entries").expect("entries");
     for (index, expected) in expected_entries(3 * 5 * 2).into_iter().enumerate() {
@@ -132,6 +148,54 @@ fn lsc_preprocess_freezes_gain_map_meshes() {
             "entry {index}"
         );
     }
+}
+
+#[test]
+fn lsc_preprocess_normalizes_open_ended_area_specs() {
+    // DNG `dng_area_spec::ScaledOverlap` semantics: an empty spec covers
+    // the whole image. `[1, 1, 0, 0]` is empty (bottom <= top), so it
+    // becomes the full 3(h)×4(w) frame `[0, 0, 3, 4]`, while an explicit
+    // non-empty spec intersects with the frame bounds — `[2, 2, 9, 9]`
+    // clamps to `[2, 2, 3, 4]`.
+    let mesh = GainMapParameters {
+        points: [2, 2],
+        spacing: [1.0, 1.0],
+        origin: [0.0, 0.0],
+        planes: 1,
+        area: [1, 1, 0, 0],
+        row_pitch: 1,
+        col_pitch: 1,
+        entries: vec![1.0; 4],
+    };
+    let packet = preprocess(Vec::new(), vec![mesh]);
+    let header = packet
+        .resource("gain_mesh_headers")
+        .expect("headers")
+        .bytes();
+    assert_eq!(u32_at(header, 32), 0);
+    assert_eq!(u32_at(header, 36), 0);
+    assert_eq!(u32_at(header, 40), 3);
+    assert_eq!(u32_at(header, 44), 4);
+
+    let mesh = GainMapParameters {
+        points: [2, 2],
+        spacing: [1.0, 1.0],
+        origin: [0.0, 0.0],
+        planes: 1,
+        area: [2, 2, 9, 9],
+        row_pitch: 1,
+        col_pitch: 1,
+        entries: vec![1.0; 4],
+    };
+    let packet = preprocess(Vec::new(), vec![mesh]);
+    let header = packet
+        .resource("gain_mesh_headers")
+        .expect("headers")
+        .bytes();
+    assert_eq!(u32_at(header, 32), 2);
+    assert_eq!(u32_at(header, 36), 2);
+    assert_eq!(u32_at(header, 40), 3);
+    assert_eq!(u32_at(header, 44), 4);
 }
 
 /// Test-local oracle: replicates the rasterization math (node → pixel →
@@ -158,9 +222,54 @@ fn expected_vignette_entry(row: u32, col: u32) -> f32 {
     ];
     let maximum_radius_squared =
         (farthest[0] * farthest[0] + farthest[1] * farthest[1]).max(1.0e-12);
-    let radius_squared =
-        (delta[0] * delta[0] + delta[1] * delta[1]) / maximum_radius_squared;
+    let radius_squared = (delta[0] * delta[0] + delta[1] * delta[1]) / maximum_radius_squared;
     1.0 + radius_squared * 0.5
+}
+
+#[test]
+fn lsc_gain_map_honors_pitch_lattice_and_axis_order() {
+    let mesh = GainMapParameters {
+        points: [2, 3],
+        spacing: [0.5, 0.25],
+        origin: [0.0, 0.0],
+        planes: 1,
+        area: [0, 1, 3, 4],
+        row_pitch: 2,
+        col_pitch: 2,
+        entries: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+    };
+    let packet = preprocess(Vec::new(), vec![mesh]);
+    let header = packet
+        .resource("gain_mesh_headers")
+        .expect("headers")
+        .bytes();
+    assert_eq!(header.len(), 56);
+    assert_eq!(u32_at(header, 48), 2);
+    assert_eq!(u32_at(header, 52), 2);
+
+    let geometry = MeshGeometry {
+        points: [2, 3],
+        spacing: [0.5, 0.25],
+        origin: [0.0, 0.0],
+        planes: 1,
+        area: [0, 1, 3, 4],
+        row_pitch: 2,
+        col_pitch: 2,
+    };
+    let entries = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let gain = mesh_gain(geometry, &entries, 0, 0, [1, 0], [8.0, 4.0]);
+    assert!(
+        (gain - 2.5).abs() <= f32::EPSILON,
+        "wrong pitched gain {gain}"
+    );
+    assert_eq!(
+        mesh_gain(geometry, &entries, 0, 0, [2, 0], [8.0, 4.0]).to_bits(),
+        1.0_f32.to_bits()
+    );
+    assert_eq!(
+        mesh_gain(geometry, &entries, 0, 0, [1, 1], [8.0, 4.0]).to_bits(),
+        1.0_f32.to_bits()
+    );
 }
 
 #[test]
@@ -214,7 +323,10 @@ fn lsc_preprocess_multiplies_sources_in_order() {
     // Passthrough GainMap entries first, then the 33x33 rasterized mesh.
     let passthrough = [1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0];
     for (index, value) in passthrough.into_iter().enumerate() {
-        assert_eq!(f32_at(entries.bytes(), index * 4).to_bits(), value.to_bits());
+        assert_eq!(
+            f32_at(entries.bytes(), index * 4).to_bits(),
+            value.to_bits()
+        );
     }
     let raster = &entries.bytes()[passthrough.len() * 4..];
     for row in 0..33_u32 {
@@ -230,7 +342,7 @@ fn lsc_preprocess_multiplies_sources_in_order() {
     }
     let headers = packet.resource("gain_mesh_headers").expect("headers");
     // Second header's entries_offset counts f32 units from the buffer start.
-    assert_eq!(u32_at(headers.bytes(), 32 + 12), 6);
+    assert_eq!(u32_at(headers.bytes(), 56 + 12), 6);
 }
 
 #[test]
@@ -256,6 +368,9 @@ fn lsc_preprocess_rejects_invalid_gain_map_mesh() {
                 spacing: [0.5, 0.25],
                 origin: [0.0, 0.0],
                 planes: 1,
+                area: [0, 0, 0, 0],
+                row_pitch: 1,
+                col_pitch: 1,
                 entries: vec![1.0; 6],
             },
         ),
@@ -266,6 +381,9 @@ fn lsc_preprocess_rejects_invalid_gain_map_mesh() {
                 spacing: [0.0, 0.25],
                 origin: [0.0, 0.0],
                 planes: 1,
+                area: [0, 0, 0, 0],
+                row_pitch: 1,
+                col_pitch: 1,
                 entries: vec![1.0; 6],
             },
         ),
@@ -276,6 +394,9 @@ fn lsc_preprocess_rejects_invalid_gain_map_mesh() {
                 spacing: [0.5, 0.25],
                 origin: [0.0, 0.0],
                 planes: 0,
+                area: [0, 0, 0, 0],
+                row_pitch: 1,
+                col_pitch: 1,
                 entries: vec![1.0; 6],
             },
         ),
@@ -286,6 +407,9 @@ fn lsc_preprocess_rejects_invalid_gain_map_mesh() {
                 spacing: [0.5, 0.25],
                 origin: [0.0, 0.0],
                 planes: 1,
+                area: [0, 0, 0, 0],
+                row_pitch: 1,
+                col_pitch: 1,
                 entries: vec![1.0; 5],
             },
         ),
@@ -296,6 +420,9 @@ fn lsc_preprocess_rejects_invalid_gain_map_mesh() {
                 spacing: [0.5, 0.25],
                 origin: [0.0, 0.0],
                 planes: 1,
+                area: [0, 0, 0, 0],
+                row_pitch: 1,
+                col_pitch: 1,
                 entries: vec![1.0, f32::NAN, 3.0, 4.0, 5.0, 6.0],
             },
         ),
@@ -349,6 +476,9 @@ fn lsc_preprocess_rejects_mesh_geometry_outside_gpu_range() {
                     spacing: [f64::MAX, 0.25],
                     origin: [0.0, 0.0],
                     planes: 1,
+                    area: [0, 0, 0, 0],
+                    row_pitch: 1,
+                    col_pitch: 1,
                     entries: vec![1.0; 6],
                 }],
             ),

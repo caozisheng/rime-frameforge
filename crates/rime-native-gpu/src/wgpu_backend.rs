@@ -352,35 +352,19 @@ impl WgpuReadbackExecutor {
                 .metadata
                 .gain_map
                 .iter()
-                .filter(|opcode| !opcode.skip_for_preview())
+                .filter(|opcode| !opcode.skip_for_preview() && opcode.first_plane == 0)
                 .map(|opcode| rime_isp::GainMapParameters {
                     points: opcode.points,
                     spacing: opcode.spacing,
                     origin: opcode.origin,
                     planes: opcode.map_planes,
+                    area: opcode.area,
+                    row_pitch: opcode.row_pitch,
+                    col_pitch: opcode.col_pitch,
                     entries: opcode.entries.clone(),
                 })
                 .collect(),
         };
-
-        // GainMap opcodes with a partial area spec cannot be composed into the
-        // whole-image LSC mesh — reject instead of silently mis-applying gain.
-        if frame
-            .metadata
-            .gain_map
-            .iter()
-            .filter(|opcode| !opcode.skip_for_preview())
-            .any(|opcode| {
-                !opcode.is_whole_image(
-                    i32::try_from(frame.layout.width).unwrap_or(i32::MAX),
-                    i32::try_from(frame.layout.height).unwrap_or(i32::MAX),
-                )
-            })
-        {
-            return Err(WgpuReadbackError::Resource(
-                "gain map opcode has an unsupported area spec".to_owned(),
-            ));
-        }
         let plan = super::build_normal_graph_plan()?;
         let order = plan
             .execution_order()

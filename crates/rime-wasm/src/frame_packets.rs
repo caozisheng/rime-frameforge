@@ -226,9 +226,25 @@ struct GainMapMeshDescriptor {
     spacing: [f64; 2],
     origin: [f64; 2],
     planes: u32,
+    /// `[top, left, bottom, right]`, exclusive bottom/right. Absent or
+    /// all-zero means the whole image (DNG `dng_area_spec` semantics;
+    /// normalized by the LSC preprocess).
+    #[serde(default)]
+    area: [i32; 4],
+    /// Application grid pitch; anything but 1x1 cannot be reproduced by a
+    /// per-pixel mesh and is rejected during preprocessing. Omitted pitch
+    /// (the TS contract never sends one) means an unpitched grid.
+    #[serde(default = "pitch_one")]
+    row_pitch: u32,
+    #[serde(default = "pitch_one")]
+    col_pitch: u32,
     entries: Vec<f32>,
 }
 
+/// Serde default for an omitted pitch: a plain, unpitched grid.
+const fn pitch_one() -> u32 {
+    1
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -411,6 +427,9 @@ fn preprocess_context(
                 spacing: mesh.spacing,
                 origin: mesh.origin,
                 planes: mesh.planes,
+                area: mesh.area,
+                row_pitch: mesh.row_pitch,
+                col_pitch: mesh.col_pitch,
                 entries: mesh.entries.clone(),
             })
             .collect(),

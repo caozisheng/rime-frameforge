@@ -162,14 +162,100 @@ fn gain_map_opcode_decodes_typed() {
 }
 
 #[test]
+fn gain_map_opcodes_decode_pitched_bayer_phases() {
+    let data = std::fs::read(GH5S_SAMPLE).expect("GH5S fixture must exist");
+    let phases = [[1, 1], [1, 0], [0, 1], [0, 0]];
+    let parameters = phases.map(|[top, left]| {
+        gain_map_parameters_with_area_spec(
+            [top, left, 2776, 3744],
+            [0, 1, 2, 2],
+            [2, 2],
+            [0.5, 0.5],
+            [0.0, 0.0],
+            1,
+            &[1.0, 1.1, 1.2, 1.3],
+        )
+    });
+    let mut rewrite = DngRewrite::open(&data).expect("fixture must be rewriteable");
+    rewrite
+        .file_mut()
+        .ifds
+        .first_mut()
+        .expect("IFD0")
+        .sub_ifds_mut()
+        .first_mut()
+        .expect("raw SubIFD group")
+        .ifds
+        .first_mut()
+        .expect("raw IFD")
+        .set(
+            tags::OPCODE_LIST2,
+            Value::Undefined(gain_map_opcodes_from_parameters(parameters)),
+        );
+    let bytes = rewrite.write().expect("pitched gain map rewrite").bytes;
+
+    let frame = DngReader::new()
+        .decode_bytes(Path::new("pitched-gain-map.dng"), &bytes, 0)
+        .expect("pitched GainMap DNG must decode");
+
+    assert_eq!(frame.metadata.gain_map.len(), 4);
+    for (gain_map, [top, left]) in frame.metadata.gain_map.iter().zip(phases) {
+        assert_eq!(gain_map.area, [top, left, 2776, 3744]);
+        assert_eq!(gain_map.row_pitch, 2);
+        assert_eq!(gain_map.col_pitch, 2);
+        assert_eq!(gain_map.points, [2, 2]);
+        assert_eq!(gain_map.map_planes, 1);
+    }
+}
+
+#[test]
 fn rejects_malformed_gain_map() {
     let data = std::fs::read(GH5S_SAMPLE).expect("GH5S fixture must exist");
     let cases: &[(&str, Vec<u8>)] = &[
-        ("truncated-entries", gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 2, &[])),
-        ("points-zero", gain_map_parameters([0, 5], [0.25, 0.5], [0.1, 0.05], 2, &[])),
-        ("spacing-zero", gain_map_parameters([3, 5], [0.0, 0.5], [0.1, 0.05], 2, &[1.0; 30])),
-        ("nan-entry", gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 2, &nan_entries())),
-        ("map-planes-zero", gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 0, &[])),
+        (
+            "truncated-entries",
+            gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 2, &[]),
+        ),
+        (
+            "points-zero",
+            gain_map_parameters([0, 5], [0.25, 0.5], [0.1, 0.05], 2, &[]),
+        ),
+        (
+            "spacing-zero",
+            gain_map_parameters([3, 5], [0.0, 0.5], [0.1, 0.05], 2, &[1.0; 30]),
+        ),
+        (
+            "nan-entry",
+            gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 2, &nan_entries()),
+        ),
+        (
+            "map-planes-zero",
+            gain_map_parameters([3, 5], [0.25, 0.5], [0.1, 0.05], 0, &[]),
+        ),
+        (
+            "pitch-zero",
+            gain_map_parameters_with_area_spec(
+                [0, 0, 2776, 3744],
+                [0, 1, 0, 1],
+                [2, 2],
+                [0.5, 0.5],
+                [0.0, 0.0],
+                1,
+                &[1.0; 4],
+            ),
+        ),
+        (
+            "empty-area-pitched",
+            gain_map_parameters_with_area_spec(
+                [0, 0, 0, 0],
+                [0, 1, 2, 2],
+                [2, 2],
+                [0.5, 0.5],
+                [0.0, 0.0],
+                1,
+                &[1.0; 4],
+            ),
+        ),
     ];
     for (label, parameters) in cases {
         let mut rewrite = DngRewrite::open(&data).expect("fixture must be rewriteable");
@@ -184,7 +270,10 @@ fn rejects_malformed_gain_map() {
             .ifds
             .first_mut()
             .expect("raw IFD")
-            .set(tags::OPCODE_LIST2, Value::Undefined(gain_map_opcodes_bytes(parameters.clone())));
+            .set(
+                tags::OPCODE_LIST2,
+                Value::Undefined(gain_map_opcodes_bytes(parameters.clone())),
+            );
         let bytes = rewrite.write().expect("malformed rewrite").bytes;
         let error = DngReader::new()
             .decode_bytes(Path::new("malformed-gain-map.dng"), &bytes, 0)
@@ -274,13 +363,19 @@ fn gain_map_opcodes() -> Vec<u8> {
 }
 
 fn gain_map_opcodes_bytes(parameters: Vec<u8>) -> Vec<u8> {
+    gain_map_opcodes_from_parameters([parameters])
+}
+
+fn gain_map_opcodes_from_parameters(parameters: impl IntoIterator<Item = Vec<u8>>) -> Vec<u8> {
     let mut opcodes = OpcodeList::new();
-    opcodes.push(Opcode {
-        id: opcode_id::GAIN_MAP,
-        spec_version: [1, 3, 0, 0],
-        flags: 0,
-        parameters,
-    });
+    for parameters in parameters {
+        opcodes.push(Opcode {
+            id: opcode_id::GAIN_MAP,
+            spec_version: [1, 3, 0, 0],
+            flags: 0,
+            parameters,
+        });
+    }
     opcodes.to_bytes()
 }
 
@@ -291,16 +386,33 @@ fn gain_map_parameters(
     map_planes: u32,
     entries: &[f32],
 ) -> Vec<u8> {
+    gain_map_parameters_with_area_spec(
+        [0, 0, 2776, 3744],
+        [0, 1, 1, 1],
+        points,
+        spacing,
+        origin,
+        map_planes,
+        entries,
+    )
+}
+
+fn gain_map_parameters_with_area_spec(
+    area: [i32; 4],
+    application: [u32; 4],
+    points: [u32; 2],
+    spacing: [f64; 2],
+    origin: [f64; 2],
+    map_planes: u32,
+    entries: &[f32],
+) -> Vec<u8> {
     let mut bytes = Vec::new();
-    // area_spec: t, l, b, r, plane, planes, rowPitch, colPitch (Adobe DNG SDK dng_area_spec).
-    bytes.extend_from_slice(&0_i32.to_be_bytes());
-    bytes.extend_from_slice(&0_i32.to_be_bytes());
-    bytes.extend_from_slice(&2776_i32.to_be_bytes());
-    bytes.extend_from_slice(&3744_i32.to_be_bytes());
-    bytes.extend_from_slice(&0_u32.to_be_bytes());
-    bytes.extend_from_slice(&1_u32.to_be_bytes());
-    bytes.extend_from_slice(&1_u32.to_be_bytes());
-    bytes.extend_from_slice(&1_u32.to_be_bytes());
+    for bound in area {
+        bytes.extend_from_slice(&bound.to_be_bytes());
+    }
+    for value in application {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
     bytes.extend_from_slice(&points[0].to_be_bytes());
     bytes.extend_from_slice(&points[1].to_be_bytes());
     bytes.extend_from_slice(&spacing[0].to_be_bytes());

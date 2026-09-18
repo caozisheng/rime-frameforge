@@ -7,8 +7,8 @@ use crate::operator::OperatorDefinition;
 use rime_core::NodeExecutionMode;
 
 pub use crate::operator::{GainMapParameters, VignetteRadialParameters};
-pub use lsc00::METHOD_00;
 pub use lsc_common::{MeshGeometry, VIGNETTE_MESH_POINTS, mesh_gain};
+pub use lsc00::METHOD_00;
 
 pub const LSC_PIPELINE_WGSL: &str = include_str!("lsc00.wgsl");
 

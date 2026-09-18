@@ -157,7 +157,12 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
         blackLevel: 64,
         whiteLevel: 4095,
         whiteBalanceGains: [2, 1, 1.5],
-        metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
+        metadata: {
+          colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+          // 1/neutral equals the advertised gains above, so the wbc
+          // preprocess derives exactly [2, 1, 1.5] during warmup.
+          asShotNeutral: [0.5, 1, 2 / 3],
+        },
       };
       send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor }, [canvas, raw]);
     },

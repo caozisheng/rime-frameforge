@@ -116,8 +116,8 @@ pub struct VignetteRadialParameters {
     pub optical_center: [f64; 2],
 }
 
-/// A frozen whole-image gain mesh for the LSC stage: passthrough DNG
-/// `GainMap` opcodes or rasterized `FixVignetteRadial` polynomials.
+/// A frozen gain mesh for the LSC stage: passthrough DNG `GainMap`
+/// opcodes or rasterized `FixVignetteRadial` polynomials.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GainMapParameters {
     /// Mesh size, `[vertical, horizontal]` node counts (at least 1 each).
@@ -128,6 +128,19 @@ pub struct GainMapParameters {
     pub origin: [f64; 2],
     /// Interleaved plane count per mesh node (at least 1).
     pub planes: u32,
+    /// Application bounds `[top, left, bottom, right]` in pixels,
+    /// exclusive at bottom/right — DNG SDK `dng_area_spec` semantics:
+    /// mesh interpolation runs over the whole image, but only pixels
+    /// inside the bounds receive the gain; outside is identity.
+    /// Rasterized `FixVignetteRadial` meshes use the whole frame.
+    pub area: [i32; 4],
+    /// Application grid pitch in pixels (at least 1). A pitched gain
+    /// applies only where `(row - area.top) % row_pitch == 0` and
+    /// `(col - area.left) % col_pitch == 0` — DNG SDK checkerboard
+    /// semantics; per-phase Pixel `GainMap` opcodes use pitch 2 anchored at
+    /// each Bayer site. Rasterized vignette meshes use pitch 1.
+    pub row_pitch: u32,
+    pub col_pitch: u32,
     /// Row-major entries: `points[0] * points[1] * planes` values.
     pub entries: Vec<f32>,
 }

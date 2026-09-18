@@ -348,16 +348,15 @@ fn color_reproduce_assets(
         gain_maps: metadata
             .gain_map
             .iter()
-            .filter(|gain| !gain.skip_for_preview()
-                && gain.is_whole_image(
-                    i32::try_from(frame.layout.width).unwrap_or(i32::MAX),
-                    i32::try_from(frame.layout.height).unwrap_or(i32::MAX),
-                ))
+            .filter(|gain| !gain.skip_for_preview() && gain.first_plane == 0)
             .map(|gain| rime_isp::GainMapParameters {
                 points: gain.points,
                 spacing: gain.spacing,
                 origin: gain.origin,
                 planes: gain.map_planes,
+                area: gain.area,
+                row_pitch: gain.row_pitch,
+                col_pitch: gain.col_pitch,
                 entries: gain.entries.clone(),
             })
             .collect(),
@@ -424,18 +423,6 @@ pub fn descriptor_from_frame(
         analog_balance: metadata.analog_balance,
     })
     .map_err(|error| format!("DNG_WHITE_BALANCE_INVALID: {error}"))?;
-    let width = i32::try_from(frame.layout.width).unwrap_or(i32::MAX);
-    let height = i32::try_from(frame.layout.height).unwrap_or(i32::MAX);
-    if metadata
-        .gain_map
-        .iter()
-        .filter(|gain| !gain.skip_for_preview())
-        .any(|gain| !gain.is_whole_image(width, height))
-    {
-        return Err(
-            "DNG_GAIN_MAP_INVALID: gain map opcode has an unsupported area spec".to_owned(),
-        );
-    }
     Ok(DngFrameDescriptor {
         frame_index: frame.frame_index,
         file_name: path.file_name().map_or_else(
@@ -512,7 +499,7 @@ fn metadata_descriptor(metadata: &rime_dng::DngMetadata) -> DngMetadataDescripto
         gain_maps: metadata
             .gain_map
             .iter()
-            .filter(|gain| !gain.skip_for_preview())
+            .filter(|gain| !gain.skip_for_preview() && gain.first_plane == 0)
             .map(gain_map_descriptor)
             .collect(),
     }

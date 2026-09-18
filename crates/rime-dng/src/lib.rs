@@ -135,19 +135,6 @@ impl GainMapOpcode {
     pub fn skip_for_preview(&self) -> bool {
         self.flags & gamut_dng::Opcode::FLAG_PREVIEW_SKIP != 0
     }
-
-    /// Returns whether this opcode applies uniformly to the whole image —
-    /// the only composition the LSC whole-image mesh supports. Partial
-    /// areas, non-zero first planes, multi-plane spans, or pitched grids
-    /// must be rejected rather than silently mis-applied.
-    #[must_use]
-    pub fn is_whole_image(&self, width: i32, height: i32) -> bool {
-        self.area == [0, 0, height, width]
-            && self.first_plane == 0
-            && self.plane_count == 1
-            && self.row_pitch == 1
-            && self.col_pitch == 1
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -722,6 +709,17 @@ fn parse_fix_vignette_radial_opcodes(
 /// metadata. Parameter layout per the Adobe DNG SDK (`dng_gain_map.cpp`):
 /// `area_spec` (32 bytes) + mesh header (44 bytes) + `points_v * points_h *
 /// map_planes` big-endian `f32` entries.
+#[derive(Clone, Copy)]
+struct GainMapGeometry {
+    area: [i32; 4],
+    row_pitch: u32,
+    col_pitch: u32,
+    points: [u32; 2],
+    spacing: [f64; 2],
+    origin: [f64; 2],
+    map_planes: u32,
+}
+
 fn parse_gain_map_opcodes(list: &OpcodeList) -> Result<Vec<GainMapOpcode>, DngReaderError> {
     const AREA_SPEC_BYTES: usize = 32;
     const MESH_HEADER_BYTES: usize = 44;
@@ -753,33 +751,35 @@ fn parse_gain_map_opcodes(list: &OpcodeList) -> Result<Vec<GainMapOpcode>, DngRe
                         .expect("offset is within the checked header"),
                 )
             };
-            let area = [
-                i32::from_ne_bytes(u32_at(0).to_ne_bytes()),
-                i32::from_ne_bytes(u32_at(4).to_ne_bytes()),
-                i32::from_ne_bytes(u32_at(8).to_ne_bytes()),
-                i32::from_ne_bytes(u32_at(12).to_ne_bytes()),
-            ];
             let first_plane = u32_at(16);
             let plane_count = u32_at(20);
-            let row_pitch = u32_at(24);
-            let col_pitch = u32_at(28);
-            let points = [u32_at(AREA_SPEC_BYTES), u32_at(AREA_SPEC_BYTES + 4)];
-            let spacing = [f64_at(AREA_SPEC_BYTES + 8), f64_at(AREA_SPEC_BYTES + 16)];
-            let origin = [f64_at(AREA_SPEC_BYTES + 24), f64_at(AREA_SPEC_BYTES + 32)];
-            let map_planes = u32_at(AREA_SPEC_BYTES + 40);
-            validate_gain_map_mesh(
-                opcode_index,
-                parameters,
+            let geometry = GainMapGeometry {
+                area: [
+                    i32::from_ne_bytes(u32_at(0).to_ne_bytes()),
+                    i32::from_ne_bytes(u32_at(4).to_ne_bytes()),
+                    i32::from_ne_bytes(u32_at(8).to_ne_bytes()),
+                    i32::from_ne_bytes(u32_at(12).to_ne_bytes()),
+                ],
+                row_pitch: u32_at(24),
+                col_pitch: u32_at(28),
+                points: [u32_at(AREA_SPEC_BYTES), u32_at(AREA_SPEC_BYTES + 4)],
+                spacing: [f64_at(AREA_SPEC_BYTES + 8), f64_at(AREA_SPEC_BYTES + 16)],
+                origin: [f64_at(AREA_SPEC_BYTES + 24), f64_at(AREA_SPEC_BYTES + 32)],
+                map_planes: u32_at(AREA_SPEC_BYTES + 40),
+            };
+            validate_gain_map_mesh(opcode_index, parameters, &geometry)?;
+            let GainMapGeometry {
+                area,
+                row_pitch,
+                col_pitch,
                 points,
                 spacing,
                 origin,
                 map_planes,
-            )?;
+            } = geometry;
             let entries: Vec<f32> = parameters[header_bytes..]
                 .chunks_exact(4)
-                .map(|bytes| {
-                    f32::from_be_bytes(bytes.try_into().expect("chunk is four bytes"))
-                })
+                .map(|bytes| f32::from_be_bytes(bytes.try_into().expect("chunk is four bytes")))
                 .collect();
             if entries.iter().any(|entry| !entry.is_finite()) {
                 return Err(DngReaderError::InvalidGainMap {
@@ -810,10 +810,7 @@ fn parse_gain_map_opcodes(list: &OpcodeList) -> Result<Vec<GainMapOpcode>, DngRe
 fn validate_gain_map_mesh(
     opcode_index: usize,
     parameters: &[u8],
-    points: [u32; 2],
-    spacing: [f64; 2],
-    origin: [f64; 2],
-    map_planes: u32,
+    geometry: &GainMapGeometry,
 ) -> Result<(), DngReaderError> {
     const AREA_SPEC_BYTES: usize = 32;
     const MESH_HEADER_BYTES: usize = 44;
@@ -822,18 +819,46 @@ fn validate_gain_map_mesh(
         opcode_index,
         reason,
     };
+    let GainMapGeometry {
+        area,
+        row_pitch,
+        col_pitch,
+        points,
+        spacing,
+        origin,
+        map_planes,
+    } = *geometry;
     if points[0] == 0 || points[1] == 0 {
         return Err(invalid("mesh points must be at least 1 in each dimension"));
     }
     if map_planes == 0 {
         return Err(invalid("mesh plane count must be at least 1"));
     }
+    if row_pitch == 0 || col_pitch == 0 {
+        return Err(invalid("area pitch must be at least 1"));
+    }
+    let [top, left, bottom, right] = area;
+    if bottom <= top || right <= left {
+        if row_pitch != 1 || col_pitch != 1 {
+            return Err(invalid("an empty area must use pitch 1"));
+        }
+    } else {
+        let height = bottom
+            .checked_sub(top)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| invalid("area height exceeds u32"))?;
+        let width = right
+            .checked_sub(left)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| invalid("area width exceeds u32"))?;
+        if row_pitch > height || col_pitch > width {
+            return Err(invalid("area pitch exceeds its bounds"));
+        }
+    }
     let entry_count = (usize::try_from(points[0])
         .expect("u32 fits usize on supported targets")
         .checked_mul(usize::try_from(points[1]).expect("u32 fits usize"))
-        .and_then(|value| {
-            value.checked_mul(usize::try_from(map_planes).expect("u32 fits usize"))
-        })
+        .and_then(|value| value.checked_mul(usize::try_from(map_planes).expect("u32 fits usize")))
         .and_then(|value| value.checked_mul(size_of::<f32>()))
         .and_then(|value| value.checked_add(header_bytes))
         .ok_or(DngReaderError::InvalidGainMap {
@@ -845,11 +870,7 @@ fn validate_gain_map_mesh(
             "parameter byte length does not match the declared mesh dimensions",
         ));
     }
-    if !(spacing[0].is_finite()
-        && spacing[0] > 0.0
-        && spacing[1].is_finite()
-        && spacing[1] > 0.0)
-    {
+    if !(spacing[0].is_finite() && spacing[0] > 0.0 && spacing[1].is_finite() && spacing[1] > 0.0) {
         return Err(invalid("mesh spacing must be finite and positive"));
     }
     if !(origin[0].is_finite() && origin[1].is_finite()) {
@@ -860,9 +881,7 @@ fn validate_gain_map_mesh(
     if points[0] == 1
         && (spacing[0].to_bits() != f64::to_bits(1.0) || origin[0].to_bits() != f64::to_bits(0.0))
     {
-        return Err(invalid(
-            "a single-row mesh must use spacing 1 and origin 0",
-        ));
+        return Err(invalid("a single-row mesh must use spacing 1 and origin 0"));
     }
     if points[1] == 1
         && (spacing[1].to_bits() != f64::to_bits(1.0) || origin[1].to_bits() != f64::to_bits(0.0))

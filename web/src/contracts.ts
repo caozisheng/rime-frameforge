@@ -40,7 +40,7 @@ export interface GainMapMesh {
   readonly points: readonly [number, number];
   readonly spacing: readonly [number, number];
   readonly origin: readonly [number, number];
-  readonly planes: number;
+  readonly area?: readonly [number, number, number, number] | null;
   readonly entries: readonly number[];
 }
 
