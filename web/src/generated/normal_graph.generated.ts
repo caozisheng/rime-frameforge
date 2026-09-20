@@ -141,8 +141,8 @@ export const normalGraphPresentation = {
       "label": "LCST",
       "parent_id": "vfe",
       "kind": "operator",
-      "mode": "disabled",
-      "execution_node_id": null,
+      "mode": "enabled",
+      "execution_node_id": "lcst",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
@@ -151,7 +151,7 @@ export const normalGraphPresentation = {
       "outputs": [
         "lc-stat"
       ],
-      "reason": "luma-chroma statistics placeholder; output lc-stat",
+      "reason": null,
       "default_expanded": false
     },
     {
@@ -209,17 +209,18 @@ export const normalGraphPresentation = {
       "label": "TINTLESS",
       "parent_id": "vbe",
       "kind": "operator",
-      "mode": "bypass",
+      "mode": "enabled",
       "execution_node_id": "tintless",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
-        "in"
+        "in",
+        "lc-stat"
       ],
       "outputs": [
         "out"
       ],
-      "reason": "color shading correction; method 00: identity bypass",
+      "reason": null,
       "default_expanded": false
     },
     {
@@ -268,7 +269,8 @@ export const normalGraphPresentation = {
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
-        "in"
+        "in",
+        "lc-stat"
       ],
       "outputs": [
         "out"
@@ -873,6 +875,22 @@ export const normalGraphPresentation = {
     },
     {
       "id": "normal_edge_7",
+      "from": "lcst",
+      "to": "tintless",
+      "from_port": "lc-stat",
+      "to_port": "lc-stat",
+      "label": "LCST statistics"
+    },
+    {
+      "id": "normal_edge_8",
+      "from": "lcst",
+      "to": "drc",
+      "from_port": "lc-stat",
+      "to_port": "lc-stat",
+      "label": "LCST statistics"
+    },
+    {
+      "id": "normal_edge_9",
       "from": "sbpc",
       "to": "cdafst",
       "from_port": "out",
@@ -880,7 +898,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_8",
+      "id": "normal_edge_10",
       "from": "raw_nr",
       "to": "tintless",
       "from_port": "out",
@@ -888,7 +906,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_9",
+      "id": "normal_edge_11",
       "from": "tintless",
       "to": "lsc",
       "from_port": "out",
@@ -896,7 +914,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_10",
+      "id": "normal_edge_12",
       "from": "lsc",
       "to": "wbc",
       "from_port": "out",
@@ -904,7 +922,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_11",
+      "id": "normal_edge_13",
       "from": "wbc",
       "to": "drc",
       "from_port": "out",
@@ -912,7 +930,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_12",
+      "id": "normal_edge_14",
       "from": "drc",
       "to": "dem",
       "from_port": "out",
@@ -920,7 +938,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_13",
+      "id": "normal_edge_15",
       "from": "dem",
       "to": "color_reproduce",
       "from_port": "out",
@@ -928,7 +946,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_14",
+      "id": "normal_edge_16",
       "from": "color_reproduce",
       "to": "rgb2yuv",
       "from_port": "out",
@@ -936,7 +954,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_15",
+      "id": "normal_edge_17",
       "from": "rgb2yuv",
       "to": "pyrd",
       "from_port": "out",
@@ -944,7 +962,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_16",
+      "id": "normal_edge_18",
       "from": "vpe_16_sharpen",
       "to": "vpe_4_pyrc",
       "from_port": "out",
@@ -952,7 +970,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_17",
+      "id": "normal_edge_19",
       "from": "vpe_4_sharpen",
       "to": "vpe_full_pyrc",
       "from_port": "out",
@@ -960,7 +978,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_18",
+      "id": "normal_edge_20",
       "from": "vpe_full_sharpen",
       "to": "encoder",
       "from_port": "out",
@@ -968,7 +986,7 @@ export const normalGraphPresentation = {
       "label": null
     },
     {
-      "id": "normal_edge_19",
+      "id": "normal_edge_21",
       "from": "pyrd",
       "to": "vpe_full_pyrc",
       "from_port": "full",
@@ -976,7 +994,7 @@ export const normalGraphPresentation = {
       "label": "Full YUV"
     },
     {
-      "id": "normal_edge_20",
+      "id": "normal_edge_22",
       "from": "pyrd",
       "to": "vpe_4_pyrc",
       "from_port": "quarter",
@@ -984,7 +1002,7 @@ export const normalGraphPresentation = {
       "label": "1/4 YUV"
     },
     {
-      "id": "normal_edge_21",
+      "id": "normal_edge_23",
       "from": "pyrd",
       "to": "vpe_16_pyrc",
       "from_port": "sixteenth",

@@ -197,9 +197,7 @@ pub fn ev100_capture(input: &SceneInput) -> Result<f64, SceneError> {
 /// exposure settings are not treated as a physical scene measurement unless a
 /// caller opts into this estimate.
 pub fn estimate_scene_brightness_ev(input: &SceneInput) -> Result<f64, SceneError> {
-    let aperture = input
-        .aperture_f_number
-        .ok_or(SceneError::MissingAperture)?;
+    let aperture = input.aperture_f_number.ok_or(SceneError::MissingAperture)?;
     let exposure_time = input
         .exposure_time_seconds
         .ok_or(SceneError::MissingExposureTime)?;

@@ -1,31 +1,28 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { FramePacketProvider, RawFrameDescriptor } from '../src/contracts.js';
+import { lcstPipeline } from '../src/generated/lcst_pipeline.generated.js';
+
+import type { RawFrameDescriptor } from '../src/contracts.js';
 import type { GpuContext } from '../src/gpu/device.js';
 import { defaultGraphBypassConfig } from '../src/gpu/bypass.js';
-import { NormalGpuExecutor } from '../src/gpu/executor.js';
+import { NormalGpuExecutor, type StagedFramePacketProvider } from '../src/gpu/executor.js';
 
 const descriptor: RawFrameDescriptor = {
   width: 2, height: 2, rowStrideSamples: 2, storageBits: 16,
   cfa: 'rggb', blackLevel: 64, whiteLevel: 4095, whiteBalanceGains: [2, 1, 1.5],
   metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
 };
-const packetProvider: FramePacketProvider = () => ({
-  blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(32),
-  lscMeshHeaders: new Uint8Array(32),
-  lscMeshEntries: new Uint8Array(120),
-  lscActive: false,
-  wbcUniform: new Uint8Array(48),
-  drcUniform: new Uint8Array(32),
-  demUniform: new Uint8Array(32),
-  drcGlobalLut: new Uint8Array(1028),
-  drcLocalLut: new Uint8Array(),
-  drcModulationLuts: new Uint8Array(512),
-  fusedUniform: new Uint8Array(1024),
-  colorReproduceHsLut: new Uint8Array(),
-  preprocessSnapshotJson: '',
-});
+const packetProvider: StagedFramePacketProvider = {
+  begin: () => ({ blcUniform: new Uint8Array(16), lcstUniform: new Uint8Array(64) }),
+  prepareConsumers: () => ({
+    tintlessUniform: new Uint8Array(48), tintlessMesh: new Uint8Array(65 * 49 * 2 * 4), tintlessAudit: new Uint8Array(20),
+    lscUniform: new Uint8Array(32), lscMeshHeaders: new Uint8Array(32), lscMeshEntries: new Uint8Array(120), lscActive: true,
+    wbcUniform: new Uint8Array(48), drcUniform: new Uint8Array(32), demUniform: new Uint8Array(32),
+    drcGlobalLut: new Uint8Array(1028), drcLocalLut: new Uint8Array(), drcModulationLuts: new Uint8Array(512),
+    fusedUniform: new Uint8Array(1024), colorReproduceHsLut: new Uint8Array(), preprocessSnapshotJson: '',
+  }),
+  stageLcstStatistics: () => undefined,
+};
 
 function fusedGpu() {
   const counts = { computePasses: 0, renderPasses: 0, submits: 0, waits: 0, dispatches: 0, draws: 0, scissors: [] as number[], sampleCopies: 0 };
@@ -51,7 +48,13 @@ function fusedGpu() {
       onSubmittedWorkDone: async () => { counts.waits += 1; },
     },
     createTexture: () => texture,
-    createBuffer: () => ({ destroy: () => undefined, mapAsync: async () => undefined, getMappedRange: () => new Uint16Array([0x2e66, 0x3266, 0x34cd, 0x3666]).buffer, unmap: () => undefined }),
+    createBuffer: (descriptor: GPUBufferDescriptor) => {
+      const mapped = new ArrayBuffer(Number(descriptor.size));
+      if (descriptor.label === 'preview-sample') {
+        new Uint16Array(mapped, 0, 4).set([0x2e66, 0x3266, 0x34cd, 0x3666]);
+      }
+      return { size: descriptor.size, destroy: () => undefined, mapAsync: async () => undefined, getMappedRange: () => mapped, unmap: () => undefined };
+    },
     createShaderModule: () => ({}),
     createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
@@ -61,6 +64,7 @@ function fusedGpu() {
       beginRenderPass: () => { counts.renderPasses += 1; return renderPass; },
       finish: () => ({}),
       copyTextureToBuffer: () => { counts.sampleCopies += 1; },
+      copyBufferToBuffer: () => undefined,
     }),
   } as unknown as GPUDevice;
   const context = { getCurrentTexture: () => texture } as unknown as GPUCanvasContext;
@@ -76,37 +80,68 @@ beforeEach(() => {
 });
 
 describe('fused Normal GPU executor', () => {
-  it('encodes compute and preview into one submission and one frame fence', async () => {
+  it('uses a same-frame LCST barrier before downstream compute and preview', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
 
     executor.prepare(identity);
-    await executor.execute('output', identity);
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     expect(fake.counts.computePasses).toBeGreaterThan(0);
     expect(fake.counts.dispatches).toBe(fake.counts.computePasses);
-    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 1, waits: 1, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 3, waits: 3, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(executor.transferAudit().gpuCopyBytes).toBe(lcstPipeline.payloadBytes);
   });
+  it('invalidates the previous preview when a later LCST staging fails', async () => {
+    const fake = fusedGpu();
+    let failStaging = false;
+    const failingProvider: StagedFramePacketProvider = {
+      ...packetProvider,
+      stageLcstStatistics: () => {
+        if (failStaging) throw new Error('WASM_LCST_DECODE_FAILED');
+      },
+    };
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'sequence', failingProvider);
+    const firstIdentity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
+    executor.prepare(firstIdentity);
+    const firstPreviews = await executor.execute('output', firstIdentity);
+    await executor.commit(firstPreviews);
+    await expect(executor.present('rgb2yuv', null, 0.5)).resolves.toBeUndefined();
+
+    failStaging = true;
+    const secondIdentity = { ...firstIdentity, frameIndex: 1, runRevision: 2 };
+    executor.prepare(secondIdentity);
+    await expect(executor.execute('output', secondIdentity)).rejects.toThrow('WASM_LCST_DECODE_FAILED');
+    const renderPassesBeforeAbort = fake.counts.renderPasses;
+    executor.abort();
+
+    await expect(executor.present('rgb2yuv', null, 0.5)).rejects.toThrow('PREVIEW_UNAVAILABLE');
+    expect(fake.counts.renderPasses).toBe(renderPassesBeforeAbort + 1);
+  });
+
 
   it('encodes bounded complex DEM segments in one submission and one frame fence', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 2, gpuGeneration: 1 };
     executor.setMethod('dem', '02');
 
     executor.prepare(identity);
-    await executor.execute('output', identity);
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     expect(fake.counts.computePasses).toBeGreaterThan(0);
     expect(fake.counts.dispatches).toBe(fake.counts.computePasses);
-    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 1, waits: 1, draws: 1, scissors: [], sampleCopies: 0 });
+    expect(fake.counts).toMatchObject({ renderPasses: 1, submits: 3, waits: 3, draws: 1, scissors: [], sampleCopies: 0 });
   });
 
   it('rebinds two committed outputs for Compare without recomputing the graph', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     executor.prepare(identity);
-    await executor.execute('output', identity);
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     const computePasses = fake.counts.computePasses;
 
     await executor.present('blc', 'dem', 0.4);
@@ -118,11 +153,11 @@ describe('fused Normal GPU executor', () => {
 
   it('reads one native GPU sample without copying an image', async () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     executor.prepare(identity);
-    await executor.execute('output', identity);
-
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     const values = await executor.sample('dem', 1, 1);
 
     expect(values).toHaveLength(4);
@@ -131,11 +166,12 @@ describe('fused Normal GPU executor', () => {
   });
   it('skips DRC compute work and retains a presentable DRC preview alias', async () => {
     const normal = fusedGpu();
-    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const bypassed = fusedGpu();
-    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     const bypassConfig = defaultGraphBypassConfig();
+    normalExecutor.setBypassConfig(bypassConfig);
 
     normalExecutor.prepare(identity);
     await normalExecutor.execute('output', identity);
@@ -144,21 +180,23 @@ describe('fused Normal GPU executor', () => {
       modules: bypassConfig.modules.map((module) => module.module_id === 'drc' ? { ...module, bypass: true } : module),
     });
     executor.prepare(identity);
-    await executor.execute('output', identity);
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     await executor.present('drc', null, 0.5);
 
     expect(bypassed.counts.computePasses).toBeLessThan(normal.counts.computePasses);
     expect(bypassed.counts.dispatches).toBe(bypassed.counts.computePasses);
-    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 2, waits: 2, draws: 2 });
+    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 4, waits: 4, draws: 2 });
   });
   it('skips LSC compute work and retains a presentable LSC preview alias', async () => {
     const normal = fusedGpu();
-    const activeProvider: FramePacketProvider = (identity) => ({ ...packetProvider(identity), lscActive: true });
-    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, activeProvider);
+    const activeProvider: StagedFramePacketProvider = packetProvider;
+    const normalExecutor = new NormalGpuExecutor(normal.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', activeProvider);
     const bypassed = fusedGpu();
-    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, activeProvider);
+    const executor = new NormalGpuExecutor(bypassed.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', activeProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
     const bypassConfig = defaultGraphBypassConfig();
+    normalExecutor.setBypassConfig(bypassConfig);
 
     normalExecutor.prepare(identity);
     await normalExecutor.execute('output', identity);
@@ -167,25 +205,26 @@ describe('fused Normal GPU executor', () => {
       modules: bypassConfig.modules.map((module) => module.module_id === 'lsc' ? { ...module, bypass: true } : module),
     });
     executor.prepare(identity);
-    await executor.execute('output', identity);
+    const previews = await executor.execute('output', identity);
+    await executor.commit(previews);
     await executor.present('lsc', null, 0.5);
 
     expect(normal.counts.computePasses - bypassed.counts.computePasses).toBe(1);
     expect(bypassed.counts.dispatches).toBe(bypassed.counts.computePasses);
-    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 2, waits: 2, draws: 2 });
+    expect(bypassed.counts).toMatchObject({ renderPasses: 2, submits: 4, waits: 4, draws: 2 });
   });
 });
 
   it('rejects parameters submitted to the wrong graph node', () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     expect(() => executor.setParameter('gamma', 'ahd_l_threshold', 3)).toThrow('PARAMETER_INVALID');
     expect(() => executor.setParameter('dem', 'gamma', 2.4)).toThrow('PARAMETER_INVALID');
     expect(() => executor.setParameter('color_reproduce', 'gamma', 2.4)).not.toThrow();
   });
   it('accepts valid DRC IQ parameters and rejects invalid values', () => {
     const fake = fusedGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, new Uint16Array([1, 2, 3, 4]).buffer, 0, 1, descriptor, 'single', packetProvider);
     expect(() => executor.setDrcIqParameters({ drc_gain_offset_ev: 0.5, knee: 1.2, amplifier: 0.8 })).not.toThrow();
     expect(() => executor.setDrcIqParameters({ drc_gain_offset_ev: 5, knee: 1, amplifier: 1 })).toThrow('DRC_IQ_INVALID');
   });

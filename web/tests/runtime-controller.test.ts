@@ -6,6 +6,8 @@ import type { FramePhase, PreviewDescriptor } from '../src/contracts.js';
 class RecordingExecutor {
   readonly phases: FramePhase[] = [];
   prepareCalls = 0;
+  abortCalls = 0;
+
 
   async prepare(_identity: { frameIndex: number; runRevision: number; methodRevision: number; gpuGeneration: number }): Promise<void> {
     this.prepareCalls += 1;
@@ -29,6 +31,12 @@ class RecordingExecutor {
       presentation: 'yuv',
     }];
   }
+  async commit(_previews: readonly PreviewDescriptor[]): Promise<void> {}
+
+  abort(): void {
+    this.abortCalls += 1;
+  }
+
 
   reset(): void {}
 }
@@ -80,9 +88,10 @@ describe('RuntimeController', () => {
     expect(phases).toEqual(['warmup', 'output']);
   });
 
-  it('completes operator postprocess before publishing output', async () => {
+  it('commits GPU presentation before publishing operator state and output', async () => {
     const executor = new RecordingExecutor();
     const events: string[] = [];
+    executor.commit = async () => { events.push('present'); };
     const controller = new RuntimeController(
       executor,
       () => events.push('preview'),
@@ -92,7 +101,25 @@ describe('RuntimeController', () => {
 
     await controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 });
 
-    expect(events).toEqual(['warmup', 'postprocess', 'output', 'preview']);
+    expect(events).toEqual(['warmup', 'present', 'postprocess', 'output', 'preview']);
+  });
+
+  it('does not publish operator history when GPU presentation commit fails', async () => {
+    const executor = new RecordingExecutor();
+    executor.commit = async () => { throw new Error('presentation failed'); };
+    const events: string[] = [];
+    const controller = new RuntimeController(
+      executor,
+      () => events.push('preview'),
+      (phase) => events.push(phase),
+      () => { events.push('postprocess'); },
+      () => { events.push('abort'); },
+    );
+
+    await expect(controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 })).rejects.toThrow('presentation failed');
+
+    expect(events).toEqual(['warmup', 'abort']);
+    expect(executor.abortCalls).toBe(1);
   });
 
   it('aborts operator state when GPU execution fails', async () => {
@@ -112,5 +139,6 @@ describe('RuntimeController', () => {
     await expect(controller.step({ frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 })).rejects.toThrow('GPU failed');
 
     expect(events).toEqual(['warmup', 'abort']);
+    expect(executor.abortCalls).toBe(1);
   });
 });

@@ -23,4 +23,12 @@ describe('TransferAudit', () => {
 
     expect(() => audit.recordHostRead(4)).toThrow(ZeroCopyViolation);
   });
+
+  it('records declared fixed-size statistics readback', () => {
+    const audit = new TransferAudit();
+
+    audit.recordStatisticsRead(65_536, 'lcst');
+
+    expect(audit.snapshot()).toEqual({ hostReadBytes: 65_536, hostWriteBytes: 0, gpuCopyBytes: 0 });
+  });
 });

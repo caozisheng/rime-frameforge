@@ -1,6 +1,6 @@
 import initWasm, { FramePacketDeriver, NormalRuntime } from '../../../../crates/rime-wasm/pkg/rime_wasm.js';
 
-import type { DrcIqParameters, FramePacketBytes, RawFrameDescriptor, RuntimeEnvelope } from '../../../../web/src/contracts.js';
+import type { DrcIqParameters, FrameBeginPackets, FrameConsumerPackets, FrameIdentity, FrameMode, RawFrameDescriptor, RuntimeEnvelope } from '../../../../web/src/contracts.js';
 
 interface RustRuntimeSnapshot {
   readonly lifecycle_state: RuntimeEnvelope['lifecycleState'];
@@ -54,6 +54,8 @@ export class WasmRuntimeAuthority {
   }
 
   public reset(): RuntimeEnvelope {
+    this.#packetDeriver.reset();
+    this.#framePending = false;
     return this.map(this.#runtime.reset());
   }
   public changeMethod(): RuntimeEnvelope {
@@ -70,17 +72,21 @@ export class WasmRuntimeAuthority {
     return this.#runtime.quantization_config_json();
   }
 
-  public deriveFramePackets(
+  public beginFrame(
     descriptor: RawFrameDescriptor,
     raw: ArrayBuffer,
     rawByteOffset: number,
-    frameIndex: number,
+    identity: FrameIdentity,
+    mode: FrameMode,
     methods: Readonly<Record<string, string>>,
     parameters: Readonly<Record<string, number>>,
     gammaLut: readonly number[],
     drc: DrcIqParameters,
     bypassModules: readonly { readonly module_id: string; readonly bypass: boolean }[],
-  ): FramePacketBytes {
+  ): FrameBeginPackets {
+    if (this.#framePending) {
+      throw new Error('WASM_FRAME_IN_PROGRESS: complete or abort the pending frame before beginning another');
+    }
     const sampleCount = descriptor.rowStrideSamples * descriptor.height;
     const rawSamples = new Uint16Array(raw, rawByteOffset, sampleCount);
     const options = {
@@ -103,17 +109,34 @@ export class WasmRuntimeAuthority {
       quantization: JSON.parse(this.quantizationConfig()),
       bypass_modules: Object.fromEntries(bypassModules.map((module) => [module.module_id, module.bypass])),
     };
-    const packets = this.#packetDeriver.derive_frame_packets(
+    const begin = this.#packetDeriver.begin_frame(
       JSON.stringify(descriptor),
       rawSamples,
       JSON.stringify(options),
-      frameIndex,
+      toWasmU64(identity.frameIndex, 'frameIndex'),
+      toWasmU64(identity.runRevision, 'runRevision'),
+      toWasmU64(identity.methodRevision, 'methodRevision'),
+      mode,
     );
     this.#framePending = true;
     try {
-      const preprocessSnapshotJson = packets.preprocess_snapshot_json();
       return {
-        blcUniform: copyPacketBytes(packets.blc_uniform()),
+        blcUniform: copyPacketBytes(begin.blc_uniform()),
+        lcstUniform: copyPacketBytes(begin.lcst_uniform()),
+      };
+    } finally {
+      begin.free();
+    }
+  }
+
+  public prepareConsumers(payload: Uint8Array | undefined, sequenceColdStart: boolean): FrameConsumerPackets {
+    this.requirePendingFrame();
+    const packets = this.#packetDeriver.prepare_consumers(payload, sequenceColdStart);
+    try {
+      return {
+        tintlessUniform: copyPacketBytes(packets.tintless_uniform()),
+        tintlessMesh: copyPacketBytes(packets.tintless_mesh()),
+        tintlessAudit: copyPacketBytes(packets.tintless_audit()),
         lscUniform: copyPacketBytes(packets.lsc_uniform()),
         lscMeshHeaders: copyPacketBytes(packets.lsc_mesh_headers()),
         lscMeshEntries: copyPacketBytes(packets.lsc_mesh_entries()),
@@ -126,11 +149,20 @@ export class WasmRuntimeAuthority {
         drcModulationLuts: copyPacketBytes(packets.drc_modulation_luts()),
         fusedUniform: copyPacketBytes(packets.fused_uniform()),
         colorReproduceHsLut: copyPacketBytes(packets.color_reproduce_hs_lut()),
-        preprocessSnapshotJson,
+        preprocessSnapshotJson: packets.preprocess_snapshot_json(),
       };
     } finally {
       packets.free();
     }
+  }
+
+  public stageLcstStatistics(payload: Uint8Array): void {
+    this.requirePendingFrame();
+    this.#packetDeriver.stage_lcst_statistics(payload);
+  }
+
+  private requirePendingFrame(): void {
+    if (!this.#framePending) throw new Error('WASM_FRAME_NOT_PREPARED: begin a frame first');
   }
 
   public abortFrame(): void {
@@ -144,27 +176,31 @@ export class WasmRuntimeAuthority {
 
   public completeFrame(): void {
     if (!this.#framePending) return;
-    try {
-      this.#packetDeriver.complete_frame();
-    } finally {
-      this.#framePending = false;
-    }
+    this.#packetDeriver.complete_frame();
+    this.#framePending = false;
   }
 
   public dispose(): void {
-    this.#packetDeriver.free();
-    this.#runtime.free();
+    try {
+      this.#packetDeriver.reset();
+    } finally {
+      this.#framePending = false;
+      this.#packetDeriver.free();
+      this.#runtime.free();
+    }
+  }
+  public deviceLost(): RuntimeEnvelope {
+    try {
+      this.#packetDeriver.reset();
+    } finally {
+      this.#framePending = false;
+    }
+    return this.map(this.#runtime.device_lost());
   }
 
   public fail(): RuntimeEnvelope {
     return this.map(this.#runtime.fail());
   }
-
-  public deviceLost(): RuntimeEnvelope {
-    return this.map(this.#runtime.device_lost());
-  }
-
-
   private map(serialized: string): RuntimeEnvelope {
     const snapshot = JSON.parse(serialized) as RustRuntimeSnapshot;
     return {
@@ -183,4 +219,13 @@ export class WasmRuntimeAuthority {
 
 function copyPacketBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array(bytes);
+}
+
+function toWasmU64(value: number | bigint, field: string): bigint {
+  if (typeof value === 'bigint') {
+    if (value >= 0n && value <= 0xffff_ffff_ffff_ffffn) return value;
+  } else if (Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value);
+  }
+  throw new Error(`WASM_FRAME_IDENTITY_INVALID: ${field} must be an unsigned 64-bit integer`);
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { FramePacketProvider, RawFrameDescriptor } from '../src/contracts.js';
-import { NormalGpuExecutor } from '../src/gpu/executor.js';
+import type { RawFrameDescriptor } from '../src/contracts.js';
+import { NormalGpuExecutor, type StagedFramePacketProvider } from '../src/gpu/executor.js';
 import type { GpuContext } from '../src/gpu/device.js';
 
 const descriptor: RawFrameDescriptor = {
@@ -15,22 +15,20 @@ const descriptor: RawFrameDescriptor = {
   whiteBalanceGains: [2, 1, 1.5],
   metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
 };
-const packetProvider: FramePacketProvider = () => ({
-  blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(32),
-  lscMeshHeaders: new Uint8Array(32),
-  lscMeshEntries: new Uint8Array(120),
-  lscActive: false,
-  wbcUniform: new Uint8Array(48),
-  drcUniform: new Uint8Array(32),
-  demUniform: new Uint8Array(32),
-  drcGlobalLut: new Uint8Array(1028),
-  drcLocalLut: new Uint8Array(),
-  drcModulationLuts: new Uint8Array(512),
-  fusedUniform: new Uint8Array(1024),
-  colorReproduceHsLut: new Uint8Array(),
-  preprocessSnapshotJson: '',
-});
+function consumers(entryBytes = 120) {
+  return {
+    tintlessUniform: new Uint8Array(48), tintlessMesh: new Uint8Array(65 * 49 * 2 * 4), tintlessAudit: new Uint8Array(20),
+    lscUniform: new Uint8Array(32), lscMeshHeaders: new Uint8Array(32), lscMeshEntries: new Uint8Array(entryBytes), lscActive: false,
+    wbcUniform: new Uint8Array(48), drcUniform: new Uint8Array(32), demUniform: new Uint8Array(32),
+    drcGlobalLut: new Uint8Array(1028), drcLocalLut: new Uint8Array(), drcModulationLuts: new Uint8Array(512),
+    fusedUniform: new Uint8Array(1024), colorReproduceHsLut: new Uint8Array(), preprocessSnapshotJson: '',
+  };
+}
+const packetProvider: StagedFramePacketProvider = {
+  begin: () => ({ blcUniform: new Uint8Array(16), lcstUniform: new Uint8Array(64) }),
+  prepareConsumers: () => consumers(),
+  stageLcstStatistics: () => undefined,
+};
 
 
 function raw(samples: readonly number[]): ArrayBuffer {
@@ -60,16 +58,24 @@ function fakeGpu() {
     },
     createBuffer: (descriptor: GPUBufferDescriptor) => {
       bufferCreates += 1;
-      return { size: descriptor.size, destroy: () => { bufferDestroys += 1; } };
+      const mapped = new ArrayBuffer(Number(descriptor.size));
+      return {
+        size: descriptor.size,
+        destroy: () => { bufferDestroys += 1; },
+        mapAsync: async () => undefined,
+        getMappedRange: () => mapped,
+        unmap: () => undefined,
+      };
     },
     createBindGroup: () => ({}),
+    createShaderModule: () => ({}),
+    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createCommandEncoder: () => ({
       beginComputePass: () => ({ setPipeline: () => undefined, setBindGroup: () => undefined, dispatchWorkgroups: () => undefined, end: () => undefined }),
       beginRenderPass: () => ({ setPipeline: () => undefined, setBindGroup: () => undefined, draw: () => undefined, end: () => undefined }),
       finish: () => ({}),
+      copyBufferToBuffer: () => undefined,
     }),
-    createShaderModule: () => ({}),
-    createComputePipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
   } as unknown as GPUDevice;
   const context = { getCurrentTexture: () => ({ width: 2, height: 2, createView: () => ({}) }) } as unknown as GPUCanvasContext;
@@ -91,7 +97,7 @@ beforeEach(() => {
 describe('NormalGpuExecutor frame reuse', () => {
   it('uploads a same-extent frame without reallocating GPU resources', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, 'single', packetProvider);
 
     const before = fake.counts();
     executor.replaceFrame(raw([5, 6, 7, 8]), 0, descriptor);
@@ -105,7 +111,7 @@ describe('NormalGpuExecutor frame reuse', () => {
   });
   it('reuses the uploaded raw source across reset and repeated graph execution', async () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, packetProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, 'single', packetProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
 
     executor.prepare(identity);
@@ -118,39 +124,38 @@ describe('NormalGpuExecutor frame reuse', () => {
 
     expect(fake.counts().rawUploads).toBe(1);
   });
-  it('grows the LSC mesh buffers when a later packet has more records', () => {
+  it('grows the LSC mesh buffers when a later packet has more records', async () => {
     let entryBytes = 120;
-    const dynamicPacketProvider: FramePacketProvider = (identity) => ({
-      ...packetProvider(identity),
-      lscMeshEntries: new Uint8Array(entryBytes),
-    });
+    const dynamicPacketProvider: StagedFramePacketProvider = {
+      begin: packetProvider.begin,
+      prepareConsumers: (_payload, _coldStart) => consumers(entryBytes),
+      stageLcstStatistics: packetProvider.stageLcstStatistics,
+    };
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, dynamicPacketProvider);
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, 'single', dynamicPacketProvider);
     const identity = { frameIndex: 0, runRevision: 1, methodRevision: 1, gpuGeneration: 1 };
-
     executor.prepare(identity);
+    await executor.execute('output', identity);
     const before = fake.counts();
     entryBytes = 240;
-    executor.prepare({ ...identity, frameIndex: 1 });
+    const nextIdentity = { ...identity, frameIndex: 1 };
+    executor.prepare(nextIdentity);
+    await executor.execute('output', nextIdentity);
     const after = fake.counts();
-
     expect(after.bufferCreates).toBe(before.bufferCreates + 1);
     expect(after.bufferDestroys).toBe(before.bufferDestroys + 1);
   });
 
   it('requires resource rebuild when frame extent changes', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, packetProvider);
-
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, 'single', packetProvider);
     expect(executor.canReplaceFrame({ ...descriptor, width: 4, rowStrideSamples: 4 })).toBe(false);
   });
 
   it('destroys frame-owned GPU resources on disposal', () => {
     const fake = fakeGpu();
-    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, packetProvider);
-
+    const executor = new NormalGpuExecutor(fake.gpu, raw([1, 2, 3, 4]), 0, 1, descriptor, 'single', packetProvider);
     executor.dispose();
-
     const counts = fake.counts();
     expect(counts.textureDestroys).toBe(counts.textureCreates);
     expect(counts.bufferDestroys).toBe(counts.bufferCreates);

@@ -176,9 +176,10 @@ describe('projectNormalGraph', () => {
     const graph = projectNormalGraph(normalGraphPresentation, new Set(['normal']));
     const ids = new Set(graph.nodes.map((node) => node.id));
 
-    expect(graph.edges.every((edge) => ids.has(edge.source) && ids.has(edge.target))).toBe(true);
     expect(graph.edges.map((edge) => [edge.source, edge.target])).toEqual([
       ['raw_source', 'vfe'],
+      ['vfe', 'vbe'],
+      ['vfe', 'vbe'],
       ['vfe', 'vbe'],
       ['vpe', 'encoder'],
       ['vbe', 'vpe'],

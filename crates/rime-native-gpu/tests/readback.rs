@@ -1,7 +1,11 @@
 use std::path::Path;
 
+use rime_core::FramePhase;
 use rime_dng::DngReader;
-use rime_native_gpu::{WgpuReadbackError, WgpuReadbackExecutor};
+use rime_isp::vbe::drc::DrcExposurePolicy;
+use rime_native_gpu::{
+    NativeFrameIdentity, RenderFeatureFlags, WgpuReadbackError, WgpuReadbackExecutor,
+};
 
 const GH5S_SAMPLE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -61,5 +65,87 @@ fn gh5s_frame_can_select_local_tone_drc01() {
             .zip(global.pixels())
             .any(|(left, right)| (left - right).abs() > 1e-6),
         "local tone must differ from global tone on the GH5S frame"
+    );
+}
+
+#[test]
+fn gh5s_sequence_frame_zero_cold_starts_drc01() {
+    let frame = DngReader::new()
+        .decode_file(Path::new(GH5S_SAMPLE), 0)
+        .expect("GH5S frame zero must decode");
+    let executor = match WgpuReadbackExecutor::new() {
+        Ok(executor) => executor,
+        Err(WgpuReadbackError::AdapterUnavailable) => return,
+        Err(error) => panic!("native GPU must initialize when an adapter exists: {error}"),
+    };
+    let identity = NativeFrameIdentity {
+        frame_index: 0,
+        run_revision: 4,
+        method_revision: 2,
+        gpu_generation: 1,
+        phase: FramePhase::Output,
+    };
+
+    let output = executor
+        .render_sequence_frame_with_options(
+            &frame,
+            identity,
+            None,
+            "01",
+            DrcExposurePolicy::Baseline,
+            None,
+            0.0,
+            RenderFeatureFlags::default(),
+        )
+        .expect("sequence frame zero must cold-start DRC01 without LCST history");
+
+    assert_eq!(output.surface().identity(), identity);
+    assert!(
+        output
+            .surface()
+            .pixels()
+            .iter()
+            .all(|value| value.is_finite())
+    );
+}
+
+#[test]
+fn gh5s_sequence_uses_previous_frame_lcst_statistics() {
+    let reader = DngReader::new();
+    let frame_zero = reader
+        .decode_file(Path::new(GH5S_SAMPLE), 0)
+        .expect("GH5S frame zero must decode");
+    let frame_one = reader
+        .decode_file(Path::new(GH5S_SAMPLE), 1)
+        .expect("GH5S frame one must decode");
+    let executor = match WgpuReadbackExecutor::new() {
+        Ok(executor) => executor,
+        Err(WgpuReadbackError::AdapterUnavailable) => return,
+        Err(error) => panic!("native GPU must initialize when an adapter exists: {error}"),
+    };
+    let identity = |frame_index| NativeFrameIdentity {
+        frame_index,
+        run_revision: 4,
+        method_revision: 2,
+        gpu_generation: 1,
+        phase: FramePhase::Output,
+    };
+
+    let first = executor
+        .render_sequence_frame(&frame_zero, identity(0), None)
+        .expect("sequence frame zero cold start");
+    let second = executor
+        .render_sequence_frame(&frame_one, identity(1), Some(first.statistics()))
+        .expect("sequence frame one consumes frame zero statistics");
+
+    assert_eq!(first.statistics().identity().frame_index, 0);
+    assert_eq!(second.statistics().identity().frame_index, 1);
+    assert_eq!(second.surface().identity().frame_index, 1);
+    assert!(
+        second
+            .surface()
+            .pixels()
+            .iter()
+            .all(|value| value.is_finite())
     );
 }

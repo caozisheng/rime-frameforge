@@ -2,7 +2,7 @@ export const normalManifest = {
   "schema_version": 1,
   "graph_id": "normal",
   "graph_kind": "video-isp/normal",
-  "manifest_hash": "8a2d51a9389a2db6a05e3bd3f3f03a4318f318c2c97e1f2fce1ae3ed36920705",
+  "manifest_hash": "cf422c745b7c3bd84f4ab673f7c057dbec8032c97aaf1ea407fb58ec58da2e11",
   "nodes": [
     {
       "id": "raw_source",
@@ -214,7 +214,7 @@ export const normalManifest = {
     {
       "id": "tintless",
       "display_name": "TINTLESS",
-      "shader_entry": "identity_r32_main",
+      "shader_entry": "tintless_main",
       "inputs": [
         {
           "id": "in",
@@ -237,13 +237,38 @@ export const normalManifest = {
           }
         }
       ],
+      "statistics_inputs": [
+        {
+          "id": "lc-stat",
+          "schema": {
+            "kind": "lcst",
+            "average_rggb": {
+              "width": 64,
+              "height": 48,
+              "channels": 4,
+              "scalar": "f32"
+            },
+            "luma_histogram": {
+              "width": 16,
+              "height": 16,
+              "channels": 16,
+              "scalar": "u32"
+            }
+          }
+        }
+      ],
       "default_method": "00",
       "methods": [
         {
           "method": "00",
-          "shader_entry": "identity_r32_main",
+          "shader_entry": "tintless_main",
           "parameters": [
-            "identity"
+            "source_extent",
+            "mesh_extent",
+            "cfa_pattern",
+            "gain_clamp",
+            "cold_start",
+            "gain_mesh"
           ]
         }
       ]
@@ -352,6 +377,26 @@ export const normalManifest = {
           "extent": {
             "width": 32,
             "height": 24
+          }
+        }
+      ],
+      "statistics_inputs": [
+        {
+          "id": "lc-stat",
+          "schema": {
+            "kind": "lcst",
+            "average_rggb": {
+              "width": 64,
+              "height": 48,
+              "channels": 4,
+              "scalar": "f32"
+            },
+            "luma_histogram": {
+              "width": 16,
+              "height": 16,
+              "channels": 16,
+              "scalar": "u32"
+            }
           }
         }
       ],
@@ -541,6 +586,56 @@ export const normalManifest = {
           ]
         }
       ]
+    },
+    {
+      "id": "lcst",
+      "display_name": "LCST",
+      "shader_entry": "lcst_average_main",
+      "inputs": [
+        {
+          "id": "in",
+          "domain": "raw_bayer_rime_q",
+          "format": "r32_float",
+          "extent": {
+            "width": 32,
+            "height": 24
+          }
+        }
+      ],
+      "outputs": [],
+      "statistics_outputs": [
+        {
+          "id": "lc-stat",
+          "schema": {
+            "kind": "lcst",
+            "average_rggb": {
+              "width": 64,
+              "height": 48,
+              "channels": 4,
+              "scalar": "f32"
+            },
+            "luma_histogram": {
+              "width": 16,
+              "height": 16,
+              "channels": 16,
+              "scalar": "u32"
+            }
+          }
+        }
+      ],
+      "default_method": "00",
+      "methods": [
+        {
+          "method": "00",
+          "shader_entry": "lcst_average_main",
+          "parameters": [
+            "width",
+            "height",
+            "cfa_pattern",
+            "d50_gains"
+          ]
+        }
+      ]
     }
   ],
   "edges": [
@@ -685,6 +780,42 @@ export const normalManifest = {
       "to": {
         "node_id": "rgb2yuv",
         "port_id": "in"
+      },
+      "frame_delay": 0
+    },
+    {
+      "id": "normal_edge_sbpc_lcst",
+      "from": {
+        "node_id": "sbpc",
+        "port_id": "out"
+      },
+      "to": {
+        "node_id": "lcst",
+        "port_id": "in"
+      },
+      "frame_delay": 0
+    },
+    {
+      "id": "normal_edge_lcst_tintless",
+      "from": {
+        "node_id": "lcst",
+        "port_id": "lc-stat"
+      },
+      "to": {
+        "node_id": "tintless",
+        "port_id": "lc-stat"
+      },
+      "frame_delay": 0
+    },
+    {
+      "id": "normal_edge_lcst_drc",
+      "from": {
+        "node_id": "lcst",
+        "port_id": "lc-stat"
+      },
+      "to": {
+        "node_id": "drc",
+        "port_id": "lc-stat"
       },
       "frame_delay": 0
     }

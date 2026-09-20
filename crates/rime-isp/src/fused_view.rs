@@ -351,12 +351,10 @@ pub fn render_segmented_normal_shaders(dem_method: &str) -> Result<[String; 4], 
     post.push_str(GAMMA_HELPERS);
     post.push_str(CR_HELPERS);
     post.push_str("fn sample_dem_materialized(p: vec2<i32>) -> vec4<f32> { return textureLoad(dem_input, p, 0); }\n");
-    post.push_str(
-        &POSTPROCESS_HELPERS.replace(
-            "return vec4<f32>(dem00_sample(p, extent).rgb, 1.0);",
-            "return sample_dem_materialized(p);",
-        ),
-    );
+    post.push_str(&POSTPROCESS_HELPERS.replace(
+        "return vec4<f32>(dem00_sample(p, extent).rgb, 1.0);",
+        "return sample_dem_materialized(p);",
+    ));
     post.push_str(ENTRY_POST);
 
     Ok([pre, dem, quantize, post])
@@ -380,8 +378,7 @@ pub fn render_fused_normal_shader() -> String {
 
 /// Quantized module output ports carried in the fused super-uniform, in
 /// `FusedParams.quant_params` order.
-pub const FUSED_QUANT_MODULE_IDS: [&str; 5] =
-    ["blc", "wbc", "dem", "color_reproduce", "rgb2yuv"];
+pub const FUSED_QUANT_MODULE_IDS: [&str; 5] = ["blc", "wbc", "dem", "color_reproduce", "rgb2yuv"];
 
 /// Total byte size of the packed `FusedParams` uniform block.
 pub const FUSED_UNIFORM_BYTES: usize = 608;

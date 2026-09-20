@@ -139,8 +139,8 @@ export const topGraphPresentation = {
       "label": "luma-chroma statistics",
       "parent_id": "sensor_correction",
       "kind": "operator",
-      "mode": "disabled",
-      "execution_node_id": null,
+      "mode": "enabled",
+      "execution_node_id": "lcst",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
@@ -149,7 +149,7 @@ export const topGraphPresentation = {
       "outputs": [
         "lc-stat"
       ],
-      "reason": "luma-chroma statistics placeholder; output lc-stat",
+      "reason": null,
       "default_expanded": false
     },
     {
@@ -225,8 +225,8 @@ export const topGraphPresentation = {
       "label": "color shading correction",
       "parent_id": "video_back_end",
       "kind": "operator",
-      "mode": "bypass",
-      "execution_node_id": null,
+      "mode": "enabled",
+      "execution_node_id": "tintless",
       "module_id": null,
       "iq_override_id": null,
       "inputs": [
@@ -235,7 +235,7 @@ export const topGraphPresentation = {
       "outputs": [
         "out"
       ],
-      "reason": "not implemented; compatible bayer identity",
+      "reason": null,
       "default_expanded": false
     },
     {

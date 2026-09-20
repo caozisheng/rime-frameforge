@@ -5,7 +5,7 @@ import { RuntimeController } from '../../../web/src/runtime-controller.js';
 import { SerialCommandQueue } from '../../../web/src/serial-command-queue.js';
 import { DEFAULT_DRC_IQ_PARAMETERS, validateDrcIqParameters } from '../../../web/src/gpu/drc.js';
 import { DEFAULT_GAMMA_PARAMETERS } from '../../../web/src/gpu/gamma.js';
-import type { DrcIqParameters, PreprocessSnapshot, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
+import type { DrcIqParameters, FrameMode, PreprocessSnapshot, RawFrameDescriptor, RuntimeCommand, RuntimeEnvelope, RuntimeEvent } from '../../../web/src/contracts.js';
 import { defaultGraphBypassConfig, validateGraphBypassConfig, type GraphBypassConfig } from '../../../web/src/gpu/bypass.js';
 import { WasmRuntimeAuthority } from './runtime/wasm-runtime.js';
 import { canLoadNextDngFrame, frameLoadInvalidatesRuntime } from './runtime/dng-sequence.js';
@@ -17,6 +17,7 @@ let canvas: OffscreenCanvas | null = null;
 let rawAsset: ArrayBuffer | null = null;
 let rawByteOffset = 0;
 let descriptor: RawFrameDescriptor | null = null;
+let frameMode: FrameMode = 'single';
 let deviceWasLost = false;
 const selectedMethods: Record<string, string> = { dem: '00' };
 let bypassConfig: GraphBypassConfig = defaultGraphBypassConfig();
@@ -58,6 +59,7 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
     rawAsset = command.raw;
     rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
+    frameMode = command.mode;
     authority = await WasmRuntimeAuthority.create();
     envelope = authority.load();
     gpu = await createGpuContext(canvas, descriptor);
@@ -80,10 +82,12 @@ async function handleCommand(command: RuntimeCommand): Promise<void> {
       throw new Error('INVALID_STATE_TRANSITION: DNG frame can only load while stopped or completed');
     }
     const previousExecutor = executor;
-    const canReuseExecutor = previousExecutor?.canReplaceFrame(command.descriptor) === true;
+    const nextMode = command.mode;
+    const canReuseExecutor = frameMode === nextMode && previousExecutor?.canReplaceFrame(command.descriptor) === true;
     rawAsset = command.raw;
     rawByteOffset = command.rawByteOffset;
     descriptor = command.descriptor;
+    frameMode = nextMode;
     if (frameLoadInvalidatesRuntime(canReuseExecutor)) {
       envelope = authority.reset();
     }
@@ -208,27 +212,38 @@ function createExecutor(generation: number): void {
   if (gpu === null || rawAsset === null || descriptor === null || authority === null) {
     throw new Error('INVALID_STATE_TRANSITION: GPU inputs are unavailable');
   }
-  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, (identity) => {
-    if (authority === null || rawAsset === null || descriptor === null) {
-      throw new Error('INVALID_STATE_TRANSITION: frame packet inputs are unavailable');
-    }
-    const packets = authority.deriveFramePackets(
-      descriptor,
-      rawAsset,
-      rawByteOffset,
-      identity.frameIndex,
-      selectedMethods,
-      parameterValues,
-      lutValues.gamma_lut ?? DEFAULT_GAMMA_PARAMETERS.lut,
-      drcIqParameters,
-      bypassConfig.modules,
-    );
-    self.postMessage({
-      type: 'preprocess_snapshot',
-      envelope,
-      snapshot: parsePreprocessSnapshot(packets.preprocessSnapshotJson),
-    } satisfies RuntimeEvent);
-    return packets;
+  executor = new NormalGpuExecutor(gpu, rawAsset, rawByteOffset, generation, descriptor, frameMode, {
+    begin(identity, mode) {
+      if (authority === null || rawAsset === null || descriptor === null) {
+        throw new Error('INVALID_STATE_TRANSITION: frame packet inputs are unavailable');
+      }
+      return authority.beginFrame(
+        descriptor,
+        rawAsset,
+        rawByteOffset,
+        identity,
+        mode,
+        selectedMethods,
+        parameterValues,
+        lutValues.gamma_lut ?? DEFAULT_GAMMA_PARAMETERS.lut,
+        drcIqParameters,
+        bypassConfig.modules,
+      );
+    },
+    prepareConsumers(payload, coldStart) {
+      if (authority === null) throw new Error('WASM authority is unavailable');
+      const packets = authority.prepareConsumers(payload ?? undefined, coldStart);
+      self.postMessage({
+        type: 'preprocess_snapshot',
+        envelope,
+        snapshot: parsePreprocessSnapshot(packets.preprocessSnapshotJson),
+      } satisfies RuntimeEvent);
+      return packets;
+    },
+    stageLcstStatistics(payload) {
+      if (authority === null) throw new Error('WASM authority is unavailable');
+      authority.stageLcstStatistics(payload);
+    },
   });
   for (const [nodeId, method] of Object.entries(selectedMethods)) executor.setMethod(nodeId, method);
   if ('setBypassConfig' in executor) {
@@ -259,10 +274,12 @@ function watchDeviceLoss(device: GPUDevice): void {
     void commands.enqueue(() => {
       if (authority === null || gpu?.device !== device) return;
       deviceWasLost = true;
+      executor?.abort();
       controller = null;
       executor = null;
       gpu = null;
       envelope = authority.deviceLost();
+      self.postMessage({ type: 'snapshot', envelope } satisfies RuntimeEvent);
       postError(`WebGPU device lost: ${info.message || info.reason}`, 'GPU_DEVICE_LOST');
     });
   });

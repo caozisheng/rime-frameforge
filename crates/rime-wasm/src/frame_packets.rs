@@ -1,17 +1,47 @@
 use rime_core::{GraphQuantizationConfig, NodeExecutionMode};
 use rime_isp::{
     FrameIdentity, FusedColorReproduce, FusedDemosaicThresholds, FusedGamma,
-    FusedHighlightRecovery, FusedUniformRequest, ModuleParameterPacket, PreparedOperatorMethods,
-    PreprocessContext, build_normal_graph_presentation, complete_operator_methods,
-    pack_fused_uniforms, prepare_operator_methods,
+    FusedHighlightRecovery, FusedUniformRequest, LcstStatisticsPacket, ModuleParameterPacket,
+    PreparedOperatorMethods, PreprocessContext, build_normal_graph_presentation,
+    complete_operator_methods, lcst_producer_by_id, pack_fused_uniforms, prepare_operator_methods,
     vbe::dem::{DEFAULT_AHD_C_THRESHOLD_SQ, DEFAULT_AHD_L_THRESHOLD, DEFAULT_VNG_THRESHOLD},
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameMode {
+    Single,
+    Sequence,
+}
+
+impl FrameMode {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "single" => Ok(Self::Single),
+            "sequence" => Ok(Self::Sequence),
+            _ => Err(js_error(
+                "WASM_FRAME_MODE_INVALID: expected single or sequence",
+            )),
+        }
+    }
+}
+
+struct PendingFrame {
+    descriptor: FrameDescriptor,
+    options: FrameOptions,
+    frame_index: u64,
+    mode: FrameMode,
+    context: PreprocessContext,
+    pre_lcst: PreparedOperatorMethods,
+    consumers: Option<PreparedOperatorMethods>,
+    current_statistics: Option<LcstStatisticsPacket>,
+}
+
 #[wasm_bindgen]
 pub struct FramePacketDeriver {
-    prepared: Option<PreparedOperatorMethods>,
+    pending: Option<PendingFrame>,
+    history: Option<LcstStatisticsPacket>,
 }
 
 impl Default for FramePacketDeriver {
@@ -25,57 +55,244 @@ impl FramePacketDeriver {
     #[wasm_bindgen(constructor)]
     #[must_use]
     pub fn new() -> Self {
-        Self { prepared: None }
+        Self {
+            pending: None,
+            history: None,
+        }
     }
 
-    /// Runs the registered Rust preprocess hooks and returns GPU-ready bytes.
+    /// Prepares the BLC and LCST stages before GPU execution.
     ///
     /// # Errors
     ///
-    /// Returns a stable message when JSON, metadata, method selection, or packet derivation fails.
-    pub fn derive_frame_packets(
+    /// Returns a stable message when a frame is already pending, JSON, metadata,
+    /// method selection, or pre-LCST packet derivation fails.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the WASM boundary transports the complete typed frame identity without JSON or per-frame wrapper allocation"
+    )]
+    pub fn begin_frame(
         &mut self,
         descriptor_json: &str,
         raw_samples: &[u16],
         options_json: &str,
-        frame_index: u32,
-    ) -> Result<FramePackets, JsValue> {
-        if self.prepared.is_some() {
+        frame_index: u64,
+        run_revision: u64,
+        method_revision: u64,
+        mode: &str,
+    ) -> Result<FrameBegin, String> {
+        if self.pending.is_some() {
             return Err(js_error(
                 "WASM_FRAME_IN_PROGRESS: complete the previous frame first",
             ));
         }
+        let mode = FrameMode::parse(mode)?;
         let descriptor: FrameDescriptor = serde_json::from_str(descriptor_json)
             .map_err(|error| js_error(&format!("WASM_DESCRIPTOR_INVALID: {error}")))?;
         let options: FrameOptions = serde_json::from_str(options_json)
             .map_err(|error| js_error(&format!("WASM_FRAME_OPTIONS_INVALID: {error}")))?;
-        let context = preprocess_context(&descriptor, &options, raw_samples, frame_index)?;
-        let selected = [
-            ("blc", "00"),
-            ("lsc", "00"),
-            ("wbc", "00"),
-            ("drc", options.drc_method.as_str()),
-            ("dem", options.dem_method.as_str()),
-        ];
-        let prepared = prepare_operator_methods(&selected, &context)
+        let expected_samples = usize::try_from(descriptor.row_stride_samples)
+            .ok()
+            .and_then(|stride| {
+                usize::try_from(descriptor.height)
+                    .ok()
+                    .and_then(|height| stride.checked_mul(height))
+            })
+            .ok_or_else(|| js_error("WASM_RAW_SAMPLES_INVALID: sample count overflows"))?;
+        if raw_samples.len() != expected_samples {
+            return Err(js_error(&format!(
+                "WASM_RAW_SAMPLES_INVALID: expected {expected_samples} samples, got {}",
+                raw_samples.len()
+            )));
+        }
+
+        let history_is_incompatible = self.history.as_ref().is_some_and(|history| {
+            history.source_extent() != [descriptor.width, descriptor.height]
+                || history.cfa_pattern() != cfa_pattern(&descriptor.cfa).unwrap_or([u32::MAX; 4])
+        });
+        if (mode == FrameMode::Sequence && frame_index == 0) || history_is_incompatible {
+            self.history = None;
+        }
+
+        let context = preprocess_context(
+            &descriptor,
+            &options,
+            raw_samples,
+            frame_index,
+            run_revision,
+            method_revision,
+        )?;
+        let pre_lcst = prepare_operator_methods(&[("blc", "00")], &context)
             .map_err(|error| js_error(&format!("WASM_PREPROCESS_FAILED: {error}")))?;
-        let packets = build_frame_packets(&descriptor, &options, frame_index, &prepared)?;
-        self.prepared = Some(prepared);
-        Ok(packets)
+        let lcst_packet = lcst_producer_by_id("lcst")
+            .ok_or_else(|| js_error("WASM_LCST_METHOD_MISSING: lcst producer is not registered"))?
+            .preprocess("00", &context)
+            .map_err(|error| js_error(&format!("WASM_LCST_PREPROCESS_FAILED: {error}")))?;
+        let begin = FrameBegin {
+            blc_uniform: packet(&pre_lcst, "blc")?.bytes().to_vec(),
+            lcst_uniform: lcst_packet.bytes().to_vec(),
+        };
+        self.pending = Some(PendingFrame {
+            descriptor,
+            options,
+            frame_index,
+            mode,
+            context,
+            pre_lcst,
+            consumers: None,
+            current_statistics: None,
+        });
+        Ok(begin)
     }
 
-    /// Runs the matching registered Rust postprocess hooks after WebGPU compute.
+    /// Prepares consumer packets using same-frame statistics for standalone mode
+    /// or the committed predecessor/cold-start policy for sequence mode.
     ///
     /// # Errors
     ///
-    /// Returns an error when no frame is pending or a postprocess hook fails.
-    pub fn complete_frame(&mut self) -> Result<(), JsValue> {
-        let prepared = self
-            .prepared
-            .take()
-            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: derive frame packets first"))?;
-        complete_operator_methods(&prepared)
+    /// Returns a stable message when statistics are missing, malformed, or the
+    /// pending frame is in the wrong lifecycle phase.
+    pub fn prepare_consumers(
+        &mut self,
+        payload: Option<Vec<u8>>,
+        sequence_cold_start: bool,
+    ) -> Result<FramePackets, String> {
+        let pending = self
+            .pending
+            .as_mut()
+            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: begin a frame first"))?;
+        if pending.consumers.is_some() {
+            return Err(js_error(
+                "WASM_CONSUMERS_ALREADY_PREPARED: prepare consumers once",
+            ));
+        }
+        let statistics = match pending.mode {
+            FrameMode::Single => {
+                if sequence_cold_start {
+                    return Err(js_error(
+                        "WASM_LCST_COLD_START_INVALID: cold start only applies to sequence mode",
+                    ));
+                }
+                let payload = payload.ok_or_else(|| {
+                    js_error(
+                        "WASM_LCST_PAYLOAD_REQUIRED: standalone consumers require same-frame LCST statistics",
+                    )
+                })?;
+                let statistics = decode_lcst(&pending.context, &payload)?;
+                pending.current_statistics = Some(statistics.clone());
+                Some(statistics)
+            }
+            FrameMode::Sequence => {
+                if payload.is_some() {
+                    return Err(js_error(
+                        "WASM_LCST_PAYLOAD_UNEXPECTED: sequence consumers use predecessor statistics",
+                    ));
+                }
+                if sequence_cold_start {
+                    if pending.frame_index != 0 {
+                        return Err(js_error(
+                            "WASM_LCST_COLD_START_INVALID: cold start requires sequence frame zero",
+                        ));
+                    }
+                    None
+                } else {
+                    if pending.frame_index == 0 {
+                        return Err(js_error(
+                            "WASM_LCST_COLD_START_REQUIRED: sequence frame zero requires explicit cold start",
+                        ));
+                    }
+                    let history = self.history.as_ref().ok_or_else(|| {
+                        js_error(
+                            "WASM_LCST_HISTORY_MISSING: sequence predecessor statistics are unavailable",
+                        )
+                    })?;
+                    let expected = pending.frame_index.saturating_sub(1);
+                    if history.identity().frame_index != expected
+                        || history.identity().method_revision
+                            != pending.context.identity.method_revision
+                        || history.source_extent()
+                            != [pending.context.width, pending.context.height]
+                        || history.cfa_pattern() != pending.context.cfa_pattern
+                    {
+                        return Err(js_error(
+                            "WASM_LCST_HISTORY_MISMATCH: sequence predecessor does not match the current frame",
+                        ));
+                    }
+                    Some(history.clone())
+                }
+            }
+        };
+        pending.context.lcst_statistics = statistics;
+        pending.context.drc_local_cold_start =
+            pending.mode == FrameMode::Sequence && sequence_cold_start;
+        let selected = [
+            ("tintless", "00"),
+            ("lsc", "00"),
+            ("wbc", "00"),
+            ("drc", pending.options.drc_method.as_str()),
+            ("dem", pending.options.dem_method.as_str()),
+        ];
+        let consumers = prepare_operator_methods(&selected, &pending.context)
+            .map_err(|error| js_error(&format!("WASM_PREPROCESS_FAILED: {error}")))?;
+        let packets = build_frame_packets(
+            &pending.descriptor,
+            &pending.options,
+            pending.frame_index,
+            &pending.pre_lcst,
+            &consumers,
+        )?;
+        pending.consumers = Some(consumers);
+        Ok(packets)
+    }
+
+    /// Decodes and stages the current frame's LCST result for sequence history.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable message when there is no pending frame, the current
+    /// payload was already staged, or the payload is malformed.
+    pub fn stage_lcst_statistics(&mut self, payload: &[u8]) -> Result<(), String> {
+        let pending = self
+            .pending
+            .as_mut()
+            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: begin a frame first"))?;
+        if pending.current_statistics.is_some() {
+            return Err(js_error(
+                "WASM_LCST_STATISTICS_ALREADY_STAGED: current frame statistics are already staged",
+            ));
+        }
+        pending.current_statistics = Some(decode_lcst(&pending.context, payload)?);
+        Ok(())
+    }
+
+    /// Runs the matching registered Rust postprocess hooks and commits sequence history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when consumer preparation or current-frame LCST staging is missing.
+    pub fn complete_frame(&mut self) -> Result<(), String> {
+        let pending = self
+            .pending
+            .as_mut()
+            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: begin a frame first"))?;
+        let consumers = pending.consumers.as_ref().ok_or_else(|| {
+            js_error("WASM_CONSUMERS_NOT_PREPARED: prepare consumers before completion")
+        })?;
+        let statistics = pending.current_statistics.as_ref().ok_or_else(|| {
+            js_error(
+                "WASM_LCST_PAYLOAD_REQUIRED: stage current-frame LCST statistics before completion",
+            )
+        })?;
+        complete_operator_methods(&pending.pre_lcst)
             .map_err(|error| js_error(&format!("WASM_POSTPROCESS_FAILED: {error}")))?;
+        complete_operator_methods(consumers)
+            .map_err(|error| js_error(&format!("WASM_POSTPROCESS_FAILED: {error}")))?;
+        let mode = pending.mode;
+        let statistics = statistics.clone();
+        self.pending = None;
+        if mode == FrameMode::Sequence {
+            self.history = Some(statistics);
+        }
         Ok(())
     }
 
@@ -84,17 +301,65 @@ impl FramePacketDeriver {
     /// # Errors
     ///
     /// Returns an error when no frame is pending.
-    pub fn abort_frame(&mut self) -> Result<(), JsValue> {
-        self.prepared
+    pub fn abort_frame(&mut self) -> Result<(), String> {
+        self.pending
             .take()
-            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: derive frame packets first"))?;
+            .ok_or_else(|| js_error("WASM_FRAME_NOT_PREPARED: begin a frame first"))?;
         Ok(())
+    }
+
+    /// Clears the pending transaction and committed sequence statistics.
+    pub fn reset(&mut self) {
+        self.pending = None;
+        self.history = None;
     }
 }
 
+#[derive(Debug)]
+#[wasm_bindgen]
+pub struct FrameBegin {
+    blc_uniform: Vec<u8>,
+    lcst_uniform: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl FrameBegin {
+    #[must_use]
+    pub fn blc_uniform(&self) -> Vec<u8> {
+        self.blc_uniform.clone()
+    }
+
+    #[must_use]
+    pub fn lcst_uniform(&self) -> Vec<u8> {
+        self.lcst_uniform.clone()
+    }
+}
+
+fn decode_lcst(
+    context: &PreprocessContext,
+    payload: &[u8],
+) -> Result<LcstStatisticsPacket, String> {
+    let producer = lcst_producer_by_id("lcst")
+        .ok_or_else(|| js_error("WASM_LCST_METHOD_MISSING: lcst producer is not registered"))?;
+    let method = producer
+        .method("00")
+        .map_err(|error| js_error(&format!("WASM_LCST_METHOD_MISSING: {error}")))?;
+    (method.decode)(
+        context.identity,
+        [context.width, context.height],
+        context.cfa_pattern,
+        payload,
+    )
+    .map_err(|error| js_error(&format!("WASM_LCST_DECODE_FAILED: {error}")))
+}
+
+#[derive(Debug)]
 #[wasm_bindgen]
 pub struct FramePackets {
     blc_uniform: Vec<u8>,
+    tintless_uniform: Vec<u8>,
+    tintless_mesh: Vec<u8>,
+    tintless_audit: Vec<u8>,
     lsc_uniform: Vec<u8>,
     lsc_mesh_headers: Vec<u8>,
     lsc_mesh_entries: Vec<u8>,
@@ -116,6 +381,20 @@ impl FramePackets {
     #[must_use]
     pub fn blc_uniform(&self) -> Vec<u8> {
         self.blc_uniform.clone()
+    }
+    #[must_use]
+    pub fn tintless_uniform(&self) -> Vec<u8> {
+        self.tintless_uniform.clone()
+    }
+
+    #[must_use]
+    pub fn tintless_mesh(&self) -> Vec<u8> {
+        self.tintless_mesh.clone()
+    }
+
+    #[must_use]
+    pub fn tintless_audit(&self) -> Vec<u8> {
+        self.tintless_audit.clone()
     }
 
     #[must_use]
@@ -293,6 +572,17 @@ struct FrameOptions {
     gamma: GammaOptions,
     dem_thresholds: Option<DemosaicThresholdsOptions>,
     quantization: GraphQuantizationConfig,
+    #[serde(default)]
+    bypass_modules: std::collections::BTreeMap<String, bool>,
+}
+
+impl FrameOptions {
+    fn is_bypassed(&self, module_id: &str) -> bool {
+        self.bypass_modules
+            .get(module_id)
+            .copied()
+            .unwrap_or(module_id == "tintless")
+    }
 }
 
 #[derive(Deserialize)]
@@ -338,29 +628,16 @@ impl From<&DemosaicThresholdsOptions> for rime_isp::DemosaicThresholds {
 fn preprocess_context(
     descriptor: &FrameDescriptor,
     options: &FrameOptions,
-    raw_samples: &[u16],
-    frame_index: u32,
-) -> Result<PreprocessContext, JsValue> {
-    let local_statistics = if options.drc_method == "01" {
-        Some(
-            rime_isp::vbe::drc::build_bayer_local_statistics(
-                raw_samples,
-                descriptor.width,
-                descriptor.height,
-                descriptor.row_stride_samples,
-                descriptor.black_level,
-                descriptor.white_level,
-            )
-            .map_err(|error| js_error(&format!("WASM_DRC_HISTOGRAM_INVALID: {error}")))?,
-        )
-    } else {
-        None
-    };
+    _raw_samples: &[u16],
+    frame_index: u64,
+    run_revision: u64,
+    method_revision: u64,
+) -> Result<PreprocessContext, String> {
     Ok(PreprocessContext {
         identity: FrameIdentity {
-            frame_index: u64::from(frame_index),
-            run_revision: 0,
-            method_revision: 0,
+            frame_index,
+            run_revision,
+            method_revision,
         },
         width: descriptor.width,
         height: descriptor.height,
@@ -397,10 +674,12 @@ fn preprocess_context(
         baseline_exposure_ev: descriptor.metadata.baseline_exposure,
         exposure_time_seconds: positive_ratio(descriptor.metadata.exif_exposure_time),
         f_number: positive_ratio(descriptor.metadata.exif_f_number),
-        drc_local_statistics: local_statistics,
+        lcst_statistics: None,
+        drc_local_cold_start: false,
         drc_exposure_policy: rime_isp::vbe::drc::DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,
+
         drc_gain_offset_ev: options.drc_gain_offset_ev,
         drc_knee: options.drc_knee,
         drc_amplifier: options.drc_amplifier,
@@ -439,14 +718,16 @@ fn preprocess_context(
 fn build_frame_packets(
     descriptor: &FrameDescriptor,
     options: &FrameOptions,
-    frame_index: u32,
-    prepared: &PreparedOperatorMethods,
-) -> Result<FramePackets, JsValue> {
-    let blc = packet(prepared, "blc")?;
-    let lsc = packet(prepared, "lsc")?;
-    let wbc = packet(prepared, "wbc")?;
-    let drc = packet(prepared, "drc")?;
-    let dem = packet(prepared, "dem")?;
+    frame_index: u64,
+    pre_lcst: &PreparedOperatorMethods,
+    consumers: &PreparedOperatorMethods,
+) -> Result<FramePackets, String> {
+    let blc = packet(pre_lcst, "blc")?;
+    let tintless = packet(consumers, "tintless")?;
+    let lsc = packet(consumers, "lsc")?;
+    let wbc = packet(consumers, "wbc")?;
+    let drc = packet(consumers, "drc")?;
+    let dem = packet(consumers, "dem")?;
     let wbc_hr_gain = rime_isp::vbe::white_balance::hr_gain_from_packet(wbc)
         .map_err(|error| js_error(&format!("WASM_WBC_PACKET_INVALID: {error}")))?;
     let white_balance_gains = [
@@ -479,11 +760,17 @@ fn build_frame_packets(
         .nodes
         .iter()
         .filter_map(|node| {
-            node.execution_node_id
-                .as_ref()
-                .map(|module_id| (module_id.clone(), node.mode == NodeExecutionMode::Enabled))
+            node.execution_node_id.as_ref().map(|module_id| {
+                (
+                    module_id.clone(),
+                    node.mode == NodeExecutionMode::Enabled && !options.is_bypassed(module_id),
+                )
+            })
         })
         .collect();
+    let fused_frame_index = u32::try_from(frame_index).map_err(|_| {
+        js_error("WASM_FRAME_INDEX_INVALID: fused quantization requires a 32-bit frame index")
+    })?;
     let fused_uniform = pack_fused_uniforms(&FusedUniformRequest {
         width: descriptor.width,
         height: descriptor.height,
@@ -506,24 +793,23 @@ fn build_frame_packets(
             enable: options.wbc_highlight_recovery,
             gains: white_balance_gains,
         },
-        frame_index,
+        frame_index: fused_frame_index,
         quantization,
         quantization_graph_enabled: options.quantization.enabled,
         module_modes,
     })
     .map_err(|error| js_error(&error))?;
-    let preprocess_snapshot = preprocess_snapshot_json(frame_index, options, blc, wbc, drc, dem)?;
+    let preprocess_snapshot =
+        preprocess_snapshot_json(frame_index, options, blc, tintless, wbc, drc, dem)?;
     Ok(FramePackets {
         blc_uniform: blc.bytes().to_vec(),
+        tintless_uniform: tintless.bytes().to_vec(),
+        tintless_mesh: resource_bytes(tintless, "gain_mesh")?,
+        tintless_audit: resource_bytes(tintless, "audit")?,
         lsc_uniform: lsc.bytes().to_vec(),
         lsc_mesh_headers: resource_bytes(lsc, "gain_mesh_headers")?,
         lsc_mesh_entries: resource_bytes(lsc, "gain_mesh_entries")?,
-        lsc_active: lsc
-            .bytes()
-            .get(..4)
-            .and_then(|slice| slice.try_into().ok())
-            .map_or(0_u32, u32::from_ne_bytes)
-            != 0,
+        lsc_active: packet_enabled(lsc),
         wbc_uniform: wbc.bytes().to_vec(),
         drc_uniform: drc.bytes().to_vec(),
         dem_uniform: padded_dem_uniform(dem.bytes()),
@@ -537,22 +823,13 @@ fn build_frame_packets(
     })
 }
 
-fn packet<'a>(
-    prepared: &'a PreparedOperatorMethods,
-    module_id: &str,
-) -> Result<&'a ModuleParameterPacket, JsValue> {
-    prepared
-        .packets()
-        .iter()
-        .find(|packet| packet.module_id() == module_id)
-        .ok_or_else(|| js_error(&format!("WASM_PACKET_MISSING: {module_id}")))
-}
-
-fn resource_bytes(packet: &ModuleParameterPacket, id: &str) -> Result<Vec<u8>, JsValue> {
+fn packet_enabled(packet: &ModuleParameterPacket) -> bool {
     packet
-        .resource(id)
-        .map(|resource| resource.bytes().to_vec())
-        .ok_or_else(|| js_error(&format!("WASM_PACKET_RESOURCE_MISSING: {id}")))
+        .bytes()
+        .get(..4)
+        .and_then(|slice| slice.try_into().ok())
+        .map_or(0_u32, u32::from_ne_bytes)
+        != 0
 }
 
 fn optional_resource_bytes(packet: &ModuleParameterPacket, id: &str) -> Vec<u8> {
@@ -560,15 +837,33 @@ fn optional_resource_bytes(packet: &ModuleParameterPacket, id: &str) -> Vec<u8> 
         .resource(id)
         .map_or_else(Vec::new, |resource| resource.bytes().to_vec())
 }
+fn resource_bytes(packet: &ModuleParameterPacket, id: &str) -> Result<Vec<u8>, String> {
+    packet
+        .resource(id)
+        .map(|resource| resource.bytes().to_vec())
+        .ok_or_else(|| js_error(&format!("WASM_PACKET_RESOURCE_MISSING: {id}")))
+}
+
+fn packet<'a>(
+    prepared: &'a PreparedOperatorMethods,
+    module_id: &str,
+) -> Result<&'a ModuleParameterPacket, String> {
+    prepared
+        .packets()
+        .iter()
+        .find(|packet| packet.module_id() == module_id)
+        .ok_or_else(|| js_error(&format!("WASM_PACKET_MISSING: {module_id}")))
+}
 
 fn preprocess_snapshot_json(
-    frame_index: u32,
+    frame_index: u64,
     options: &FrameOptions,
     blc: &ModuleParameterPacket,
+    tintless: &ModuleParameterPacket,
     wbc: &ModuleParameterPacket,
     drc: &ModuleParameterPacket,
     dem: &ModuleParameterPacket,
-) -> Result<String, JsValue> {
+) -> Result<String, String> {
     let mut modules = serde_json::Map::new();
     modules.insert(
         "blc".to_owned(),
@@ -579,6 +874,46 @@ fn preprocess_snapshot_json(
                 "white_level": f32_at(blc.bytes(), 4)?,
                 "width": u32_at(blc.bytes(), 8)?,
                 "height": u32_at(blc.bytes(), 12)?,
+            }),
+        ),
+    );
+    let tintless_audit = tintless
+        .resource("audit")
+        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing audit resource"))?;
+    let audit = tintless_audit.bytes();
+    let mesh = tintless
+        .resource("gain_mesh")
+        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing gain mesh"))?
+        .bytes();
+    let mesh_values = mesh
+        .chunks_exact(4)
+        .map(|bytes| f32::from_ne_bytes(bytes.try_into().expect("four-byte mesh value")))
+        .collect::<Vec<_>>();
+    if mesh_values.is_empty() || !mesh_values.iter().all(|value| value.is_finite()) {
+        return Err(js_error("WASM_TINTLESS_PACKET_INVALID: mesh is not finite"));
+    }
+    let mesh_min = mesh_values.iter().copied().fold(f32::INFINITY, f32::min);
+    let mesh_max = mesh_values
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    modules.insert(
+        "tintless".to_owned(),
+        module_snapshot(
+            tintless,
+            &serde_json::json!({
+                "source_extent": [u32_at(tintless.bytes(), 0)?, u32_at(tintless.bytes(), 4)?],
+                "mesh_extent": [u32_at(tintless.bytes(), 8)?, u32_at(tintless.bytes(), 12)?],
+                "cfa_pattern": [u32_at(tintless.bytes(), 16)?, u32_at(tintless.bytes(), 20)?, u32_at(tintless.bytes(), 24)?, u32_at(tintless.bytes(), 28)?],
+                "gain_clamp": [f32_at(tintless.bytes(), 32)?, f32_at(tintless.bytes(), 36)?],
+                "cold_start": u32_at(tintless.bytes(), 40)? != 0,
+                "valid_cells": u32_at(audit, 0)?,
+                "qualified_components": u32_at(audit, 4)?,
+                "radial_knots": 9,
+                "residual_rms": [f32_at(audit, 8)?, f32_at(audit, 12)?],
+                "mesh_min": mesh_min,
+                "mesh_max": mesh_max,
+                "clamp_count": u32_at(audit, 16)?,
             }),
         ),
     );
@@ -637,7 +972,7 @@ fn module_snapshot(
     serde_json::json!({ "method": packet.method(), "parameters": parameters })
 }
 
-fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, JsValue> {
+fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
     let raw = bytes
         .get(offset..offset + 4)
         .ok_or_else(|| js_error("WASM_PACKET_LAYOUT_INVALID: missing u32 field"))?;
@@ -646,7 +981,7 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, JsValue> {
     ))
 }
 
-fn demosaic_thresholds(method: &str, bytes: &[u8]) -> Result<FusedDemosaicThresholds, JsValue> {
+fn demosaic_thresholds(method: &str, bytes: &[u8]) -> Result<FusedDemosaicThresholds, String> {
     let mut thresholds = FusedDemosaicThresholds {
         vng_threshold: DEFAULT_VNG_THRESHOLD,
         ahd_l_threshold: DEFAULT_AHD_L_THRESHOLD,
@@ -669,7 +1004,7 @@ fn padded_dem_uniform(bytes: &[u8]) -> Vec<u8> {
     uniform
 }
 
-fn f32_at(bytes: &[u8], offset: usize) -> Result<f32, JsValue> {
+fn f32_at(bytes: &[u8], offset: usize) -> Result<f32, String> {
     let raw = bytes
         .get(offset..offset + 4)
         .ok_or_else(|| js_error("WASM_PACKET_LAYOUT_INVALID: missing f32 field"))?;
@@ -678,7 +1013,7 @@ fn f32_at(bytes: &[u8], offset: usize) -> Result<f32, JsValue> {
     ))
 }
 
-fn cfa_pattern(cfa: &str) -> Result<[u32; 4], JsValue> {
+fn cfa_pattern(cfa: &str) -> Result<[u32; 4], String> {
     match cfa {
         "rggb" => Ok([0, 1, 1, 2]),
         "grbg" => Ok([1, 0, 2, 1]),
@@ -711,6 +1046,6 @@ fn encode_f32(values: &[f32]) -> Vec<u8> {
         .collect()
 }
 
-fn js_error(message: &str) -> JsValue {
-    JsValue::from_str(message)
+fn js_error(message: &str) -> String {
+    message.to_owned()
 }

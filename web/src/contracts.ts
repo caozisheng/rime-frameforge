@@ -76,8 +76,23 @@ export interface RawFrameDescriptor {
   readonly colorReproduce?: ColorReproduceAssets | null;
   readonly metadata: FramePreprocessMetadata;
 }
-export interface FramePacketBytes {
+export type FrameMode = 'single' | 'sequence';
+
+export interface FrameIdentity {
+  readonly frameIndex: number | bigint;
+  readonly runRevision: number | bigint;
+  readonly methodRevision: number | bigint;
+}
+
+export interface FrameBeginPackets {
   readonly blcUniform: Uint8Array<ArrayBuffer>;
+  readonly lcstUniform: Uint8Array<ArrayBuffer>;
+}
+
+export interface FrameConsumerPackets {
+  readonly tintlessUniform: Uint8Array<ArrayBuffer>;
+  readonly tintlessMesh: Uint8Array<ArrayBuffer>;
+  readonly tintlessAudit: Uint8Array<ArrayBuffer>;
   readonly lscUniform: Uint8Array<ArrayBuffer>;
   readonly lscMeshHeaders: Uint8Array<ArrayBuffer>;
   readonly lscMeshEntries: Uint8Array<ArrayBuffer>;
@@ -92,7 +107,7 @@ export interface FramePacketBytes {
   readonly colorReproduceHsLut: Uint8Array<ArrayBuffer>;
   readonly preprocessSnapshotJson: string;
 }
-export type FramePacketProvider = (identity: Readonly<{ frameIndex: number }>) => FramePacketBytes;
+
 export type PreprocessParameterValue = number | boolean | string | readonly number[] | null;
 export interface PreprocessModuleSnapshot {
   readonly method: string;
@@ -148,8 +163,8 @@ export interface DrcIqParameters {
 }
 
 export type RuntimeCommand =
-  | { readonly type: 'initialize'; readonly canvas: OffscreenCanvas; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
-  | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor }
+  | { readonly type: 'initialize'; readonly canvas: OffscreenCanvas; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor; readonly mode: FrameMode }
+  | { readonly type: 'load_frame'; readonly raw: ArrayBuffer; readonly rawByteOffset: number; readonly descriptor: RawFrameDescriptor; readonly mode: FrameMode }
   | { readonly type: 'set_method'; readonly nodeId: string; readonly method: string }
   | { readonly type: 'set_parameter'; readonly nodeId: string; readonly parameter: string; readonly value: number }
   | { readonly type: 'set_lut'; readonly nodeId: string; readonly parameter: string; readonly values: readonly number[] }

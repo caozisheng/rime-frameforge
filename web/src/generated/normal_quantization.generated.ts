@@ -27,6 +27,12 @@ export const normalGraphQuantization = {
       "clip_type": "truncate"
     },
     {
+      "module_id": "lcst",
+      "output_enabled": true,
+      "output_profile": "s0.10",
+      "clip_type": "truncate"
+    },
+    {
       "module_id": "raw_nr",
       "output_enabled": false,
       "output_profile": "s0.14",
@@ -34,7 +40,7 @@ export const normalGraphQuantization = {
     },
     {
       "module_id": "tintless",
-      "output_enabled": false,
+      "output_enabled": true,
       "output_profile": "s0.14",
       "clip_type": "truncate"
     },

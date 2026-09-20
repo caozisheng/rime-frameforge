@@ -175,7 +175,9 @@ pub struct PreprocessContext {
     pub baseline_exposure_ev: Option<f64>,
     pub exposure_time_seconds: Option<f64>,
     pub f_number: Option<f64>,
-    pub drc_local_statistics: Option<crate::vbe::drc::DrcLocalStatistics>,
+    pub lcst_statistics: Option<crate::LcstStatisticsPacket>,
+    /// Sequence frame-zero policy: DRC01 freezes a 1×1 local field equal to the global LUT.
+    pub drc_local_cold_start: bool,
     pub drc_exposure_policy: crate::vbe::drc::DrcExposurePolicy,
     pub drc_metered_target_ev100: Option<f64>,
     pub drc_profile_adjustment_ev: f64,
@@ -226,12 +228,28 @@ pub struct ModuleParameterResource {
     id: &'static str,
     extent: [u32; 3],
     bytes: Vec<u8>,
+    gpu_binding: bool,
 }
 
 impl ModuleParameterResource {
     #[must_use]
     pub const fn new(id: &'static str, extent: [u32; 3], bytes: Vec<u8>) -> Self {
-        Self { id, extent, bytes }
+        Self {
+            id,
+            extent,
+            bytes,
+            gpu_binding: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn host_only(id: &'static str, extent: [u32; 3], bytes: Vec<u8>) -> Self {
+        Self {
+            id,
+            extent,
+            bytes,
+            gpu_binding: false,
+        }
     }
 
     #[must_use]
@@ -247,6 +265,11 @@ impl ModuleParameterResource {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    #[must_use]
+    pub const fn is_gpu_binding(&self) -> bool {
+        self.gpu_binding
     }
 }
 

@@ -7,9 +7,11 @@
 
 use rime_core::{ResourceFormat, SignalDomain};
 use rime_dng::{BayerCfa, DecodedRawFrame, DngReaderError, RawFrameLayout};
-use rime_isp::vbe::drc::{DrcExposurePolicy, build_bayer_local_statistics};
+use rime_isp::vbe::drc::DrcExposurePolicy;
 use rime_isp::{
-    FrameIdentity, ModuleParameterPacket, Operator, OperatorError, PreprocessContext, ShaderAsset,
+    FrameIdentity, LCST_AVERAGE_BYTES, LCST_HISTOGRAM_BYTES, LCST_PAYLOAD_BYTES,
+    LcstStatisticsPacket, ModuleParameterPacket, Operator, OperatorError, PreprocessContext,
+    ShaderAsset, lcst_producer_by_id,
 };
 use std::sync::{Mutex, mpsc};
 use thiserror::Error;
@@ -38,6 +40,38 @@ struct CompiledOperator {
     operator: &'static dyn Operator,
     shader: &'static ShaderAsset,
     pipeline: wgpu::ComputePipeline,
+}
+
+struct LcstPipelines {
+    average: wgpu::ComputePipeline,
+    histogram: wgpu::ComputePipeline,
+}
+
+impl LcstPipelines {
+    fn new(device: &wgpu::Device) -> Self {
+        let producer = lcst_producer_by_id("lcst").expect("registered LCST producer");
+        let method = producer
+            .method(producer.definition().default_method)
+            .expect("registered LCST default method");
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("lcst00"),
+            source: wgpu::ShaderSource::Wgsl(method.shader.source.into()),
+        });
+        let pipeline = |entry_point: &'static str| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry_point),
+                layout: None,
+                module: &module,
+                entry_point: Some(entry_point),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+        Self {
+            average: pipeline("lcst_average_main"),
+            histogram: pipeline("lcst_histogram_main"),
+        }
+    }
 }
 
 struct DrcPipelines {
@@ -92,6 +126,7 @@ pub struct WgpuReadbackExecutor {
     operators: Vec<CompiledOperator>,
     texture_pool: Mutex<Vec<PooledTexture>>,
     drc_pipelines: DrcPipelines,
+    lcst_pipelines: LcstPipelines,
 }
 
 /// Per-render DRC/WBC options threaded through `render_internal`.
@@ -103,6 +138,13 @@ struct RenderSetup<'a> {
     drc_profile_adjustment_ev: f64,
     wbc_highlight_recovery: bool,
     drc_details_amplify: bool,
+    statistics_source: StatisticsSource<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum StatisticsSource<'a> {
+    SameFrame,
+    Previous(Option<&'a LcstStatisticsPacket>),
 }
 
 /// Runtime ISP feature switches shared by the WBC and DRC modules.
@@ -155,12 +197,14 @@ impl WgpuReadbackExecutor {
                 });
             }
         }
+        let lcst_pipelines = LcstPipelines::new(&device);
         Ok(Self {
             device,
             queue,
             operators,
             texture_pool: Mutex::new(Vec::new()),
             drc_pipelines,
+            lcst_pipelines,
         })
     }
 
@@ -226,8 +270,10 @@ impl WgpuReadbackExecutor {
                 drc_profile_adjustment_ev: profile_adjustment_ev,
                 wbc_highlight_recovery: features.wbc_highlight_recovery,
                 drc_details_amplify: features.drc_details_amplify,
+                statistics_source: StatisticsSource::SameFrame,
             },
         )
+        .map(super::SequenceFrameOutput::into_surface)
     }
 
     pub fn render_with_identity(
@@ -254,6 +300,53 @@ impl WgpuReadbackExecutor {
                 drc_profile_adjustment_ev: 0.0,
                 wbc_highlight_recovery: features.wbc_highlight_recovery,
                 drc_details_amplify: features.drc_details_amplify,
+                statistics_source: StatisticsSource::SameFrame,
+            },
+        )
+        .map(super::SequenceFrameOutput::into_surface)
+    }
+
+    pub fn render_sequence_frame(
+        &self,
+        frame: &DecodedRawFrame,
+        identity: super::NativeFrameIdentity,
+        statistics: Option<&LcstStatisticsPacket>,
+    ) -> Result<super::SequenceFrameOutput, WgpuReadbackError> {
+        self.render_sequence_frame_with_options(
+            frame,
+            identity,
+            statistics,
+            "00",
+            DrcExposurePolicy::Baseline,
+            None,
+            0.0,
+            RenderFeatureFlags::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_sequence_frame_with_options(
+        &self,
+        frame: &DecodedRawFrame,
+        identity: super::NativeFrameIdentity,
+        statistics: Option<&LcstStatisticsPacket>,
+        drc_method: &str,
+        drc_exposure_policy: DrcExposurePolicy,
+        drc_metered_target_ev100: Option<f64>,
+        drc_profile_adjustment_ev: f64,
+        features: RenderFeatureFlags,
+    ) -> Result<super::SequenceFrameOutput, WgpuReadbackError> {
+        self.render_internal(
+            frame,
+            identity,
+            &RenderSetup {
+                drc_method: Some(drc_method),
+                drc_exposure_policy,
+                drc_metered_target_ev100,
+                drc_profile_adjustment_ev,
+                wbc_highlight_recovery: features.wbc_highlight_recovery,
+                drc_details_amplify: features.drc_details_amplify,
+                statistics_source: StatisticsSource::Previous(statistics),
             },
         )
     }
@@ -263,7 +356,7 @@ impl WgpuReadbackExecutor {
         frame: &DecodedRawFrame,
         identity: super::NativeFrameIdentity,
         setup: &RenderSetup<'_>,
-    ) -> Result<super::PreviewSurface, WgpuReadbackError> {
+    ) -> Result<super::SequenceFrameOutput, WgpuReadbackError> {
         Self::validate_input(&frame.layout, frame.samples().len())?;
         let width = frame.layout.width;
         let height = frame.layout.height;
@@ -276,15 +369,6 @@ impl WgpuReadbackExecutor {
             .first()
             .copied()
             .unwrap_or(4095.0) as f32;
-        let drc_local_statistics = build_bayer_local_statistics(
-            frame.samples(),
-            width,
-            height,
-            frame.layout.row_stride_samples,
-            black_level,
-            white_level,
-        )
-        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
         let preprocess_context = PreprocessContext {
             identity: FrameIdentity {
                 frame_index: identity.frame_index,
@@ -326,10 +410,12 @@ impl WgpuReadbackExecutor {
             baseline_exposure_ev: frame.metadata.baseline_exposure,
             exposure_time_seconds: positive_ratio(frame.metadata.exif_exposure_time),
             f_number: positive_ratio(frame.metadata.exif_f_number),
-            drc_local_statistics: Some(drc_local_statistics),
+            lcst_statistics: None,
+            drc_local_cold_start: false,
             drc_exposure_policy: setup.drc_exposure_policy,
             drc_metered_target_ev100: setup.drc_metered_target_ev100,
             drc_profile_adjustment_ev: setup.drc_profile_adjustment_ev,
+
             drc_gain_offset_ev: None,
             drc_knee: None,
             drc_amplifier: None,
@@ -373,7 +459,7 @@ impl WgpuReadbackExecutor {
             .collect::<Vec<_>>();
         let selected = order
             .iter()
-            .filter(|id| **id != "raw_source")
+            .filter(|id| !matches!(**id, "raw_source" | "lcst"))
             .map(|id| {
                 let operator = rime_isp::operator_by_id(id).ok_or_else(|| {
                     OperatorError::UnregisteredOperator {
@@ -392,65 +478,122 @@ impl WgpuReadbackExecutor {
             .collect::<Result<Vec<_>, OperatorError>>()?;
         let raw_texture = self.upload_raw(frame);
         let mut current: Option<PooledTexture> = None;
-        super::execute_operator_methods(&selected, &preprocess_context, |operator, packet| {
-            let compiled = self
-                .operators
-                .iter()
-                .find(|compiled| {
-                    std::ptr::eq(compiled.operator, operator)
-                        && compiled.shader.method == packet.method()
-                })
-                .ok_or(OperatorError::Preprocess {
-                    module_id: operator.definition().id,
-                    reason: "operator method has no compiled GPU pipeline",
-                })?;
-            // LSC with no gain sources (no GainMap, no FixVignetteRadial) is
-            // an identity pass: skip the dispatch entirely instead of binding
-            // empty storage buffers.
-            if operator.definition().id == "lsc" && lsc_packet_is_bypassed(packet) {
-                return Ok(());
-            }
-            let input = current
-                .as_ref()
-                .map_or(&raw_texture, |resource| &resource.texture);
-            let method =
-                operator
-                    .method(packet.method())
-                    .map_err(|_| OperatorError::Preprocess {
-                        module_id: operator.definition().id,
-                        reason: "operator method manifest is unavailable",
-                    })?;
-            let output = self
-                .acquire_texture(method.output.domain, method.output.format, width, height)
-                .map_err(|_| OperatorError::Preprocess {
-                    module_id: operator.definition().id,
-                    reason: "texture pool is unavailable",
-                })?;
-            let dispatch = if operator.definition().id == "drc" {
-                self.dispatch_drc(packet, input, &output.texture)
-            } else {
-                self.dispatch(compiled, packet, input, &output.texture)
-            };
-            dispatch.map_err(|_| OperatorError::Preprocess {
-                module_id: operator.definition().id,
-                reason: "GPU dispatch failed",
+        let lcst_packet = std::cell::RefCell::new(None);
+        let split = selected
+            .iter()
+            .position(|(id, _)| *id == "tintless")
+            .ok_or_else(|| {
+                WgpuReadbackError::Resource(
+                    "normal graph has no VFE/VBE tintless boundary".to_owned(),
+                )
             })?;
-            if let Some(previous) = current.replace(output) {
-                self.release_texture(previous)
-                    .map_err(|_| OperatorError::Preprocess {
-                        module_id: operator.definition().id,
-                        reason: "texture pool is unavailable",
+        let (front_end_methods, back_end_methods) = selected.split_at(split);
+        let mut execute_stage =
+            |methods: &[(&str, &str)], context: &PreprocessContext| -> Result<(), OperatorError> {
+                super::execute_operator_methods(methods, context, |operator, packet| {
+                    let compiled = self
+                        .operators
+                        .iter()
+                        .find(|compiled| {
+                            std::ptr::eq(compiled.operator, operator)
+                                && compiled.shader.method == packet.method()
+                        })
+                        .ok_or(OperatorError::Preprocess {
+                            module_id: operator.definition().id,
+                            reason: "operator method has no compiled GPU pipeline",
+                        })?;
+                    if operator.definition().id == "lsc" && lsc_packet_is_bypassed(packet) {
+                        return Ok(());
+                    }
+                    let input = current
+                        .as_ref()
+                        .map_or(&raw_texture, |resource| &resource.texture);
+                    let method = operator.method(packet.method()).map_err(|_| {
+                        OperatorError::Preprocess {
+                            module_id: operator.definition().id,
+                            reason: "operator method manifest is unavailable",
+                        }
                     })?;
-            }
-            Ok(())
+                    let output = self
+                        .acquire_texture(method.output.domain, method.output.format, width, height)
+                        .map_err(|_| OperatorError::Preprocess {
+                            module_id: operator.definition().id,
+                            reason: "texture pool is unavailable",
+                        })?;
+                    let dispatch = if operator.definition().id == "drc" {
+                        self.dispatch_drc(packet, input, &output.texture)
+                    } else {
+                        self.dispatch(compiled, packet, input, &output.texture)
+                    };
+                    dispatch.map_err(|_| OperatorError::Preprocess {
+                        module_id: operator.definition().id,
+                        reason: "GPU dispatch failed",
+                    })?;
+                    if operator.definition().id == "sbpc" {
+                        let producer =
+                            lcst_producer_by_id("lcst").ok_or(OperatorError::Preprocess {
+                                module_id: "lcst",
+                                reason: "LCST producer is not registered",
+                            })?;
+                        let packet =
+                            producer.preprocess(producer.definition().default_method, context)?;
+                        lcst_packet.replace(Some(
+                            self.dispatch_lcst(&packet, &output.texture).map_err(|_| {
+                                OperatorError::Preprocess {
+                                    module_id: "lcst",
+                                    reason: "LCST GPU dispatch or readback failed",
+                                }
+                            })?,
+                        ));
+                    }
+                    if let Some(previous) = current.replace(output) {
+                        self.release_texture(previous)
+                            .map_err(|_| OperatorError::Preprocess {
+                                module_id: operator.definition().id,
+                                reason: "texture pool is unavailable",
+                            })?;
+                    }
+                    Ok(())
+                })?;
+                Ok(())
+            };
+        execute_stage(front_end_methods, &preprocess_context)?;
+        let statistics = lcst_packet.borrow().clone().ok_or_else(|| {
+            WgpuReadbackError::Resource(
+                "normal graph produced no LCST statistics packet".to_owned(),
+            )
         })?;
+        let consumer_statistics = match setup.statistics_source {
+            StatisticsSource::SameFrame => Some(statistics.clone()),
+            StatisticsSource::Previous(None) => None,
+            StatisticsSource::Previous(Some(previous)) => {
+                let previous_identity = previous.identity();
+                if identity.frame_index.checked_sub(1) != Some(previous_identity.frame_index)
+                    || identity.run_revision != previous_identity.run_revision
+                    || identity.method_revision != previous_identity.method_revision
+                    || previous.source_extent() != [width, height]
+                    || previous.cfa_pattern() != cfa_pattern
+                {
+                    return Err(WgpuReadbackError::Resource(
+                        "LCST previous-frame packet does not match sequence identity".to_owned(),
+                    ));
+                }
+                Some(previous.clone())
+            }
+        };
+        let mut vbe_context = preprocess_context.clone();
+        vbe_context.lcst_statistics = consumer_statistics;
+        vbe_context.drc_local_cold_start =
+            matches!(setup.statistics_source, StatisticsSource::Previous(None));
+        execute_stage(back_end_methods, &vbe_context)?;
         let final_output = current.ok_or_else(|| {
             WgpuReadbackError::Resource("normal graph produced no output texture".to_owned())
         })?;
         let pixels = self.readback_rgba(&final_output.texture, width, height)?;
         self.release_texture(final_output)?;
-        super::PreviewSurface::new(identity, width, height, pixels)
-            .map_err(WgpuReadbackError::Graph)
+        let surface = super::PreviewSurface::new(identity, width, height, pixels)
+            .map_err(WgpuReadbackError::Graph)?;
+        Ok(super::SequenceFrameOutput::new(surface, statistics))
     }
 
     fn upload_raw(&self, frame: &DecodedRawFrame) -> wgpu::Texture {
@@ -613,6 +756,156 @@ impl WgpuReadbackExecutor {
             .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
         Ok(())
     }
+    fn dispatch_lcst(
+        &self,
+        packet: &ModuleParameterPacket,
+        input: &wgpu::Texture,
+    ) -> Result<LcstStatisticsPacket, WgpuReadbackError> {
+        let producer = lcst_producer_by_id("lcst").ok_or_else(|| {
+            WgpuReadbackError::Resource("LCST producer is not registered".to_owned())
+        })?;
+        let method = producer
+            .method(packet.method())
+            .map_err(|error| WgpuReadbackError::Resource(error.to_string()))?;
+        let uniform = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lcst-uniform"),
+                contents: packet.bytes(),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let average = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lcst-average"),
+            size: LCST_AVERAGE_BYTES as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let histogram = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lcst-histogram"),
+            size: LCST_HISTOGRAM_BYTES as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let average_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lcst-average-readback"),
+            size: LCST_AVERAGE_BYTES as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let histogram_staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lcst-histogram-readback"),
+            size: LCST_HISTOGRAM_BYTES as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let input_view = input.create_view(&wgpu::TextureViewDescriptor::default());
+        let average_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lcst-average"),
+            layout: &self.lcst_pipelines.average.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: average.as_entire_binding(),
+                },
+            ],
+        });
+        let histogram_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lcst-histogram"),
+            layout: &self.lcst_pipelines.histogram.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: histogram.as_entire_binding(),
+                },
+            ],
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("lcst"),
+            });
+        for (pipeline, bind_group, dispatch) in [
+            (
+                &self.lcst_pipelines.average,
+                &average_bind_group,
+                method.average_dispatch,
+            ),
+            (
+                &self.lcst_pipelines.histogram,
+                &histogram_bind_group,
+                method.histogram_dispatch,
+            ),
+        ] {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("lcst"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, bind_group, &[]);
+            pass.dispatch_workgroups(dispatch[0], dispatch[1], dispatch[2]);
+        }
+        encoder.copy_buffer_to_buffer(&average, 0, &average_staging, 0, LCST_AVERAGE_BYTES as u64);
+        encoder.copy_buffer_to_buffer(
+            &histogram,
+            0,
+            &histogram_staging,
+            0,
+            LCST_HISTOGRAM_BYTES as u64,
+        );
+        self.queue.submit([encoder.finish()]);
+        let mut bytes = Vec::with_capacity(LCST_PAYLOAD_BYTES);
+        bytes.extend(self.readback_buffer(&average_staging)?);
+        bytes.extend(self.readback_buffer(&histogram_staging)?);
+        (method.decode)(
+            packet.identity(),
+            [input.width(), input.height()],
+            [
+                u32_at(packet.bytes(), 16)?,
+                u32_at(packet.bytes(), 20)?,
+                u32_at(packet.bytes(), 24)?,
+                u32_at(packet.bytes(), 28)?,
+            ],
+            &bytes,
+        )
+        .map_err(|error| WgpuReadbackError::Resource(error.to_string()))
+    }
+
+    fn readback_buffer(&self, buffer: &wgpu::Buffer) -> Result<Vec<u8>, WgpuReadbackError> {
+        let slice = buffer.slice(..);
+        let (sender, receiver) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
+        receiver
+            .recv()
+            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?
+            .map_err(|error| WgpuReadbackError::Readback(error.to_string()))?;
+        let mapped = slice.get_mapped_range();
+        let bytes = mapped.to_vec();
+        drop(mapped);
+        buffer.unmap();
+        Ok(bytes)
+    }
+
     fn dispatch_guided_base(
         &self,
         input: &wgpu::Texture,
@@ -764,6 +1057,7 @@ impl WgpuReadbackExecutor {
         let parameter_resources = packet
             .resources()
             .iter()
+            .filter(|resource| resource.is_gpu_binding())
             .map(|resource| {
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -983,6 +1277,14 @@ impl WgpuReadbackExecutor {
             BayerCfa::Unsupported => None,
         }
     }
+}
+
+fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, WgpuReadbackError> {
+    bytes
+        .get(offset..offset + 4)
+        .and_then(|word| word.try_into().ok())
+        .map(u32::from_ne_bytes)
+        .ok_or_else(|| WgpuReadbackError::Resource("LCST uniform is truncated".to_owned()))
 }
 
 /// Returns whether the LSC packet has no gain sources — `mesh_count` 0 means

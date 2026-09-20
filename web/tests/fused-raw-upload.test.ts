@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { FramePacketProvider, RawFrameDescriptor } from '../src/contracts.js';
+import type { RawFrameDescriptor } from '../src/contracts.js';
 import type { GpuContext } from '../src/gpu/device.js';
-import { NormalGpuExecutor } from '../src/gpu/executor.js';
+import { NormalGpuExecutor, type StagedFramePacketProvider } from '../src/gpu/executor.js';
 
 const descriptor: RawFrameDescriptor = {
   width: 2,
@@ -15,22 +15,28 @@ const descriptor: RawFrameDescriptor = {
   whiteBalanceGains: [2, 1, 1.5],
   metadata: { colorMatrix1: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
 };
-const packetProvider: FramePacketProvider = () => ({
-  blcUniform: new Uint8Array(16),
-  lscUniform: new Uint8Array(32),
-  lscMeshHeaders: new Uint8Array(32),
-  lscMeshEntries: new Uint8Array(120),
-  lscActive: false,
-  wbcUniform: new Uint8Array(48),
-  drcUniform: new Uint8Array(32),
-  demUniform: new Uint8Array(32),
-  drcGlobalLut: new Uint8Array(1028),
-  drcLocalLut: new Uint8Array(),
-  drcModulationLuts: new Uint8Array(512),
-  fusedUniform: new Uint8Array(1024),
-  colorReproduceHsLut: new Uint8Array(),
-  preprocessSnapshotJson: '',
-});
+const packetProvider: StagedFramePacketProvider = {
+  begin: () => ({ blcUniform: new Uint8Array(16), lcstUniform: new Uint8Array(64) }),
+  prepareConsumers: () => ({
+    tintlessUniform: new Uint8Array(48),
+    tintlessMesh: new Uint8Array(65 * 49 * 2 * 4),
+    tintlessAudit: new Uint8Array(20),
+    lscUniform: new Uint8Array(32),
+    lscMeshHeaders: new Uint8Array(32),
+    lscMeshEntries: new Uint8Array(120),
+    lscActive: false,
+    wbcUniform: new Uint8Array(48),
+    drcUniform: new Uint8Array(32),
+    demUniform: new Uint8Array(32),
+    drcGlobalLut: new Uint8Array(1028),
+    drcLocalLut: new Uint8Array(),
+    drcModulationLuts: new Uint8Array(512),
+    fusedUniform: new Uint8Array(1024),
+    colorReproduceHsLut: new Uint8Array(),
+    preprocessSnapshotJson: '',
+  }),
+  stageLcstStatistics: () => undefined,
+};
 
 function fusedGpu() {
   const writes: Array<{ bytesPerRow: number; rowsPerImage: number }> = [];
@@ -63,7 +69,7 @@ describe('fused executor RAW upload layout', () => {
   it('uses padded source row stride when uploading RAW', () => {
     const fake = fusedGpu();
     const padded = { ...descriptor, rowStrideSamples: 4 };
-    new NormalGpuExecutor(fake.gpu, new Uint16Array(8).buffer, 0, 1, padded, packetProvider);
+    new NormalGpuExecutor(fake.gpu, new Uint16Array(8).buffer, 0, 1, padded, 'single', packetProvider);
 
     expect(fake.writes[0]).toEqual({ bytesPerRow: 8, rowsPerImage: 2 });
   });

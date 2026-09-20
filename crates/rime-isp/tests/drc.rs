@@ -195,26 +195,40 @@ fn local_tone_lut_falls_back_for_empty_tiles_and_stays_monotonic() {
 }
 
 #[test]
-fn bayer_local_statistics_ignore_stride_padding_and_preserve_edge_weights() {
-    let samples = [0, 64, u16::MAX, 128, 255, u16::MAX];
-    let statistics =
-        rime_isp::vbe::drc::build_bayer_local_statistics(&samples, 2, 2, 3, 0.0, 255.0)
-            .expect("valid padded Bayer frame");
+fn drc_local_statistics_preserve_lcst_histogram_contract() {
+    use rime_isp::{
+        FrameIdentity, LCST_AVERAGE_VALUES, LCST_HISTOGRAM_VALUES, LcstStatisticsPacket,
+        vbe::drc::DrcLocalStatistics,
+    };
 
+    let mut histograms = vec![0_u32; LCST_HISTOGRAM_VALUES];
+    for tile in 0..(16 * 16) {
+        histograms[tile * 16 + 3] = 4;
+    }
+    let packet = LcstStatisticsPacket::new(
+        FrameIdentity {
+            frame_index: 4,
+            run_revision: 2,
+            method_revision: 3,
+        },
+        32,
+        32,
+        [0, 1, 1, 2],
+        vec![0.5; LCST_AVERAGE_VALUES],
+        histograms.clone(),
+    )
+    .expect("valid LCST packet");
+
+    let statistics = DrcLocalStatistics::from_lcst(&packet);
     assert_eq!(
         (
             statistics.tiles_x(),
             statistics.tiles_y(),
             statistics.bins()
         ),
-        (8, 6, 64)
+        (16, 16, 16)
     );
-    let histogram = statistics.histograms();
-    assert_eq!(histogram.iter().sum::<u32>(), 4);
-    assert_eq!(histogram[9], 1);
-    assert_eq!(histogram[4 * 64 + 13], 1);
-    assert_eq!(histogram[24 * 64 + 16], 1);
-    assert_eq!(histogram[28 * 64 + 21], 1);
+    assert_eq!(statistics.histograms(), histograms);
 }
 
 #[test]
@@ -301,7 +315,8 @@ fn drc00_preprocess_resolves_baseline_and_freezes_global_lut() {
         baseline_exposure_ev: Some(1.0),
         exposure_time_seconds: Some(0.01),
         f_number: Some(2.8),
-        drc_local_statistics: None,
+        lcst_statistics: None,
+        drc_local_cold_start: false,
         drc_exposure_policy: DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,
@@ -419,7 +434,8 @@ fn drc00_baseline_context() -> rime_isp::PreprocessContext {
         baseline_exposure_ev: Some(1.0),
         exposure_time_seconds: Some(0.01),
         f_number: Some(2.8),
-        drc_local_statistics: None,
+        lcst_statistics: None,
+        drc_local_cold_start: false,
         drc_exposure_policy: DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,
@@ -492,8 +508,10 @@ fn drc_rejects_out_of_range_threaded_hr_gain() {
 
 #[test]
 fn drc01_preprocess_freezes_local_lut_field() {
-    use rime_isp::vbe::drc::DrcLocalStatistics;
-    use rime_isp::{FrameIdentity, Operator as _, PreprocessContext};
+    use rime_isp::{
+        FrameIdentity, LCST_AVERAGE_VALUES, LCST_HISTOGRAM_VALUES, LcstStatisticsPacket,
+        Operator as _, PreprocessContext,
+    };
 
     let context = PreprocessContext {
         identity: FrameIdentity {
@@ -529,9 +547,26 @@ fn drc01_preprocess_freezes_local_lut_field() {
         baseline_exposure_ev: Some(1.0),
         exposure_time_seconds: Some(0.01),
         f_number: Some(2.8),
-        drc_local_statistics: Some(
-            DrcLocalStatistics::new(2, 1, 4, vec![8, 4, 2, 2, 2, 2, 4, 8]).expect("local stats"),
-        ),
+        lcst_statistics: Some({
+            let mut histograms = vec![0_u32; LCST_HISTOGRAM_VALUES];
+            for tile in 0..(16 * 16) {
+                histograms[tile * 16 + 8] = 16;
+            }
+            LcstStatisticsPacket::new(
+                FrameIdentity {
+                    frame_index: 9,
+                    run_revision: 2,
+                    method_revision: 6,
+                },
+                64,
+                64,
+                [0, 1, 1, 2],
+                vec![0.5; LCST_AVERAGE_VALUES],
+                histograms,
+            )
+            .expect("LCST statistics")
+        }),
+        drc_local_cold_start: false,
         drc_exposure_policy: DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,
@@ -554,18 +589,18 @@ fn drc01_preprocess_freezes_local_lut_field() {
     let local = packet
         .resource("tone_lut_local")
         .expect("local tone LUT field");
-    assert_eq!(local.extent(), [257, 2, 1]);
-    assert_eq!(local.bytes().len(), 257 * 2 * size_of::<f32>());
+    assert_eq!(local.extent(), [257, 16, 16]);
+    assert_eq!(local.bytes().len(), 257 * 16 * 16 * size_of::<f32>());
 
     let mut missing_statistics = context;
-    missing_statistics.drc_local_statistics = None;
+    missing_statistics.lcst_statistics = None;
     let error = rime_isp::vbe::drc::OPERATOR
         .preprocess("01", &missing_statistics)
         .expect_err("DRC01 must not fabricate local statistics");
     assert!(
         error
             .to_string()
-            .contains("requires frozen local histogram statistics")
+            .contains("requires frozen LCST histogram statistics")
     );
 }
 
@@ -607,7 +642,8 @@ fn drc_iq_offset_scales_metadata_gain_and_overrides_scalars() {
         baseline_exposure_ev: Some(1.0),
         exposure_time_seconds: None,
         f_number: None,
-        drc_local_statistics: None,
+        lcst_statistics: None,
+        drc_local_cold_start: false,
         drc_exposure_policy: DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,
@@ -695,7 +731,8 @@ fn drc_iq_rejects_non_finite_and_out_of_range_values() {
         baseline_exposure_ev: Some(1.0),
         exposure_time_seconds: None,
         f_number: None,
-        drc_local_statistics: None,
+        lcst_statistics: None,
+        drc_local_cold_start: false,
         drc_exposure_policy: DrcExposurePolicy::Baseline,
         drc_metered_target_ev100: None,
         drc_profile_adjustment_ev: 0.0,

@@ -778,7 +778,10 @@ fn parse_gain_map_opcodes(list: &OpcodeList) -> Result<Vec<GainMapOpcode>, DngRe
                 map_planes,
             } = geometry;
             let (entry_chunks, remainder) = parameters[header_bytes..].as_chunks::<4>();
-            debug_assert!(remainder.is_empty(), "validated mesh entries are four-byte aligned");
+            debug_assert!(
+                remainder.is_empty(),
+                "validated mesh entries are four-byte aligned"
+            );
             let entries: Vec<f32> = entry_chunks
                 .iter()
                 .map(|bytes| f32::from_be_bytes(*bytes))

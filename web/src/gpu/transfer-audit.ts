@@ -30,6 +30,16 @@ export class TransferAudit {
     throw new ZeroCopyViolation(`host readback is forbidden (${bytes} bytes requested)`);
   }
 
+  public recordStatisticsRead(bytes: number, reason?: string): void {
+    if (!Number.isSafeInteger(bytes) || bytes <= 0) {
+      throw new ZeroCopyViolation('statistics readback size must be a positive integer');
+    }
+    if (reason === undefined || reason.length === 0) {
+      throw new ZeroCopyViolation('every statistics readback requires a declared reason');
+    }
+    this.#snapshot.hostReadBytes += bytes;
+  }
+
   public recordGpuCopy(bytes: number, reason?: string): void {
     if (reason === undefined || reason.length === 0) {
       throw new ZeroCopyViolation('every GPU copy requires a declared reason');

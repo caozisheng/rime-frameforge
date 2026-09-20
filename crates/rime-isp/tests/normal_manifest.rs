@@ -20,6 +20,7 @@ fn normal_manifest_contains_the_explicit_main_chain() {
             "sbpc_horizontal",
             "dbpc",
             "sbpc",
+            "lcst",
             "raw_nr",
             "tintless",
             "lsc",
@@ -31,7 +32,6 @@ fn normal_manifest_contains_the_explicit_main_chain() {
         ]
     );
     assert_eq!(manifest.preview_outputs[0].node_id, "rgb2yuv");
-    assert_eq!(manifest.preview_outputs.len(), manifest.nodes.len());
     assert_eq!(
         manifest
             .preview_outputs
@@ -41,6 +41,7 @@ fn normal_manifest_contains_the_explicit_main_chain() {
         manifest
             .nodes
             .iter()
+            .filter(|node| !node.outputs.is_empty())
             .map(|node| node.id.as_str())
             .collect::<HashSet<_>>(),
     );
@@ -177,6 +178,57 @@ fn generated_shader_assets_encode_lf_line_endings() {
 }
 
 #[test]
+fn generated_lcst_asset_preserves_registered_manifest_contract() {
+    let generated = rime_isp::render_lcst_pipeline_typescript().expect("LCST TypeScript");
+    let contract: serde_json::Value = serde_json::from_str(
+        generated
+            .strip_prefix("export const lcstPipeline = ")
+            .and_then(|value| value.strip_suffix(" as const;\n"))
+            .expect("generated LCST asset wrapper"),
+    )
+    .expect("generated LCST JSON contract");
+
+    assert!(
+        contract["wgsl"]
+            .as_str()
+            .expect("LCST WGSL")
+            .contains("lcst_average_main")
+    );
+    assert!(
+        contract["wgsl"]
+            .as_str()
+            .expect("LCST WGSL")
+            .contains("lcst_histogram_main")
+    );
+    assert_eq!(contract["stages"][0]["entryPoint"], "lcst_average_main");
+    assert_eq!(contract["stages"][1]["entryPoint"], "lcst_histogram_main");
+    assert_eq!(
+        contract["stages"][0]["bindings"],
+        serde_json::json!([
+            { "binding": 0, "resource": "input", "kind": "texture", "access": "read" },
+            { "binding": 1, "resource": "parameters", "kind": "uniform_buffer", "access": "read" },
+            { "binding": 2, "resource": "average_rggb", "kind": "storage_buffer", "access": "write" },
+        ])
+    );
+    assert_eq!(
+        contract["stages"][1]["bindings"],
+        serde_json::json!([
+            { "binding": 0, "resource": "input", "kind": "texture", "access": "read" },
+            { "binding": 1, "resource": "parameters", "kind": "uniform_buffer", "access": "read" },
+            { "binding": 3, "resource": "luma_histogram", "kind": "storage_buffer", "access": "write" },
+        ])
+    );
+    assert_eq!(contract["averageDispatch"], serde_json::json!([64, 48, 1]));
+    assert_eq!(
+        contract["histogramDispatch"],
+        serde_json::json!([16, 16, 1])
+    );
+    assert_eq!(contract["payloadBytes"], 65_536);
+    assert_eq!(contract["averageBytes"], 49_152);
+    assert_eq!(contract["histogramBytes"], 16_384);
+}
+
+#[test]
 fn dem_manifest_exposes_methods_and_parameters() {
     let manifest = build_normal_manifest();
     let dem = manifest.node("dem").expect("DEM node");
@@ -225,7 +277,7 @@ fn presentation_and_manifest_share_executable_nodes() {
         .collect();
 
     assert_eq!(presented, executable);
-    for id in ["sbpc_horizontal", "dbpc", "sbpc", "raw_nr", "tintless"] {
+    for id in ["sbpc_horizontal", "dbpc", "sbpc", "raw_nr"] {
         assert_eq!(
             presentation
                 .node(id)
@@ -234,6 +286,13 @@ fn presentation_and_manifest_share_executable_nodes() {
             NodeExecutionMode::Bypass
         );
     }
+    assert_eq!(
+        presentation
+            .node("tintless")
+            .expect("tintless presentation node")
+            .mode,
+        NodeExecutionMode::Enabled
+    );
     assert_eq!(
         presentation
             .node("lsc")
@@ -439,15 +498,37 @@ fn vpe_uses_ce_between_lce_and_second_mctf() {
     }
 }
 #[test]
-fn presentation_includes_disabled_vfe_statistics_branches() {
+fn presentation_enables_lcst_and_keeps_other_statistics_disabled() {
     let presentation = build_normal_graph_presentation();
+
+    let lcst = presentation.node("lcst").expect("LCST statistics node");
+    assert_eq!(lcst.label, "LCST");
+    assert_eq!(lcst.mode, NodeExecutionMode::Enabled);
+    assert_eq!(lcst.execution_node_id.as_deref(), Some("lcst"));
+    assert_eq!(lcst.inputs, ["in"]);
+    assert_eq!(lcst.outputs, ["lc-stat"]);
+    assert!(presentation.edges.iter().any(|edge| {
+        edge.from == "sbpc"
+            && edge.from_port == "out"
+            && edge.to == "lcst"
+            && edge.to_port == "in"
+            && edge.label.is_none()
+    }));
+    for consumer in ["tintless", "drc"] {
+        assert!(presentation.edges.iter().any(|edge| {
+            edge.from == "lcst"
+                && edge.from_port == "lc-stat"
+                && edge.to == consumer
+                && edge.to_port == "lc-stat"
+                && edge.label.as_deref() == Some("LCST statistics")
+        }));
+    }
 
     for (id, label, source, output) in [
         ("pdafst", "PDAFST", "sbpc_horizontal", "pdaf-stat"),
-        ("lcst", "LCST", "sbpc", "lc-stat"),
         ("cdafst", "CDAFST", "sbpc", "cdaf-stat"),
     ] {
-        let node = presentation.node(id).expect("statistics node");
+        let node = presentation.node(id).expect("disabled statistics node");
         assert_eq!(node.label, label);
         assert_eq!(node.mode, NodeExecutionMode::Disabled);
         assert_eq!(node.execution_node_id, None);
@@ -460,9 +541,6 @@ fn presentation_includes_disabled_vfe_statistics_branches() {
                 && edge.to_port == "in"
                 && edge.label.is_none()
         }));
-    }
-
-    for id in ["pdafst", "lcst", "cdafst"] {
         assert!(presentation.edges.iter().all(|edge| edge.from != id));
     }
 }
@@ -515,6 +593,12 @@ fn presentation_uses_manifest_port_order_for_executable_nodes() {
                 .inputs
                 .iter()
                 .map(|port| port.id.clone())
+                .chain(
+                    manifest_node
+                        .statistics_inputs
+                        .iter()
+                        .map(|port| port.id.clone()),
+                )
                 .collect::<Vec<_>>()
         );
         assert_eq!(
@@ -523,6 +607,12 @@ fn presentation_uses_manifest_port_order_for_executable_nodes() {
                 .outputs
                 .iter()
                 .map(|port| port.id.clone())
+                .chain(
+                    manifest_node
+                        .statistics_outputs
+                        .iter()
+                        .map(|port| port.id.clone()),
+                )
                 .collect::<Vec<_>>()
         );
     }

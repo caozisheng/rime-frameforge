@@ -1,7 +1,9 @@
 use rime_core::FramePhase;
+use rime_isp::{FrameIdentity, LCST_AVERAGE_VALUES, LCST_HISTOGRAM_VALUES, LcstStatisticsPacket};
 use rime_native_gpu::{
-    BoundedFrameRing, FrameSlotState, NativeFrameIdentity, NativeGpuBackend, NativePipelineConfig,
-    PreviewSurface,
+    BoundedFrameRing, FrameSlotState, LcstStatisticsConsumer, LcstStatisticsRing,
+    LcstStatisticsRingError, NativeFrameIdentity, NativeGpuBackend, NativePipelineConfig,
+    PreviewSurface, SequenceStatistics,
 };
 
 #[test]
@@ -49,6 +51,97 @@ fn frame_ring_enforces_bounded_state_transitions() {
     assert_eq!(ring.len(), 2);
     assert_eq!(ring.state(first), Some(FrameSlotState::Reusable));
     assert!(ring.claim_empty().is_some());
+}
+
+#[test]
+fn lcst_statistics_ring_resolves_only_exact_previous_frames() {
+    let mut ring = LcstStatisticsRing::new(2).expect("capacity is valid");
+    assert!(matches!(
+        ring.acquire_previous(0, 7, LcstStatisticsConsumer::Tintless),
+        Ok(SequenceStatistics::ColdStart)
+    ));
+
+    ring.publish(lcst_packet(0, 7)).expect("publish frame zero");
+    let tintless = match ring
+        .acquire_previous(1, 7, LcstStatisticsConsumer::Tintless)
+        .expect("frame one resolves frame zero")
+    {
+        SequenceStatistics::Packet(lease) => lease,
+        SequenceStatistics::ColdStart => panic!("frame one is not cold start"),
+    };
+    assert_eq!(tintless.packet().identity().frame_index, 0);
+    assert_eq!(tintless.packet().identity().run_revision, 7);
+    ring.release(&tintless).expect("release tintless lease");
+    assert_eq!(
+        ring.release(&tintless),
+        Err(LcstStatisticsRingError::InactiveLease)
+    );
+
+    assert_eq!(
+        ring.acquire_previous(1, 8, LcstStatisticsConsumer::Tintless),
+        Err(LcstStatisticsRingError::MissingExactFrame {
+            frame_index: 0,
+            run_revision: 8,
+        })
+    );
+}
+
+#[test]
+fn lcst_statistics_ring_retains_slots_until_all_consumers_release() {
+    let mut ring = LcstStatisticsRing::new(2).expect("capacity is valid");
+    ring.publish(lcst_packet(0, 1)).expect("publish frame zero");
+    let tintless = match ring
+        .acquire_previous(1, 1, LcstStatisticsConsumer::Tintless)
+        .expect("tintless lease")
+    {
+        SequenceStatistics::Packet(lease) => lease,
+        SequenceStatistics::ColdStart => panic!("unexpected cold start"),
+    };
+    let drc = match ring
+        .acquire_previous(1, 1, LcstStatisticsConsumer::Drc)
+        .expect("DRC lease")
+    {
+        SequenceStatistics::Packet(lease) => lease,
+        SequenceStatistics::ColdStart => panic!("unexpected cold start"),
+    };
+    assert_eq!(
+        ring.acquire_previous(1, 1, LcstStatisticsConsumer::Drc),
+        Err(LcstStatisticsRingError::ConsumerAlreadyLeased)
+    );
+
+    ring.publish(lcst_packet(1, 1)).expect("publish frame one");
+    assert_eq!(
+        ring.publish(lcst_packet(2, 1)),
+        Err(LcstStatisticsRingError::RingExhausted)
+    );
+    ring.release(&tintless).expect("release tintless");
+    assert_eq!(
+        ring.publish(lcst_packet(2, 1)),
+        Err(LcstStatisticsRingError::RingExhausted)
+    );
+    ring.release(&drc).expect("release DRC");
+    ring.publish(lcst_packet(2, 1))
+        .expect("released slot is reusable");
+}
+
+fn lcst_packet(frame_index: u64, run_revision: u64) -> LcstStatisticsPacket {
+    let mut histograms = vec![0_u32; LCST_HISTOGRAM_VALUES];
+    for tile in 0..(16 * 16) {
+        histograms[tile * 16] = 16;
+    }
+    LcstStatisticsPacket::new(
+        FrameIdentity {
+            frame_index,
+            run_revision,
+            method_revision: 3,
+        },
+        64,
+        64,
+        [0, 1, 1, 2],
+        vec![0.5; LCST_AVERAGE_VALUES],
+        histograms,
+    )
+    .expect("packet fixture")
 }
 
 #[test]

@@ -45,6 +45,36 @@ pub struct PortSpec {
     pub extent: Extent2d,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScalarType {
+    F32,
+    U32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StatisticsPlaneSpec {
+    pub width: u32,
+    pub height: u32,
+    pub channels: u32,
+    pub scalar: ScalarType,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StatisticsSchema {
+    Lcst {
+        average_rggb: StatisticsPlaneSpec,
+        luma_histogram: StatisticsPlaneSpec,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct StatisticsPortSpec {
+    pub id: String,
+    pub schema: StatisticsSchema,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MethodSpec {
     pub method: String,
@@ -59,6 +89,10 @@ pub struct NodeSpec {
     pub shader_entry: Option<String>,
     pub inputs: Vec<PortSpec>,
     pub outputs: Vec<PortSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub statistics_inputs: Vec<StatisticsPortSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub statistics_outputs: Vec<StatisticsPortSpec>,
     pub default_method: String,
     pub methods: Vec<MethodSpec>,
 }
@@ -178,21 +212,39 @@ impl PipelineManifest {
 
     fn validate_node_contracts(&self) -> Result<(), Diagnostic> {
         for node in &self.nodes {
-            let mut input_ids = HashSet::with_capacity(node.inputs.len());
-            for port in &node.inputs {
-                if !input_ids.insert(port.id.as_str()) {
+            let mut input_ids = HashSet::with_capacity(
+                node.inputs
+                    .len()
+                    .saturating_add(node.statistics_inputs.len()),
+            );
+            for id in node
+                .inputs
+                .iter()
+                .map(|port| port.id.as_str())
+                .chain(node.statistics_inputs.iter().map(|port| port.id.as_str()))
+            {
+                if !input_ids.insert(id) {
                     return Err(Diagnostic::new(
                         DiagnosticCode::ManifestInvalid,
-                        format!("duplicate input port {}.{}", node.id, port.id),
+                        format!("duplicate input port {}.{id}", node.id),
                     ));
                 }
             }
-            let mut output_ids = HashSet::with_capacity(node.outputs.len());
-            for port in &node.outputs {
-                if !output_ids.insert(port.id.as_str()) {
+            let mut output_ids = HashSet::with_capacity(
+                node.outputs
+                    .len()
+                    .saturating_add(node.statistics_outputs.len()),
+            );
+            for id in node
+                .outputs
+                .iter()
+                .map(|port| port.id.as_str())
+                .chain(node.statistics_outputs.iter().map(|port| port.id.as_str()))
+            {
+                if !output_ids.insert(id) {
                     return Err(Diagnostic::new(
                         DiagnosticCode::ManifestInvalid,
-                        format!("duplicate output port {}.{}", node.id, port.id),
+                        format!("duplicate output port {}.{id}", node.id),
                     ));
                 }
             }
@@ -230,12 +282,21 @@ impl PipelineManifest {
 
     fn validate_edges(&self) -> Result<(), Diagnostic> {
         for edge in &self.edges {
-            let output = self.port(&edge.from, false)?;
-            let input = self.port(&edge.to, true)?;
-            if output.domain != input.domain
-                || output.format != input.format
-                || output.extent != input.extent
-            {
+            let output = self.port_contract(&edge.from, false)?;
+            let input = self.port_contract(&edge.to, true)?;
+            let compatible = match (output, input) {
+                (PortContract::Image(output), PortContract::Image(input)) => {
+                    output.domain == input.domain
+                        && output.format == input.format
+                        && output.extent == input.extent
+                }
+                (PortContract::Statistics(output), PortContract::Statistics(input)) => {
+                    output.schema == input.schema
+                }
+                (PortContract::Image(_), PortContract::Statistics(_))
+                | (PortContract::Statistics(_), PortContract::Image(_)) => false,
+            };
+            if !compatible {
                 return Err(Diagnostic::new(
                     DiagnosticCode::PortContractMismatch,
                     format!("edge {} connects incompatible ports", edge.id),
@@ -287,6 +348,38 @@ impl PipelineManifest {
             })
     }
 
+    fn port_contract(
+        &self,
+        reference: &PortRef,
+        input: bool,
+    ) -> Result<PortContract<'_>, Diagnostic> {
+        let node = self.node(&reference.node_id).ok_or_else(|| {
+            Diagnostic::new(
+                DiagnosticCode::ManifestInvalid,
+                format!("unknown node {}", reference.node_id),
+            )
+        })?;
+        let image_ports = if input { &node.inputs } else { &node.outputs };
+        if let Some(port) = image_ports.iter().find(|port| port.id == reference.port_id) {
+            return Ok(PortContract::Image(port));
+        }
+        let statistics_ports = if input {
+            &node.statistics_inputs
+        } else {
+            &node.statistics_outputs
+        };
+        statistics_ports
+            .iter()
+            .find(|port| port.id == reference.port_id)
+            .map(PortContract::Statistics)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    DiagnosticCode::ManifestInvalid,
+                    format!("unknown port {}.{}", reference.node_id, reference.port_id),
+                )
+            })
+    }
+
     fn compute_hash(&self) -> String {
         let mut hasher = Sha256::new();
         hasher.update(self.schema_version.to_le_bytes());
@@ -298,6 +391,7 @@ impl PipelineManifest {
             update_optional_string(&mut hasher, node.shader_entry.as_deref());
             update_string(&mut hasher, &node.default_method);
             update_ports(&mut hasher, &node.inputs);
+            update_statistics_ports(&mut hasher, &node.statistics_inputs);
             for method in &node.methods {
                 update_string(&mut hasher, &method.method);
                 update_string(&mut hasher, &method.shader_entry);
@@ -306,6 +400,7 @@ impl PipelineManifest {
                 }
             }
             update_ports(&mut hasher, &node.outputs);
+            update_statistics_ports(&mut hasher, &node.statistics_outputs);
         }
         for edge in &self.edges {
             update_string(&mut hasher, &edge.id);
@@ -327,11 +422,40 @@ impl PipelineManifest {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PortContract<'a> {
+    Image(&'a PortSpec),
+    Statistics(&'a StatisticsPortSpec),
+}
+
 fn update_ports(hasher: &mut Sha256, ports: &[PortSpec]) {
     for port in ports {
         update_string(hasher, &port.id);
         update_port_contract(hasher, port.domain, port.format, &port.extent);
     }
+}
+
+fn update_statistics_ports(hasher: &mut Sha256, ports: &[StatisticsPortSpec]) {
+    for port in ports {
+        update_string(hasher, &port.id);
+        match &port.schema {
+            StatisticsSchema::Lcst {
+                average_rggb,
+                luma_histogram,
+            } => {
+                hasher.update([0]);
+                update_statistics_plane(hasher, average_rggb);
+                update_statistics_plane(hasher, luma_histogram);
+            }
+        }
+    }
+}
+
+fn update_statistics_plane(hasher: &mut Sha256, plane: &StatisticsPlaneSpec) {
+    hasher.update(plane.width.to_le_bytes());
+    hasher.update(plane.height.to_le_bytes());
+    hasher.update(plane.channels.to_le_bytes());
+    hasher.update([plane.scalar as u8]);
 }
 
 fn update_port_contract(
