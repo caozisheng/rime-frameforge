@@ -122,7 +122,7 @@ fn cpu_reference_resolves_all_cfa_phases_and_constant_channel_averages() {
             rime_isp::vfe::lcst::average_rggb_reference(&samples, width as u32, height as u32, cfa)
                 .expect("averages");
         for block in averages.as_chunks::<4>().0 {
-            assert_eq!(block, [0.1, 0.2, 0.3, 0.4]);
+            assert_eq!(*block, [0.1, 0.2, 0.3, 0.4]);
         }
     }
 }
