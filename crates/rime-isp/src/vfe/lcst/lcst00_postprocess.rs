@@ -12,13 +12,17 @@ pub(crate) fn decode(
     if bytes.len() != LCST_PAYLOAD_BYTES {
         return Err(LcstStatisticsError::InvalidPayloadLength);
     }
-    let averages = bytes[..LCST_AVERAGE_BYTES]
-        .chunks_exact(4)
-        .map(|word| f32::from_le_bytes(word.try_into().expect("four-byte LCST average")))
+    let (average_words, average_remainder) = bytes[..LCST_AVERAGE_BYTES].as_chunks::<4>();
+    debug_assert!(average_remainder.is_empty());
+    let averages = average_words
+        .iter()
+        .map(|word| f32::from_le_bytes(*word))
         .collect::<Vec<_>>();
-    let histograms = bytes[LCST_AVERAGE_BYTES..]
-        .chunks_exact(4)
-        .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte LCST histogram")))
+    let (histogram_words, histogram_remainder) = bytes[LCST_AVERAGE_BYTES..].as_chunks::<4>();
+    debug_assert!(histogram_remainder.is_empty());
+    let histograms = histogram_words
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
         .collect::<Vec<_>>();
     debug_assert_eq!(averages.len(), LCST_AVERAGE_VALUES);
     debug_assert_eq!(histograms.len(), LCST_HISTOGRAM_VALUES);

@@ -245,7 +245,7 @@ fn populate_cells(
             if !values.iter().all(|value| value.is_finite()) {
                 return Err(TintlessError::NonFiniteAverage);
             }
-            let green = 0.5 * (values[1] + values[2]);
+            let green = values[1].midpoint(values[2]);
             let finite_and_unsaturated = values
                 .iter()
                 .all(|value| *value >= 0.0 && *value < SATURATION_LIMIT);
