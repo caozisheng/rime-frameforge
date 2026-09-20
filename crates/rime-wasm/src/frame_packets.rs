@@ -886,8 +886,10 @@ fn preprocess_snapshot_json(
         .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing gain mesh"))?
         .bytes();
     let mesh_values = mesh
-        .chunks_exact(4)
-        .map(|bytes| f32::from_ne_bytes(bytes.try_into().expect("four-byte mesh value")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_ne_bytes(*bytes))
         .collect::<Vec<_>>();
     if mesh_values.is_empty() || !mesh_values.iter().all(|value| value.is_finite()) {
         return Err(js_error("WASM_TINTLESS_PACKET_INVALID: mesh is not finite"));
