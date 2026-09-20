@@ -385,8 +385,10 @@ fn sequence_history_requires_explicit_cold_start_and_commits_only_on_complete() 
         .expect("explicit sequence cold start");
     assert!(
         cold.tintless_mesh()
-            .chunks_exact(std::mem::size_of::<f32>())
-            .all(|bytes| f32::from_ne_bytes(bytes.try_into().expect("f32 mesh value")) == 1.0)
+            .as_chunks::<{ std::mem::size_of::<f32>() }>()
+            .0
+            .iter()
+            .all(|bytes| f32::from_ne_bytes(*bytes) == 1.0)
     );
     deriver
         .stage_lcst_statistics(&payload)
