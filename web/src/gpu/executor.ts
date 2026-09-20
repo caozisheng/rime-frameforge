@@ -1,11 +1,13 @@
 import { normalManifest } from '../generated/normal_manifest.generated.js';
-import type { DrcIqParameters, FramePacketProvider, FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSnapshot } from '../contracts.js';
+import { lcstPipeline } from '../generated/lcst_pipeline.generated.js';
+import type { DrcIqParameters, FrameBeginPackets, FrameConsumerPackets, FrameMode, FramePhase, PreviewDescriptor, RawFrameDescriptor, TransferAuditSnapshot } from '../contracts.js';
 import type { ExecutionIdentity } from '../runtime-controller.js';
 import { resizePreviewCanvas } from '../preview-state.js';
 import type { GpuContext } from './device.js';
 import { validateGraphBypassConfig, type GraphBypassConfig } from './bypass.js';
 import { blcPipelineWgsl } from '../generated/blc_pipeline.generated.js';
 import { lscPipelineWgsl } from '../generated/lsc_pipeline.generated.js';
+import { tintlessPipelineWgsl } from '../generated/tintless_pipeline.generated.js';
 import { wbcPipelineWgsl } from '../generated/wbc_pipeline.generated.js';
 import { compileFusedNormalShader, compileSegmentedNormalShaders, isSegmentedDemMethod } from './fused-normal-shader.js';
 import { ModuleShaderRuntime } from './module-shader.js';
@@ -22,11 +24,17 @@ const DEM_ENTRY_POINTS: Record<Exclude<DemMethod, '00'>, string> = {
   '04': 'demosaic_ahd_main',
 };
 const HALF_FLOAT_PREVIEW_NODES = new Set(['dem', 'color_reproduce', 'rgb2yuv']);
+export interface StagedFramePacketProvider {
+  begin(identity: ExecutionIdentity, mode: FrameMode): FrameBeginPackets;
+  prepareConsumers(payload: Uint8Array | null, coldStart: boolean): FrameConsumerPackets;
+  stageLcstStatistics(payload: Uint8Array): void;
+}
 export class NormalGpuExecutor {
   readonly #gpu: GpuContext;
   readonly #presenter: GpuPreviewPresenter;
   readonly #rawTexture: GPUTexture;
   readonly #blcTexture: GPUTexture;
+  readonly #tintlessTexture: GPUTexture;
   readonly #lscTexture: GPUTexture;
   readonly #drcTexture: GPUTexture;
   readonly #wbcTexture: GPUTexture;
@@ -37,18 +45,30 @@ export class NormalGpuExecutor {
   #uniforms: GPUBuffer | null = null;
   readonly #crHsLut: GPUBuffer;
   readonly #previewTextures: Readonly<Record<string, GPUTexture>>;
-  readonly #drc: WebDrcExecutor;
-  readonly #packetProvider: FramePacketProvider;
+  #committedPreviews: readonly PreviewDescriptor[] = [];
   #demUniforms: GPUBuffer | null = null;
+  readonly #drc: WebDrcExecutor;
+  readonly #packetProvider: StagedFramePacketProvider;
+  readonly #mode: FrameMode;
+  #lcstUniform: GPUBuffer | null = null;
+  readonly #lcstAverage: GPUBuffer;
+  readonly #lcstHistogram: GPUBuffer;
+  readonly #lcstReadback: GPUBuffer;
+  #consumerPackets: FrameConsumerPackets | null = null;
+  #preparedIdentity: ExecutionIdentity | null = null;
+  #lcstStaged = false;
   #audit = new TransferAudit();
   #descriptor: RawFrameDescriptor;
   #demMethod: DemMethod = '00';
   #drcMethod: DrcMethod = '00';
   #drcBypassed = false;
   #lscBypassed = false;
+  #tintlessBypassed = false;
   #lscActive = false;
   #moduleShaders: ModuleShaderRuntime | null = null;
   #blcUniform: GPUBuffer | null = null;
+  #tintlessUniform: GPUBuffer | null = null;
+  #tintlessMesh: GPUBuffer | null = null;
   #lscUniform: GPUBuffer | null = null;
   #lscMeshHeaders: GPUBuffer | null = null;
   #lscMeshEntries: GPUBuffer | null = null;
@@ -63,16 +83,17 @@ export class NormalGpuExecutor {
   #demBindGroup: GPUBindGroup | null = null;
   #demQuantizeBindGroup: GPUBindGroup | null = null;
   #postBindGroup: GPUBindGroup | null = null;
-  #committedPreviews: readonly PreviewDescriptor[] = [];
   #sampleBuffer: GPUBuffer | null = null;
-  public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, packetProvider: FramePacketProvider) {
+  public constructor(gpu: GpuContext, raw: ArrayBuffer, rawByteOffset: number, _generation: number, descriptor: RawFrameDescriptor, mode: FrameMode, packetProvider: StagedFramePacketProvider) {
     this.#gpu = gpu;
     this.#descriptor = descriptor;
+    this.#mode = mode;
     this.#packetProvider = packetProvider;
     this.#presenter = new GpuPreviewPresenter(gpu.context, gpu.device, gpu.canvasFormat);
     const previewUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC;
     this.#rawTexture = this.createTexture('normal-raw-source', 'r16uint', GPUTextureUsage.COPY_DST | previewUsage);
     this.#blcTexture = this.createTexture('normal-blc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
+    this.#tintlessTexture = this.createTexture('normal-tintless', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#lscTexture = this.createTexture('normal-lsc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#drcTexture = this.createTexture('normal-drc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#wbcTexture = this.createTexture('normal-wbc', 'r32float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
@@ -80,18 +101,12 @@ export class NormalGpuExecutor {
     this.#demIntermediateTexture = this.createTexture('normal-dem-intermediate', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING);
     this.#colorTexture = this.createTexture('normal-color', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
     this.#outputTexture = this.createTexture('normal-yuv', 'rgba16float', GPUTextureUsage.STORAGE_BINDING | previewUsage);
-    this.#previewTextures = {
-      raw_source: this.#rawTexture,
-      blc: this.#blcTexture,
-      lsc: this.#lscTexture,
-      drc: this.#drcTexture,
-      wbc: this.#wbcTexture,
-      dem: this.#demTexture,
-      color_reproduce: this.#colorTexture,
-      rgb2yuv: this.#outputTexture,
-    };
+    this.#previewTextures = { raw_source: this.#rawTexture, blc: this.#blcTexture, tintless: this.#tintlessTexture, lsc: this.#lscTexture, drc: this.#drcTexture, wbc: this.#wbcTexture, dem: this.#demTexture, color_reproduce: this.#colorTexture, rgb2yuv: this.#outputTexture };
     const hsLut = descriptor.colorReproduce?.hsLut ?? [];
     this.#crHsLut = gpu.device.createBuffer({ label: 'cr-hs-lut', size: Math.max(hsLut.length * 4, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.#lcstAverage = gpu.device.createBuffer({ label: 'lcst-average-payload', size: lcstPipeline.averageBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    this.#lcstHistogram = gpu.device.createBuffer({ label: 'lcst-histogram-payload', size: lcstPipeline.histogramBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    this.#lcstReadback = gpu.device.createBuffer({ label: 'lcst-payload-readback', size: lcstPipeline.payloadBytes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     this.#drc = new WebDrcExecutor(gpu.device, descriptor.width, descriptor.height);
     this.uploadFrame(raw, rawByteOffset, descriptor);
   }
@@ -111,13 +126,28 @@ export class NormalGpuExecutor {
   }
 
   public prepare(identity: ExecutionIdentity): void {
-    const packets = this.#packetProvider(identity);
-    this.#lscActive = packets.lscActive;
+    const begin = this.#packetProvider.begin(identity, this.#mode);
+    this.#preparedIdentity = identity;
+    this.#lcstStaged = false;
     this.#moduleShaders ??= new ModuleShaderRuntime(this.#gpu.device);
+    this.#lcstUniform ??= this.#gpu.device.createBuffer({ label: 'lcst-params', size: Math.max(begin.lcstUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#lcstUniform, 0, begin.lcstUniform);
+    this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-blc-params', size: Math.max(begin.blcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, begin.blcUniform);
+    if (this.#mode === 'sequence') this.installConsumerPackets(this.#packetProvider.prepareConsumers(null, identity.frameIndex === 0));
+  }
+
+  private installConsumerPackets(packets: FrameConsumerPackets): void {
+    this.#consumerPackets = packets;
+    this.#lscActive = packets.lscActive;
     this.#uniforms ??= this.#gpu.device.createBuffer({ label: 'normal-fused-params', size: packets.fusedUniform.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.#gpu.device.queue.writeBuffer(this.#uniforms, 0, packets.fusedUniform);
-    if (packets.colorReproduceHsLut.byteLength > 0) this.#gpu.device.queue.writeBuffer(this.#crHsLut, 0, packets.colorReproduceHsLut);
-    this.#blcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-blc-params', size: Math.max(packets.blcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#tintlessUniform ??= this.#gpu.device.createBuffer({ label: 'normal-tintless-params', size: Math.max(packets.tintlessUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const tintlessMeshBytes = Math.max(packets.tintlessMesh.byteLength, 16);
+    if (this.#tintlessMesh === null || this.#tintlessMesh.size < tintlessMeshBytes) {
+      this.#tintlessMesh?.destroy();
+      this.#tintlessMesh = this.#gpu.device.createBuffer({ label: 'normal-tintless-mesh', size: tintlessMeshBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    }
     this.#lscUniform ??= this.#gpu.device.createBuffer({ label: 'normal-lsc-params', size: Math.max(packets.lscUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const lscMeshHeadersBytes = Math.max(packets.lscMeshHeaders.byteLength, 32);
     if (this.#lscMeshHeaders === null || this.#lscMeshHeaders.size < lscMeshHeadersBytes) {
@@ -130,12 +160,12 @@ export class NormalGpuExecutor {
       this.#lscMeshEntries = this.#gpu.device.createBuffer({ label: 'normal-lsc-mesh-entries', size: lscMeshEntriesBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     }
     this.#wbcUniform ??= this.#gpu.device.createBuffer({ label: 'normal-wbc-params', size: Math.max(packets.wbcUniform.byteLength, 16), usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.#gpu.device.queue.writeBuffer(this.#blcUniform, 0, packets.blcUniform);
+    this.#gpu.device.queue.writeBuffer(this.#tintlessUniform, 0, packets.tintlessUniform);
+    this.#gpu.device.queue.writeBuffer(this.#tintlessMesh, 0, packets.tintlessMesh);
     this.#gpu.device.queue.writeBuffer(this.#lscUniform, 0, packets.lscUniform);
     this.#gpu.device.queue.writeBuffer(this.#lscMeshHeaders, 0, packets.lscMeshHeaders);
     this.#gpu.device.queue.writeBuffer(this.#lscMeshEntries, 0, packets.lscMeshEntries);
     this.#gpu.device.queue.writeBuffer(this.#wbcUniform, 0, packets.wbcUniform);
-
     if (!this.#drcBypassed) {
       this.#drc.setMethod(this.#drcMethod);
       this.#drc.preparePackets(packets.drcUniform, packets.drcGlobalLut, packets.drcLocalLut, packets.drcModulationLuts);
@@ -161,10 +191,9 @@ export class NormalGpuExecutor {
 
   public async execute(_phase: FramePhase, identity: ExecutionIdentity): Promise<readonly PreviewDescriptor[]> {
     if (this.#moduleShaders === null || this.#blcUniform === null) throw new Error('FUSED_GRAPH_INVALID: BLC pipeline was not prepared');
-    if (this.#demMethod === '00' && (this.#fullPipeline === null || this.#fullBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: fused pipeline was not prepared');
-    if (this.#demMethod !== '00' && (this.#prePipeline === null || this.#demPipeline === null || this.#demQuantizePipeline === null || this.#postPipeline === null || this.#preBindGroup === null || this.#demBindGroup === null || this.#demQuantizeBindGroup === null || this.#postBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: segmented pipeline was not prepared');
+    if (this.#mode === 'sequence' && this.#consumerPackets === null) throw new Error('FUSED_GRAPH_INVALID: sequence consumers were not prepared');
     resizePreviewCanvas(this.#gpu.canvas, this.#descriptor);
-    const encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-fused-frame' });
+    let encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-fused-frame' });
     // blc00.wgsl declares: binding 0 = uniform, 1 = input_tex, 2 = output_tex.
     this.#moduleShaders.encode(encoder, {
       label: 'normal-blc',
@@ -177,17 +206,66 @@ export class NormalGpuExecutor {
       ],
       workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
     });
+    if (this.#lcstUniform === null) throw new Error('FUSED_GRAPH_INVALID: LCST pipeline was not prepared');
+    this.#moduleShaders.encode(encoder, {
+      label: 'normal-lcst-average', source: lcstPipeline.wgsl, entryPoint: lcstPipeline.stages[0].entryPoint,
+      bindings: [
+        { binding: 0, resource: { texture: this.#blcTexture } },
+        { binding: 1, resource: { buffer: this.#lcstUniform } },
+        { binding: 2, resource: { buffer: this.#lcstAverage } },
+      ], workgroups: lcstPipeline.averageDispatch.slice(0, 2) as [number, number],
+    });
+    this.#moduleShaders.encode(encoder, {
+      label: 'normal-lcst-histogram', source: lcstPipeline.wgsl, entryPoint: lcstPipeline.stages[1].entryPoint,
+      bindings: [
+        { binding: 0, resource: { texture: this.#blcTexture } },
+        { binding: 1, resource: { buffer: this.#lcstUniform } },
+        { binding: 3, resource: { buffer: this.#lcstHistogram } },
+      ], workgroups: lcstPipeline.histogramDispatch.slice(0, 2) as [number, number],
+    });
+    encoder.copyBufferToBuffer(this.#lcstAverage, 0, this.#lcstReadback, 0, lcstPipeline.averageBytes);
+    this.#audit.recordGpuCopy(lcstPipeline.averageBytes, 'lcst-average-readback');
+    encoder.copyBufferToBuffer(this.#lcstHistogram, 0, this.#lcstReadback, lcstPipeline.averageBytes, lcstPipeline.histogramBytes);
+    this.#audit.recordGpuCopy(lcstPipeline.histogramBytes, 'lcst-histogram-readback');
+    if (this.#mode === 'single' && !this.#lcstStaged) {
+      this.#gpu.device.queue.submit([encoder.finish()]);
+      await this.#gpu.device.queue.onSubmittedWorkDone();
+      const payload = await this.readLcstPayload();
+      this.#lcstStaged = true;
+      this.installConsumerPackets(this.#packetProvider.prepareConsumers(payload, false));
+      encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-fused-downstream' });
+    }
+    if (this.#demMethod === '00' && (this.#fullPipeline === null || this.#fullBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: fused pipeline was not prepared');
+    if (this.#demMethod !== '00' && (this.#prePipeline === null || this.#demPipeline === null || this.#demQuantizePipeline === null || this.#postPipeline === null || this.#preBindGroup === null || this.#demBindGroup === null || this.#demQuantizeBindGroup === null || this.#postBindGroup === null)) throw new Error('FUSED_GRAPH_INVALID: segmented pipeline was not prepared');
+    if (this.#consumerPackets === null) throw new Error('FUSED_GRAPH_INVALID: frame consumers were not prepared');
 
+
+    if (this.#tintlessUniform === null || this.#tintlessMesh === null) throw new Error('FUSED_GRAPH_INVALID: Tintless pipeline was not prepared');
+    const tintlessOutput = this.#tintlessBypassed ? this.#blcTexture : this.#tintlessTexture;
+    if (!this.#tintlessBypassed) {
+      this.#moduleShaders.encode(encoder, {
+        label: 'normal-tintless',
+        source: tintlessPipelineWgsl,
+        entryPoint: 'tintless_main',
+        bindings: [
+          { binding: 0, resource: { texture: this.#blcTexture } },
+          { binding: 1, resource: { texture: this.#tintlessTexture } },
+          { binding: 2, resource: { buffer: this.#tintlessUniform } },
+          { binding: 3, resource: { buffer: this.#tintlessMesh } },
+        ],
+        workgroups: [Math.ceil(this.#descriptor.width / 8), Math.ceil(this.#descriptor.height / 8)],
+      });
+    }
     if (this.#lscUniform === null || this.#lscMeshHeaders === null || this.#lscMeshEntries === null) throw new Error('FUSED_GRAPH_INVALID: LSC pipeline was not prepared');
     const lscExecuted = !this.#lscBypassed && this.#lscActive;
-    const lscOutput = lscExecuted ? this.#lscTexture : this.#blcTexture;
+    const lscOutput = lscExecuted ? this.#lscTexture : tintlessOutput;
     if (lscExecuted) {
       this.#moduleShaders.encode(encoder, {
         label: 'normal-lsc',
         source: lscPipelineWgsl,
         entryPoint: 'lsc_main',
         bindings: [
-          { binding: 0, resource: { texture: this.#blcTexture } },
+          { binding: 0, resource: { texture: tintlessOutput } },
           { binding: 1, resource: { texture: this.#lscTexture } },
           { binding: 2, resource: { buffer: this.#lscUniform } },
           { binding: 3, resource: { buffer: this.#lscMeshHeaders } },
@@ -237,13 +315,43 @@ export class NormalGpuExecutor {
       channelLayout: capability.channel_layout,
       presentation: capability.presentation,
     }));
+    this.#gpu.device.queue.submit([encoder.finish()]);
+    await this.#gpu.device.queue.onSubmittedWorkDone();
+    if (!this.#lcstStaged) {
+      const payload = await this.readLcstPayload();
+      this.#lcstStaged = true;
+      if (this.#mode === 'sequence') this.#packetProvider.stageLcstStatistics(payload);
+      else this.#consumerPackets = this.#packetProvider.prepareConsumers(payload, false);
+    }
+    return previews;
+  }
+  private async readLcstPayload(): Promise<Uint8Array> {
+    this.#audit.recordStatisticsRead(lcstPipeline.payloadBytes, 'LCST fixed statistics payload');
+    await this.#lcstReadback.mapAsync(GPUMapMode.READ);
+    const mapped = this.#lcstReadback.getMappedRange();
+    const payload = new Uint8Array(lcstPipeline.payloadBytes);
+    payload.set(new Uint8Array(mapped, 0, lcstPipeline.payloadBytes));
+    this.#lcstReadback.unmap();
+    return payload;
+  }
+
+
+  public async commit(previews: readonly PreviewDescriptor[]): Promise<void> {
     const finalView = this.previewView(previews[0]);
     if (finalView === null) throw new Error('PREVIEW_UNAVAILABLE: normal graph has no final preview output');
+    const encoder = this.#gpu.device.createCommandEncoder({ label: 'normal-preview-commit' });
     this.#presenter.encode(encoder, finalView);
     this.#gpu.device.queue.submit([encoder.finish()]);
     await this.#gpu.device.queue.onSubmittedWorkDone();
     this.#committedPreviews = previews;
-    return previews;
+  }
+
+  public abort(): void {
+    this.#consumerPackets = null;
+    this.#preparedIdentity = null;
+    this.#lcstStaged = false;
+    this.#committedPreviews = [];
+    this.#presenter.clear();
   }
 
   public async present(nodeA: string, nodeB: string | null, curtain: number): Promise<void> {
@@ -262,6 +370,7 @@ export class NormalGpuExecutor {
   public dispose(): void {
     this.#rawTexture.destroy();
     this.#blcTexture.destroy();
+    this.#tintlessTexture.destroy();
     this.#lscTexture.destroy();
     this.#drcTexture.destroy();
     this.#wbcTexture.destroy();
@@ -271,6 +380,12 @@ export class NormalGpuExecutor {
     this.#outputTexture.destroy();
     this.#uniforms?.destroy();
     this.#crHsLut.destroy();
+    this.#lcstUniform?.destroy();
+    this.#lcstAverage.destroy();
+    this.#lcstHistogram.destroy();
+    this.#lcstReadback.destroy();
+    this.#tintlessUniform?.destroy();
+    this.#tintlessMesh?.destroy();
     this.#lscUniform?.destroy();
     this.#lscMeshHeaders?.destroy();
     this.#lscMeshEntries?.destroy();
@@ -304,6 +419,7 @@ export class NormalGpuExecutor {
   public setBypassConfig(config: GraphBypassConfig): void {
     validateGraphBypassConfig(config);
     this.#drcBypassed = config.modules.find((module) => module.module_id === 'drc')?.bypass === true;
+    this.#tintlessBypassed = config.modules.find((module) => module.module_id === 'tintless')?.bypass === true;
     this.#lscBypassed = config.modules.find((module) => module.module_id === 'lsc')?.bypass === true;
     this.invalidateBindings();
   }
@@ -386,9 +502,11 @@ export class NormalGpuExecutor {
     if (descriptor === undefined) return null;
     let cursor = descriptor.nodeId;
     for (let depth = 0; depth < normalManifest.nodes.length; depth += 1) {
-      const texture = (this.#lscBypassed || !this.#lscActive) && cursor === 'lsc'
+      const texture = this.#tintlessBypassed && cursor === 'tintless'
         ? this.#blcTexture
-        : this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
+        : (this.#lscBypassed || !this.#lscActive) && cursor === 'lsc'
+          ? (this.#tintlessBypassed ? this.#blcTexture : this.#tintlessTexture)
+          : this.#drcBypassed && cursor === 'drc' ? this.#drcTexture : this.#previewTextures[cursor];
       if (texture !== undefined) return { texture, descriptor };
       const incoming = normalManifest.edges.find((edge) => edge.to.node_id === cursor);
       if (incoming === undefined) return null;
@@ -434,6 +552,10 @@ export class NormalGpuExecutor {
     this.#uniforms = null;
     this.#blcUniform?.destroy();
     this.#blcUniform = null;
+    this.#tintlessUniform?.destroy();
+    this.#tintlessUniform = null;
+    this.#tintlessMesh?.destroy();
+    this.#tintlessMesh = null;
     this.#lscUniform?.destroy();
     this.#lscUniform = null;
     this.#lscMeshHeaders?.destroy();

@@ -1,8 +1,9 @@
-use crate::{MethodManifest, OperatorDefinition, normal_operators};
+use crate::{MethodManifest, OperatorDefinition, lcst_producer_by_id, normal_operators};
 use rime_core::{
     Extent2d, GraphIqOverride, GraphPresentation, GraphPresentationEdge, GraphTreeKind,
     GraphTreeNode, MethodSpec, NodeExecutionMode, NodeSpec, PipelineManifest, PortRef, PortSpec,
-    PreviewPortSpec, PreviewPresentation, ResourceFormat, SignalDomain, TemporalEdge,
+    PreviewPortSpec, PreviewPresentation, ResourceFormat, ScalarType, SignalDomain,
+    StatisticsPlaneSpec, StatisticsPortSpec, StatisticsSchema, TemporalEdge,
 };
 
 const WIDTH: u32 = 32;
@@ -13,6 +14,10 @@ const HEIGHT: u32 = 24;
     reason = "the fixed manifest is the single explicit topology source"
 )]
 #[must_use]
+///
+/// # Panics
+///
+/// Panics only if the statically registered LCST producer is missing.
 pub fn build_normal_manifest() -> PipelineManifest {
     let extent = Extent2d {
         width: WIDTH,
@@ -29,6 +34,8 @@ pub fn build_normal_manifest() -> PipelineManifest {
             ResourceFormat::R16Uint,
             &extent,
         )],
+        statistics_inputs: Vec::new(),
+        statistics_outputs: Vec::new(),
         default_method: "fixed_asset".into(),
         methods: Vec::new(),
     }];
@@ -51,6 +58,12 @@ pub fn build_normal_manifest() -> PipelineManifest {
                 method.output.format,
                 &extent,
             )],
+            statistics_inputs: if matches!(definition.id, "tintless" | "drc") {
+                vec![lcst_statistics_port()]
+            } else {
+                Vec::new()
+            },
+            statistics_outputs: Vec::new(),
             default_method: method.method.into(),
             methods: definition
                 .methods
@@ -67,6 +80,34 @@ pub fn build_normal_manifest() -> PipelineManifest {
                 .collect(),
         });
     }
+    let lcst = lcst_producer_by_id("lcst").expect("registered LCST producer");
+    let definition = lcst.definition();
+    let method = lcst
+        .method(definition.default_method)
+        .expect("registered LCST default method");
+    nodes.push(NodeSpec {
+        id: definition.id.into(),
+        display_name: definition.label.into(),
+        shader_entry: Some(method.shader.entry_point.into()),
+        inputs: vec![port(
+            "in",
+            SignalDomain::RawBayerRimeQ,
+            ResourceFormat::R32Float,
+            &extent,
+        )],
+        outputs: Vec::new(),
+        statistics_inputs: Vec::new(),
+        statistics_outputs: vec![lcst_statistics_port()],
+        default_method: method.method.into(),
+        methods: vec![MethodSpec {
+            method: method.method.into(),
+            shader_entry: method.shader.entry_point.into(),
+            parameters: ["width", "height", "cfa_pattern", "d50_gains"]
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        }],
+    });
     let preview_outputs = nodes
         .iter()
         .rev()
@@ -115,7 +156,7 @@ pub fn build_normal_manifest() -> PipelineManifest {
         "color_reproduce",
         "rgb2yuv",
     ];
-    let edges = chain
+    let mut edges = chain
         .windows(2)
         .enumerate()
         .map(|(index, pair)| TemporalEdge {
@@ -130,7 +171,33 @@ pub fn build_normal_manifest() -> PipelineManifest {
             },
             frame_delay: 0,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    edges.push(TemporalEdge {
+        id: "normal_edge_sbpc_lcst".into(),
+        from: PortRef {
+            node_id: "sbpc".into(),
+            port_id: "out".into(),
+        },
+        to: PortRef {
+            node_id: "lcst".into(),
+            port_id: "in".into(),
+        },
+        frame_delay: 0,
+    });
+    for node_id in ["tintless", "drc"] {
+        edges.push(TemporalEdge {
+            id: format!("normal_edge_lcst_{node_id}"),
+            from: PortRef {
+                node_id: "lcst".into(),
+                port_id: "lc-stat".into(),
+            },
+            to: PortRef {
+                node_id: node_id.into(),
+                port_id: "lc-stat".into(),
+            },
+            frame_delay: 0,
+        });
+    }
     let mut manifest = PipelineManifest {
         schema_version: 1,
         graph_id: "normal".into(),
@@ -204,11 +271,23 @@ fn hydrate_executable_ports(nodes: &mut [GraphTreeNode], manifest: &PipelineMani
             .inputs
             .iter()
             .map(|port| port.id.clone())
+            .chain(
+                manifest_node
+                    .statistics_inputs
+                    .iter()
+                    .map(|port| port.id.clone()),
+            )
             .collect();
         node.outputs = manifest_node
             .outputs
             .iter()
             .map(|port| port.id.clone())
+            .chain(
+                manifest_node
+                    .statistics_outputs
+                    .iter()
+                    .map(|port| port.id.clone()),
+            )
             .collect();
     }
 }
@@ -227,6 +306,25 @@ fn port(id: &str, domain: SignalDomain, format: ResourceFormat, extent: &Extent2
         domain,
         format,
         extent: extent.clone(),
+    }
+}
+fn lcst_statistics_port() -> StatisticsPortSpec {
+    StatisticsPortSpec {
+        id: "lc-stat".into(),
+        schema: StatisticsSchema::Lcst {
+            average_rggb: StatisticsPlaneSpec {
+                width: 64,
+                height: 48,
+                channels: 4,
+                scalar: ScalarType::F32,
+            },
+            luma_histogram: StatisticsPlaneSpec {
+                width: 16,
+                height: 16,
+                channels: 16,
+                scalar: ScalarType::U32,
+            },
+        },
     }
 }
 
@@ -278,13 +376,7 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             "pdaf-stat",
             "phase-difference AF statistics placeholder; output pdaf-stat",
         ),
-        statistics_operator(
-            "lcst",
-            "LCST",
-            "vfe",
-            "lc-stat",
-            "luma-chroma statistics placeholder; output lc-stat",
-        ),
+        enabled_statistics_operator("lcst", "LCST", "vfe", "lcst", "lc-stat"),
         statistics_operator(
             "cdafst",
             "CDAFST",
@@ -321,6 +413,24 @@ fn statistics_operator(
     node.outputs = vec![output.into()];
     node
 }
+fn enabled_statistics_operator(
+    id: &str,
+    label: &str,
+    parent: &str,
+    execution_node_id: &str,
+    output: &str,
+) -> GraphTreeNode {
+    let mut node = operator(
+        id,
+        label,
+        parent,
+        NodeExecutionMode::Enabled,
+        Some(execution_node_id),
+        None,
+    );
+    node.outputs = vec![output.into()];
+    node
+}
 fn vbe_nodes() -> Vec<GraphTreeNode> {
     vec![
         group(
@@ -334,9 +444,9 @@ fn vbe_nodes() -> Vec<GraphTreeNode> {
             "tintless",
             "TINTLESS",
             "vbe",
-            NodeExecutionMode::Bypass,
+            NodeExecutionMode::Enabled,
             Some("tintless"),
-            Some("color shading correction; method 00: identity bypass"),
+            None,
         ),
         operator(
             "lsc",
@@ -454,6 +564,14 @@ fn presentation_edges() -> Vec<GraphPresentationEdge> {
         ("dbpc", "out", "sbpc", "in", None),
         ("sbpc", "out", "raw_nr", "in", None),
         ("sbpc", "out", "lcst", "in", None),
+        (
+            "lcst",
+            "lc-stat",
+            "tintless",
+            "lc-stat",
+            Some("LCST statistics"),
+        ),
+        ("lcst", "lc-stat", "drc", "lc-stat", Some("LCST statistics")),
         ("sbpc", "out", "cdafst", "in", None),
         ("raw_nr", "out", "tintless", "in", None),
         ("tintless", "out", "lsc", "in", None),

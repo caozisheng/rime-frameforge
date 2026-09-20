@@ -4,9 +4,10 @@ use rime_core::render_top_graph_presentation_typescript;
 
 use rime_isp::{
     render_blc_pipeline_typescript, render_drc_pipeline_typescript,
-    render_fused_pipeline_typescript, render_lsc_pipeline_typescript,
-    render_normal_graph_presentation_typescript, render_normal_graph_quantization_typescript,
-    render_normal_manifest_typescript, render_segmented_fused_typescript,
+    render_fused_pipeline_typescript, render_lcst_pipeline_typescript,
+    render_lsc_pipeline_typescript, render_normal_graph_presentation_typescript,
+    render_normal_graph_quantization_typescript, render_normal_manifest_typescript,
+    render_segmented_fused_typescript, render_tintless_pipeline_typescript,
     render_wbc_pipeline_typescript,
 };
 
@@ -46,6 +47,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         render_blc_pipeline_typescript()?,
     )?;
     fs::write(
+        web_dir.join("lcst_pipeline.generated.ts"),
+        render_lcst_pipeline_typescript()?,
+    )?;
+    fs::write(
         web_dir.join("segmented_fused.generated.ts"),
         render_segmented_fused_typescript()?,
     )?;
@@ -56,6 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(
         web_dir.join("lsc_pipeline.generated.ts"),
         render_lsc_pipeline_typescript()?,
+    )?;
+    fs::write(
+        web_dir.join("tintless_pipeline.generated.ts"),
+        render_tintless_pipeline_typescript()?,
     )?;
     Ok(())
 }

@@ -426,12 +426,12 @@ fn vfe_nodes() -> Vec<GraphTreeNode> {
             "pdaf-stat",
             "phase-difference AF statistics placeholder; output pdaf-stat",
         ),
-        statistics_operator(
+        enabled_statistics_operator(
             "lcst",
             "luma-chroma statistics",
             "sensor_correction",
+            "lcst",
             "lc-stat",
-            "luma-chroma statistics placeholder; output lc-stat",
         ),
         statistics_operator(
             "cdafst",
@@ -477,9 +477,9 @@ fn vbe_color_nodes() -> Vec<GraphTreeNode> {
             "tintless",
             "color shading correction",
             "video_back_end",
-            NodeExecutionMode::Bypass,
+            NodeExecutionMode::Enabled,
+            Some("tintless"),
             None,
-            Some("not implemented; compatible bayer identity"),
         ),
         operator(
             "lsc",
@@ -629,6 +629,24 @@ fn statistics_operator(
         NodeExecutionMode::Disabled,
         None,
         Some(reason),
+    );
+    node.outputs = vec![output.into()];
+    node
+}
+fn enabled_statistics_operator(
+    id: &str,
+    label: &str,
+    parent: &str,
+    execution_node_id: &str,
+    output: &str,
+) -> GraphTreeNode {
+    let mut node = operator(
+        id,
+        label,
+        parent,
+        NodeExecutionMode::Enabled,
+        Some(execution_node_id),
+        None,
     );
     node.outputs = vec![output.into()];
     node

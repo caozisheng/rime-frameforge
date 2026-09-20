@@ -7,6 +7,8 @@
     reason = "tone LUT indices and normalized histogram ratios are bounded by validated resource extents"
 )]
 
+use std::sync::Arc;
+
 use thiserror::Error;
 
 const BEZIER_SAMPLES: usize = 256;
@@ -42,7 +44,7 @@ pub struct DrcLocalStatistics {
     tiles_x: u32,
     tiles_y: u32,
     bins: u32,
-    histograms: Vec<u32>,
+    histograms: Arc<[u32]>,
 }
 
 impl DrcLocalStatistics {
@@ -68,8 +70,18 @@ impl DrcLocalStatistics {
             tiles_x,
             tiles_y,
             bins,
-            histograms,
+            histograms: histograms.into(),
         })
+    }
+
+    #[must_use]
+    pub fn from_lcst(packet: &crate::LcstStatisticsPacket) -> Self {
+        Self {
+            tiles_x: 16,
+            tiles_y: 16,
+            bins: 16,
+            histograms: packet.shared_luma_histograms(),
+        }
     }
 
     #[must_use]
@@ -198,6 +210,16 @@ pub struct LocalToneLutField {
 }
 
 impl LocalToneLutField {
+    #[must_use]
+    pub(crate) fn cold_start(global: &ToneLut) -> Self {
+        Self {
+            tiles_x: 1,
+            tiles_y: 1,
+            samples: global.values.len(),
+            values: global.values.clone(),
+        }
+    }
+
     #[must_use]
     pub const fn tiles_x(&self) -> u32 {
         self.tiles_x

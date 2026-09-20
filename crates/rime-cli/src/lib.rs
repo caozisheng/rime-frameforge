@@ -315,8 +315,10 @@ fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError
         );
     }
     let executor = WgpuReadbackExecutor::new()?;
+    let reader = DngReader::new();
     let mut ring = BoundedFrameRing::new(config.ring_capacity)
         .map_err(|error| CliError::Graph(error.to_string()))?;
+    let mut previous_statistics = None;
     let mut encoder: Option<Child> = None;
     let mut dimensions = None;
     for (index, path) in paths.iter().enumerate() {
@@ -325,15 +327,19 @@ fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError
             .ok_or_else(|| CliError::Graph("bounded frame ring exhausted".to_owned()))?;
         ring.transition(slot, FrameSlotState::Decoding)
             .map_err(|error| CliError::Graph(error.to_string()))?;
-        emit(
-            options,
-            serde_json::json!({"event":"frame_started", "index":index, "total":paths.len()}),
-        )?;
-        let frame = DngReader::new().decode_file(path, index as u64)?;
+        let frame = reader.decode_file(path, index as u64)?;
         ring.transition(slot, FrameSlotState::Decoded)
             .map_err(|error| CliError::Graph(error.to_string()))?;
-        let surface = executor.render_with_drc_options(
+        let output_frame = executor.render_sequence_frame_with_options(
             &frame,
+            rime_native_gpu::NativeFrameIdentity {
+                frame_index: index as u64,
+                run_revision: 1,
+                method_revision: 1,
+                gpu_generation: 1,
+                phase: rime_core::FramePhase::Output,
+            },
+            previous_statistics.as_ref(),
             &options.drc_method,
             drc_exposure_policy(options),
             options.drc_metered_target_ev100,
@@ -343,6 +349,8 @@ fn render_sequence(input: &Path, options: &RenderOptions) -> Result<(), CliError
                 drc_details_amplify: options.drc_details_amplify,
             },
         )?;
+        previous_statistics = Some(output_frame.statistics().clone());
+        let surface = output_frame.into_surface();
         ring.transition(slot, FrameSlotState::GpuSubmitted)
             .map_err(|error| CliError::Graph(error.to_string()))?;
         let extent = (surface.width(), surface.height());

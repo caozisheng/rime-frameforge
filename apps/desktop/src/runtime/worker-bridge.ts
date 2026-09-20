@@ -1,4 +1,4 @@
-import type { ColorReproduceAssets, RawFrameDescriptor, RuntimeCommand, RuntimeEvent } from '../../../../web/src/contracts.js';
+import type { ColorReproduceAssets, FrameMode, RawFrameDescriptor, RuntimeCommand, RuntimeEvent } from '../../../../web/src/contracts.js';
 import rawAssetUrl from '../../../../pipeline/normal/frame0.raw?url';
 
 export interface DngRawTagDescriptor {
@@ -119,7 +119,7 @@ export interface DngSequenceDescriptor {
 export interface WorkerBridge {
   readonly worker: Worker;
   initialize(canvas: OffscreenCanvas): Promise<void>;
-  loadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor): void;
+  loadFrame(raw: ArrayBuffer, rawByteOffset: number, descriptor: RawFrameDescriptor, mode: FrameMode): void;
   setMethod(nodeId: string, method: string): void;
   setParameter(nodeId: string, parameter: string, value: number): void;
   setLut(nodeId: string, parameter: string, values: readonly number[]): void;
@@ -149,9 +149,9 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
       if (!response.ok) throw new Error(`INPUT_INVALID: failed to fetch RAW asset (${response.status})`);
       const raw = await response.arrayBuffer();
       const descriptor: RawFrameDescriptor = {
-        width: 32,
-        height: 24,
-        rowStrideSamples: 32,
+        width: 128,
+        height: 96,
+        rowStrideSamples: 128,
         storageBits: 16,
         cfa: 'rggb',
         blackLevel: 64,
@@ -164,9 +164,9 @@ export function createWorkerBridge(onEvent: (event: RuntimeEvent) => void): Work
           asShotNeutral: [0.5, 1, 2 / 3],
         },
       };
-      send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor }, [canvas, raw]);
+      send({ type: 'initialize', canvas, raw, rawByteOffset: 0, descriptor, mode: 'single' }, [canvas, raw]);
     },
-    loadFrame: (raw, rawByteOffset, descriptor) => send({ type: 'load_frame', raw, rawByteOffset, descriptor }, [raw]),
+    loadFrame: (raw, rawByteOffset, descriptor, mode) => send({ type: 'load_frame', raw, rawByteOffset, descriptor, mode }, [raw]),
     setMethod: (nodeId, method) => send({ type: 'set_method', nodeId, method }),
     setParameter: (nodeId, parameter, value) => send({ type: 'set_parameter', nodeId, parameter, value }),
     setLut: (nodeId, parameter, values) => send({ type: 'set_lut', nodeId, parameter, values }),

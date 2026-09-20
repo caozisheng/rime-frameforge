@@ -9,6 +9,8 @@ export interface ExecutionIdentity {
 export interface FrameExecutor {
   prepare(identity: ExecutionIdentity): Promise<void> | void;
   execute(phase: FramePhase, identity: ExecutionIdentity): Promise<readonly PreviewDescriptor[]>;
+  commit(previews: readonly PreviewDescriptor[]): Promise<void> | void;
+  abort(): Promise<void> | void;
   reset(): void;
 }
 
@@ -36,10 +38,12 @@ export class RuntimeController {
       await this.#executor.prepare(identity);
       this.#publishPhase('warmup');
       const outputs = await this.#executor.execute('output', identity);
+      await this.#executor.commit(outputs);
       await this.#completeFrame();
       this.#publishPhase('output');
       this.#publishPreview(outputs);
     } catch (error) {
+      await this.#executor.abort();
       await this.#abortFrame();
       throw error;
     }

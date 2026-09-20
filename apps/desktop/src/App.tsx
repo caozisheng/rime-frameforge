@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator, usePanelRef, type Layout } from 'react-resizable-panels';
 import { retainPreviewsForRuntimeSnapshot } from '../../../web/src/preview-state.js';
-import type { PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry, DrcIqParameters, PreprocessSnapshot } from '../../../web/src/contracts.js';
+import type { FrameMode, PreviewDescriptor, RuntimeEnvelope, RuntimeEvent, RuntimeLogEntry, DrcIqParameters, PreprocessSnapshot } from '../../../web/src/contracts.js';
 import { readPaneLayout, writePaneLayout } from '../../../web/src/pane-layout.js';
 import { acceptsEnvelope } from '../../../web/src/revision-guard.js';
 import { normalGraphQuantization } from '../../../web/src/generated/normal_quantization.generated.js';
@@ -116,6 +116,7 @@ export function App() {
   const sequenceGenerationRef = useRef(0);
   const nativeGenerationRef = useRef(0);
   const dngPathsRef = useRef<readonly string[]>([]);
+  const frameModeRef = useRef<FrameMode>('single');
   const [commandPending, setCommandPending] = useState(false);
   const [logsCollapsed, setLogsCollapsed] = useState(false);
   const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
@@ -168,7 +169,7 @@ export function App() {
     dngFrameIndexRef.current = index;
     setDngFrameIndex(index);
     setLoadedDng(decoded.descriptor);
-    loadDecodedDngIntoWorker(bridgeRef.current, decoded);
+    loadDecodedDngIntoWorker(bridgeRef.current, decoded, frameModeRef.current);
     if (mode === 'run') beginDngPrefetch(index + 1);
     bridgeRef.current[mode](index);
   };
@@ -227,6 +228,7 @@ export function App() {
           setDngSequence(sequence);
           setDngPaths(sequence.paths);
           dngPathsRef.current = sequence.paths;
+          frameModeRef.current = 'sequence';
           appendLog({ level: 'info', message: `DNG sequence smoke loaded: ${sequence.frameCount} frames` });
         } catch (error) {
           appendLog({ level: 'error', message: String(error), diagnosticCode: 'DNG_SEQUENCE_SMOKE_FAILED' });
@@ -238,6 +240,7 @@ export function App() {
       try {
         const descriptor = await loadDngPathIntoWorker(bridge, smokePath, 0);
         setLoadedDng(descriptor);
+        frameModeRef.current = 'single';
         setDngPaths([smokePath]);
         dngPathsRef.current = [smokePath];
         appendLog({ level: 'info', message: `DNG smoke loaded: ${descriptor.cameraModel} ${descriptor.width}x${descriptor.height}` });
@@ -305,6 +308,7 @@ export function App() {
     invalidateDngPrefetch();
     setCommandPending(true);
     void loadDngIntoWorker(bridgeRef.current).then(({ descriptor, paths }) => {
+      frameModeRef.current = 'single';
       setLoadedDng(descriptor);
       setDngSequence(null);
       setDngPaths(paths);
@@ -327,6 +331,7 @@ export function App() {
     sequencePlayingRef.current = false;
     setSequencePlaying(false);
     void loadDngSequenceIntoWorker(bridgeRef.current).then(({ descriptor, sequence }) => {
+      frameModeRef.current = 'sequence';
       setLoadedDng(descriptor);
       setDngSequence(sequence);
       setDngPaths(sequence.paths);
@@ -609,3 +614,4 @@ export function App() {
     </main>
   );
 }
+

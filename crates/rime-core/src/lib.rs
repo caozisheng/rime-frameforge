@@ -18,7 +18,8 @@ pub use graph_presentation::{
 };
 pub use manifest::{
     Extent2d, MethodSpec, NodeSpec, PipelineManifest, PortRef, PortSpec, PreviewPortSpec,
-    PreviewPresentation, ResourceFormat, SignalDomain, TemporalEdge,
+    PreviewPresentation, ResourceFormat, ScalarType, SignalDomain, StatisticsPlaneSpec,
+    StatisticsPortSpec, StatisticsSchema, TemporalEdge,
 };
 pub use rime_quant::{ClipType, RimeQProfile};
 pub use runtime_state::{FramePhase, GraphRuntime, LifecycleState, RuntimeSnapshot};

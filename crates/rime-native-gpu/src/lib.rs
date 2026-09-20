@@ -11,6 +11,7 @@ pub use operator_scheduler::{
 };
 pub use wgpu_backend::{RenderFeatureFlags, WgpuReadbackError, WgpuReadbackExecutor};
 
+use rime_isp::LcstStatisticsPacket;
 use std::collections::VecDeque;
 
 use rime_core::FramePhase;
@@ -53,6 +54,36 @@ pub struct PreviewSurface {
     width: u32,
     height: u32,
     pixels: Vec<f32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SequenceFrameOutput {
+    surface: PreviewSurface,
+    statistics: LcstStatisticsPacket,
+}
+
+impl SequenceFrameOutput {
+    #[must_use]
+    pub const fn surface(&self) -> &PreviewSurface {
+        &self.surface
+    }
+
+    #[must_use]
+    pub const fn statistics(&self) -> &LcstStatisticsPacket {
+        &self.statistics
+    }
+
+    pub(crate) fn new(surface: PreviewSurface, statistics: LcstStatisticsPacket) -> Self {
+        Self {
+            surface,
+            statistics,
+        }
+    }
+
+    #[must_use]
+    pub fn into_surface(self) -> PreviewSurface {
+        self.surface
+    }
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -212,6 +243,178 @@ impl BoundedFrameRing {
     #[must_use]
     pub fn state(&self, slot: usize) -> Option<FrameSlotState> {
         self.slots.get(slot).map(|frame| frame.state)
+    }
+}
+
+/// A consumer that may hold one lease for an exact LCST packet.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LcstStatisticsConsumer {
+    Tintless,
+    Drc,
+}
+
+impl LcstStatisticsConsumer {
+    const fn bit(self) -> u8 {
+        match self {
+            Self::Tintless => 1,
+            Self::Drc => 2,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LcstStatisticsRingError {
+    InvalidCapacity,
+    RingExhausted,
+    MissingExactFrame { frame_index: u64, run_revision: u64 },
+    ConsumerAlreadyLeased,
+    InactiveLease,
+}
+
+impl std::fmt::Display for LcstStatisticsRingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidCapacity => {
+                formatter.write_str("LCST statistics ring capacity must be non-zero")
+            }
+            Self::RingExhausted => formatter.write_str("LCST statistics ring has no reusable slot"),
+            Self::MissingExactFrame {
+                frame_index,
+                run_revision,
+            } => write!(
+                formatter,
+                "LCST statistics frame {frame_index} with run revision {run_revision} is unavailable"
+            ),
+            Self::ConsumerAlreadyLeased => {
+                formatter.write_str("LCST statistics consumer already has a lease")
+            }
+            Self::InactiveLease => formatter.write_str("LCST statistics lease is inactive"),
+        }
+    }
+}
+
+impl std::error::Error for LcstStatisticsRingError {}
+
+#[derive(Clone, Debug)]
+struct LcstStatisticsSlot {
+    packet: Option<LcstStatisticsPacket>,
+    leased_consumers: u8,
+}
+
+/// Fixed-capacity temporal storage for exact-frame LCST packets.
+pub struct LcstStatisticsRing {
+    slots: Vec<LcstStatisticsSlot>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LcstStatisticsLease {
+    packet: LcstStatisticsPacket,
+    slot: usize,
+    consumer: LcstStatisticsConsumer,
+}
+
+impl LcstStatisticsLease {
+    #[must_use]
+    pub fn packet(&self) -> &LcstStatisticsPacket {
+        &self.packet
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum SequenceStatistics {
+    ColdStart,
+    Packet(LcstStatisticsLease),
+}
+
+impl LcstStatisticsRing {
+    pub fn new(capacity: usize) -> Result<Self, LcstStatisticsRingError> {
+        if capacity == 0 {
+            return Err(LcstStatisticsRingError::InvalidCapacity);
+        }
+        Ok(Self {
+            slots: (0..capacity)
+                .map(|_| LcstStatisticsSlot {
+                    packet: None,
+                    leased_consumers: 0,
+                })
+                .collect(),
+        })
+    }
+
+    pub fn publish(&mut self, packet: LcstStatisticsPacket) -> Result<(), LcstStatisticsRingError> {
+        let slot = self
+            .slots
+            .iter_mut()
+            .find(|slot| slot.packet.is_none())
+            .ok_or(LcstStatisticsRingError::RingExhausted)?;
+        slot.packet = Some(packet);
+        slot.leased_consumers = 0;
+        Ok(())
+    }
+
+    pub fn acquire_previous(
+        &mut self,
+        consumer_frame_index: u64,
+        run_revision: u64,
+        consumer: LcstStatisticsConsumer,
+    ) -> Result<SequenceStatistics, LcstStatisticsRingError> {
+        if consumer_frame_index == 0 {
+            return Ok(SequenceStatistics::ColdStart);
+        }
+        let frame_index = consumer_frame_index - 1;
+        let slot_index = self
+            .slots
+            .iter()
+            .position(|slot| {
+                slot.packet.as_ref().is_some_and(|packet| {
+                    let identity = packet.identity();
+                    identity.frame_index == frame_index && identity.run_revision == run_revision
+                })
+            })
+            .ok_or(LcstStatisticsRingError::MissingExactFrame {
+                frame_index,
+                run_revision,
+            })?;
+        let slot = &mut self.slots[slot_index];
+        let packet = slot
+            .packet
+            .as_ref()
+            .ok_or(LcstStatisticsRingError::MissingExactFrame {
+                frame_index,
+                run_revision,
+            })?
+            .clone();
+        let bit = consumer.bit();
+        if slot.leased_consumers & bit != 0 {
+            return Err(LcstStatisticsRingError::ConsumerAlreadyLeased);
+        }
+        slot.leased_consumers |= bit;
+        Ok(SequenceStatistics::Packet(LcstStatisticsLease {
+            packet,
+            slot: slot_index,
+            consumer,
+        }))
+    }
+
+    pub fn release(&mut self, lease: &LcstStatisticsLease) -> Result<(), LcstStatisticsRingError> {
+        let slot = self
+            .slots
+            .get_mut(lease.slot)
+            .ok_or(LcstStatisticsRingError::InactiveLease)?;
+        let Some(packet) = slot.packet.as_ref() else {
+            return Err(LcstStatisticsRingError::InactiveLease);
+        };
+        if packet.identity() != lease.packet.identity() {
+            return Err(LcstStatisticsRingError::InactiveLease);
+        }
+        let bit = lease.consumer.bit();
+        if slot.leased_consumers & bit == 0 {
+            return Err(LcstStatisticsRingError::InactiveLease);
+        }
+        slot.leased_consumers &= !bit;
+        if slot.leased_consumers == 0 {
+            slot.packet = None;
+        }
+        Ok(())
     }
 }
 

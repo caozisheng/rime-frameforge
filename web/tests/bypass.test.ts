@@ -20,6 +20,7 @@ describe('Normal Graph bypass configuration', () => {
     expect(defaultConfig().modules.map((module) => module.module_id)).toEqual(eligibleModuleIds);
     expect(defaultConfig().modules.find((module) => module.module_id === 'drc')?.bypass).toBe(false);
     expect(defaultConfig().modules.find((module) => module.module_id === 'lsc')?.bypass).toBe(false);
+    expect(defaultConfig().modules.find((module) => module.module_id === 'tintless')?.bypass).toBe(true);
     expect(defaultConfig().modules.find((module) => module.module_id === 'raw_nr')?.bypass).toBe(true);
   });
 

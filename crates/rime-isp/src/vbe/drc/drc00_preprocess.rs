@@ -263,15 +263,19 @@ fn resolve_local_tone(
     if !local {
         return Ok(None);
     }
-    let statistics = context
-        .drc_local_statistics
-        .as_ref()
-        .ok_or(OperatorError::Preprocess {
-            module_id,
-            reason: "DRC01 requires frozen local histogram statistics",
-        })?;
+    let Some(statistics) = context.lcst_statistics.as_ref() else {
+        return if context.drc_local_cold_start {
+            Ok(Some(super::LocalToneLutField::cold_start(global)))
+        } else {
+            Err(OperatorError::Preprocess {
+                module_id,
+                reason: "DRC01 requires frozen LCST histogram statistics",
+            })
+        };
+    };
+    let statistics = super::DrcLocalStatistics::from_lcst(statistics);
     generate_local_tone_lut(
-        statistics,
+        &statistics,
         global,
         LocalToneConfig {
             local_strength: 0.75,

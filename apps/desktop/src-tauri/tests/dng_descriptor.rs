@@ -114,7 +114,9 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
         gain_map_parameters.extend_from_slice(&value.to_be_bytes());
     }
     gain_map_parameters.extend_from_slice(&2_u32.to_be_bytes());
-    for entry in [1.0_f32, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75] {
+    for entry in [
+        1.0_f32, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75,
+    ] {
         gain_map_parameters.extend_from_slice(&entry.to_be_bytes());
     }
     list2.push(Opcode {
@@ -166,10 +168,7 @@ fn descriptor_serializes_all_opcode_lists_without_losing_unknown_parameters() {
         json["metadata"]["opcodeList2"][3]["gainMap"]["origin"],
         serde_json::json!([0.1, 0.05])
     );
-    assert_eq!(
-        json["metadata"]["opcodeList2"][3]["gainMap"]["planes"],
-        2
-    );
+    assert_eq!(json["metadata"]["opcodeList2"][3]["gainMap"]["planes"], 2);
     assert_eq!(
         json["metadata"]["opcodeList2"][3]["gainMap"]["entries"]
             .as_array()

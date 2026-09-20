@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
-import type { RawFrameDescriptor } from '../../../../web/src/contracts.js';
+import type { FrameMode, RawFrameDescriptor } from '../../../../web/src/contracts.js';
 import { inspectDngNative } from './native-pipeline.js';
 import type { DngFrameDescriptor, DngSequenceDescriptor, WorkerBridge } from './worker-bridge.js';
 import { decodeDngFramePayload, type DecodedDngFramePayload } from './dng-frame-payload.js';
@@ -35,7 +35,7 @@ export async function loadDngSequencePathIntoWorker(bridge: WorkerBridge, select
   if (firstPath === undefined || sequence.frameCount !== sequence.paths.length || sequence.frameCount !== sequence.fileNames.length) {
     throw new Error('DNG_SEQUENCE_INVALID: native sequence descriptor is inconsistent');
   }
-  const descriptor = await loadDngPathIntoWorker(bridge, firstPath, 0);
+  const descriptor = await loadDngPathIntoWorker(bridge, firstPath, 0, 'sequence');
   return { descriptor, sequence };
 }
 
@@ -56,7 +56,7 @@ export async function decodeDngPath(path: string, frameIndex = 0): Promise<Decod
   return decodeDngFramePayload(payload);
 }
 
-export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedDngFramePayload): void {
+export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedDngFramePayload, mode: FrameMode): void {
   const descriptor = decoded.descriptor;
   bridge.loadFrame(decoded.payload, decoded.rawByteOffset, {
     width: descriptor.width,
@@ -70,16 +70,17 @@ export function loadDecodedDngIntoWorker(bridge: WorkerBridge, decoded: DecodedD
     baselineExposure: descriptor.metadata.baselineExposure,
     metadata: descriptor.metadata,
     ...(descriptor.colorReproduce === undefined ? {} : { colorReproduce: descriptor.colorReproduce }),
-  });
+  }, mode);
 }
 
 export async function loadDngPathIntoWorker(
   bridge: WorkerBridge,
   path: string,
   frameIndex = 0,
+  mode: FrameMode = 'single',
 ): Promise<DngFrameDescriptor> {
   const payload = await invoke<ArrayBuffer>('read_dng_frame', { path, frameIndex });
   const decoded = decodeDngFramePayload(payload);
-  loadDecodedDngIntoWorker(bridge, decoded);
+  loadDecodedDngIntoWorker(bridge, decoded, mode);
   return decoded.descriptor;
 }

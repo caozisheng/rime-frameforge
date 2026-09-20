@@ -4,7 +4,7 @@ use rime_core::{ResourceFormat, SignalDomain};
 
 pub const METHOD_00: MethodManifest = method_manifest(
     "00",
-    "identity_r32_main",
+    "tintless_main",
     OperatorPort {
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
@@ -13,16 +13,16 @@ pub const METHOD_00: MethodManifest = method_manifest(
         domain: SignalDomain::RawBayerRimeQ,
         format: ResourceFormat::R32Float,
     },
-    "identity",
-    None,
+    "source_extent mesh_extent cfa_pattern gain_clamp cold_start gain_mesh",
+    Some("s0.14"),
     shader(
         "00",
         include_str!("tintless00.wgsl"),
-        "identity_r32_main",
+        "tintless_main",
         ShaderBindings {
             input: 0,
             output: 1,
-            uniform: None,
+            uniform: Some(2),
         },
     ),
     tintless00_preprocess::run,

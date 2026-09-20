@@ -1,5 +1,6 @@
 pub mod blc;
 pub mod dbpc;
+pub mod lcst;
 pub mod raw_nr;
 pub mod sbpc;
 pub mod sbpc_horizontal;

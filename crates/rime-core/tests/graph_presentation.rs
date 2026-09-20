@@ -8,8 +8,11 @@ fn top_graph_contains_vfe_vbe_vpe_and_encoder_groups() {
         .iter()
         .filter(|node| {
             node.kind == GraphTreeKind::Group
-                && (node.id == graph.root_id
-                    || node.parent_id.as_deref() == Some(graph.root_id.as_str()))
+                && (node.id == "isp_pipeline"
+                    || node.id == "video_front_end"
+                    || node.id == "video_back_end"
+                    || node.id == "video_post"
+                    || node.id == "encoder")
         })
         .map(|node| node.label.as_str())
         .collect();
@@ -43,6 +46,8 @@ fn top_graph_compute_nodes_are_enabled() {
         [
             "raw_source",
             "blc",
+            "lcst",
+            "tintless",
             "wbc",
             "drc",
             "dem",
@@ -124,10 +129,19 @@ fn graph_without_instance_override_uses_module_default_iq() {
     );
 }
 #[test]
-fn top_graph_includes_disabled_vfe_statistics_placeholders() {
+fn top_graph_exposes_lcst_and_enabled_tintless() {
     let graph = build_top_graph_presentation();
 
-    for (id, output) in [("pdafst", "pdaf-stat"), ("lcst", "lc-stat"), ("cdafst", "cdaf-stat")] {
+    let lcst = graph.node("lcst").expect("LCST statistics node");
+    assert_eq!(lcst.mode, NodeExecutionMode::Enabled);
+    assert_eq!(lcst.execution_node_id.as_deref(), Some("lcst"));
+    assert_eq!(lcst.outputs, ["lc-stat"]);
+
+    let tintless = graph.node("tintless").expect("Tintless node");
+    assert_eq!(tintless.mode, NodeExecutionMode::Enabled);
+    assert_eq!(tintless.execution_node_id.as_deref(), Some("tintless"));
+
+    for (id, output) in [("pdafst", "pdaf-stat"), ("cdafst", "cdaf-stat")] {
         let node = graph.node(id).expect("VFE statistics placeholder");
         assert_eq!(node.mode, NodeExecutionMode::Disabled);
         assert_eq!(node.execution_node_id, None);
@@ -173,7 +187,6 @@ fn active_groups_are_expanded_and_disabled_groups_are_collapsed() {
     assert!(!graph.node("video_post").expect("VPE").default_expanded);
     assert!(!graph.node("encoder").expect("encoder").default_expanded);
 }
-
 #[test]
 fn graph_quantization_defaults_exclude_raw_source() {
     use rime_core::GraphQuantizationConfig;

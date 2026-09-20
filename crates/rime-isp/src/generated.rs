@@ -44,7 +44,6 @@ pub fn render_normal_manifest_typescript() -> Result<String, Diagnostic> {
         "export const normalManifest = {json} as const;\n\nexport type NormalManifest = typeof normalManifest;\n"
     ))
 }
-
 /// Renders the generated TypeScript Normal Graph presentation.
 ///
 /// # Errors
@@ -121,6 +120,19 @@ pub fn render_lsc_pipeline_typescript() -> Result<String, Diagnostic> {
     Ok(format!("export const lscPipelineWgsl = {source};\n"))
 }
 
+/// Renders the Tintless single-source WGSL as a TypeScript string asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the WGSL string cannot be serialized.
+pub fn render_tintless_pipeline_typescript() -> Result<String, Diagnostic> {
+    let source = serialize_wgsl(
+        crate::vbe::tintless::TINTLESS_PIPELINE_WGSL,
+        "Tintless pipeline WGSL",
+    )?;
+    Ok(format!("export const tintlessPipelineWgsl = {source};\n"))
+}
+
 /// Renders the fused-view Normal Graph WGSL as a TypeScript string asset.
 ///
 /// # Errors
@@ -178,6 +190,80 @@ pub fn render_blc_pipeline_typescript() -> Result<String, Diagnostic> {
     let source = serialize_wgsl(crate::vfe::blc::BLC_PIPELINE_WGSL, "BLC pipeline WGSL")?;
     Ok(format!("export const blcPipelineWgsl = {source};\n"))
 }
+
+/// Renders the registered LCST shader and dispatch contract as a TypeScript asset.
+///
+/// # Errors
+///
+/// Returns `ManifestInvalid` when the LCST asset cannot be serialized.
+pub fn render_lcst_pipeline_typescript() -> Result<String, Diagnostic> {
+    let producer = crate::lcst_producer_by_id("lcst").ok_or_else(|| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            "LCST producer is not registered",
+        )
+    })?;
+    let definition = producer.definition();
+    let method = producer
+        .method(definition.default_method)
+        .map_err(|error| {
+            Diagnostic::new(
+                DiagnosticCode::ManifestInvalid,
+                format!("failed to resolve LCST method: {error}"),
+            )
+        })?;
+    let stages = method
+        .shader
+        .stages
+        .iter()
+        .map(|stage| {
+            let bindings = stage
+                .bindings
+                .iter()
+                .map(|binding| {
+                    serde_json::json!({
+                        "binding": binding.binding,
+                        "resource": binding.resource,
+                        "kind": match binding.kind {
+                            crate::ShaderBindingKind::Texture => "texture",
+                            crate::ShaderBindingKind::StorageTexture => "storage_texture",
+                            crate::ShaderBindingKind::UniformBuffer => "uniform_buffer",
+                            crate::ShaderBindingKind::StorageBuffer => "storage_buffer",
+                        },
+                        "access": match binding.access {
+                            crate::ShaderBindingAccess::Read => "read",
+                            crate::ShaderBindingAccess::Write => "write",
+                        },
+                    })
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "entryPoint": stage.entry_point,
+                "bindings": bindings,
+            })
+        })
+        .collect::<Vec<_>>();
+    let contract = serde_json::json!({
+        "method": method.method,
+        "wgsl": normalize_wgsl_line_endings(method.shader.source),
+        "stages": stages,
+        "averageDispatch": method.average_dispatch,
+        "histogramDispatch": method.histogram_dispatch,
+        "payloadBytes": crate::LCST_PAYLOAD_BYTES,
+        "averageBytes": crate::LCST_AVERAGE_BYTES,
+        "histogramBytes": crate::LCST_HISTOGRAM_BYTES,
+    });
+    let serialized = serde_json::to_string_pretty(&contract).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticCode::ManifestInvalid,
+            format!("failed to serialize LCST pipeline contract: {error}"),
+        )
+    })?;
+    Ok(format!(
+        "export const lcstPipeline = {serialized} as const;\n"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
