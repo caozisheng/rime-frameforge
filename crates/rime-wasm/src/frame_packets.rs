@@ -877,48 +877,7 @@ fn preprocess_snapshot_json(
             }),
         ),
     );
-    let tintless_audit = tintless
-        .resource("audit")
-        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing audit resource"))?;
-    let audit = tintless_audit.bytes();
-    let mesh = tintless
-        .resource("gain_mesh")
-        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing gain mesh"))?
-        .bytes();
-    let mesh_values = mesh
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|bytes| f32::from_ne_bytes(*bytes))
-        .collect::<Vec<_>>();
-    if mesh_values.is_empty() || !mesh_values.iter().all(|value| value.is_finite()) {
-        return Err(js_error("WASM_TINTLESS_PACKET_INVALID: mesh is not finite"));
-    }
-    let mesh_min = mesh_values.iter().copied().fold(f32::INFINITY, f32::min);
-    let mesh_max = mesh_values
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max);
-    modules.insert(
-        "tintless".to_owned(),
-        module_snapshot(
-            tintless,
-            &serde_json::json!({
-                "source_extent": [u32_at(tintless.bytes(), 0)?, u32_at(tintless.bytes(), 4)?],
-                "mesh_extent": [u32_at(tintless.bytes(), 8)?, u32_at(tintless.bytes(), 12)?],
-                "cfa_pattern": [u32_at(tintless.bytes(), 16)?, u32_at(tintless.bytes(), 20)?, u32_at(tintless.bytes(), 24)?, u32_at(tintless.bytes(), 28)?],
-                "gain_clamp": [f32_at(tintless.bytes(), 32)?, f32_at(tintless.bytes(), 36)?],
-                "cold_start": u32_at(tintless.bytes(), 40)? != 0,
-                "valid_cells": u32_at(audit, 0)?,
-                "qualified_components": u32_at(audit, 4)?,
-                "radial_knots": 9,
-                "residual_rms": [f32_at(audit, 8)?, f32_at(audit, 12)?],
-                "mesh_min": mesh_min,
-                "mesh_max": mesh_max,
-                "clamp_count": u32_at(audit, 16)?,
-            }),
-        ),
-    );
+    modules.insert("tintless".to_owned(), tintless_snapshot(tintless)?);
     modules.insert(
         "wbc".to_owned(),
         module_snapshot(
@@ -965,6 +924,47 @@ fn preprocess_snapshot_json(
     modules.insert("dem".to_owned(), module_snapshot(dem, &dem_parameters));
     serde_json::to_string(&serde_json::json!({ "frameIndex": frame_index, "modules": modules }))
         .map_err(|error| js_error(&format!("WASM_PREPROCESS_SNAPSHOT_SERIALIZE: {error}")))
+}
+fn tintless_snapshot(tintless: &ModuleParameterPacket) -> Result<serde_json::Value, String> {
+    let audit = tintless
+        .resource("audit")
+        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing audit resource"))?
+        .bytes();
+    let mesh = tintless
+        .resource("gain_mesh")
+        .ok_or_else(|| js_error("WASM_TINTLESS_PACKET_INVALID: missing gain mesh"))?
+        .bytes();
+    let mesh_values = mesh
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_ne_bytes(*bytes))
+        .collect::<Vec<_>>();
+    if mesh_values.is_empty() || !mesh_values.iter().all(|value| value.is_finite()) {
+        return Err(js_error("WASM_TINTLESS_PACKET_INVALID: mesh is not finite"));
+    }
+    let mesh_min = mesh_values.iter().copied().fold(f32::INFINITY, f32::min);
+    let mesh_max = mesh_values
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    Ok(module_snapshot(
+        tintless,
+        &serde_json::json!({
+            "source_extent": [u32_at(tintless.bytes(), 0)?, u32_at(tintless.bytes(), 4)?],
+            "mesh_extent": [u32_at(tintless.bytes(), 8)?, u32_at(tintless.bytes(), 12)?],
+            "cfa_pattern": [u32_at(tintless.bytes(), 16)?, u32_at(tintless.bytes(), 20)?, u32_at(tintless.bytes(), 24)?, u32_at(tintless.bytes(), 28)?],
+            "gain_clamp": [f32_at(tintless.bytes(), 32)?, f32_at(tintless.bytes(), 36)?],
+            "cold_start": u32_at(tintless.bytes(), 40)? != 0,
+            "valid_cells": u32_at(audit, 0)?,
+            "qualified_components": u32_at(audit, 4)?,
+            "radial_knots": 9,
+            "residual_rms": [f32_at(audit, 8)?, f32_at(audit, 12)?],
+            "mesh_min": mesh_min,
+            "mesh_max": mesh_max,
+            "clamp_count": u32_at(audit, 16)?,
+        }),
+    ))
 }
 
 fn module_snapshot(

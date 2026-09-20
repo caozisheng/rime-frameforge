@@ -70,7 +70,9 @@ fn neutral_and_globally_colored_fields_keep_identity_mesh() {
         assert_eq!(mesh.entries().len(), TINTLESS_MESH_VALUES);
         assert!(
             mesh.entries()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .all(|gain| { (gain[0] - 1.0).abs() < 1e-4 && (gain[1] - 1.0).abs() < 1e-4 })
         );
     }
@@ -241,7 +243,9 @@ fn tintless_cold_start_freezes_identity_mesh() {
     let mesh = frozen.resource("gain_mesh").expect("gain mesh resource");
     assert!(
         mesh.bytes()
-            .chunks_exact(4)
-            .all(|bytes| { f32::from_ne_bytes(bytes.try_into().expect("f32 mesh value")) == 1.0 })
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|bytes| f32::from_ne_bytes(*bytes) == 1.0)
     );
 }
